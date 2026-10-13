@@ -1,0 +1,14 @@
+{
+  "mode": "baseline",
+  "reports": [
+    {
+      "width": 390,
+      "label": "baseline trays",
+      "scrollWidth": 390,
+      "overflow": []
+    }
+  ],
+  "failures": [],
+  "errors": [],
+  "apiWrites": []
+}

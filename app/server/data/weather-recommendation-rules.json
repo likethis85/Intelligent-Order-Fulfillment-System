@@ -1,0 +1,349 @@
+{
+  "brand_mapping": {
+    "brands": {
+      "marius": {
+        "sku_prefixes": []
+      },
+      "zihaoselect": {
+        "sku_prefixes": [
+          "z",
+          "zs",
+          "zh"
+        ]
+      }
+    },
+    "default_brand": "marius"
+  },
+  "product_role_thresholds": {
+    "profit_retail_to_cost_ratio_min": 2.8,
+    "traffic_min_net_sales_qty": 1000,
+    "traffic_min_main_warehouse_stock": 200,
+    "traffic_min_conversion_rate": 0.05,
+    "traffic_price_positions": [
+      "低"
+    ],
+    "inventory_min_main_warehouse_stock": 200,
+    "roles_min_available_stock": 100,
+    "inventory_require_zero_procurement_inbound": true
+  },
+  "rain_overlay_categories": [
+    "大衣",
+    "短外套",
+    "风衣",
+    "皮衣"
+  ],
+  "solar_term_overlays": [
+    {
+      "categories": [
+        "风衣",
+        "衬衫",
+        "针织衫",
+        "西装"
+      ],
+      "description": "早春换季：薄外套与针织叠穿，南北分货",
+      "terms": [
+        "立春",
+        "雨水",
+        "惊蛰"
+      ]
+    },
+    {
+      "categories": [
+        "连衣裙",
+        "半身裙",
+        "衬衫",
+        "T恤",
+        "针织衫"
+      ],
+      "description": "仲春暮春：裙装与衬衫为主力波段",
+      "terms": [
+        "春分",
+        "清明",
+        "谷雨"
+      ]
+    },
+    {
+      "categories": [
+        "T恤",
+        "连衣裙",
+        "背心/吊带",
+        "半身裙"
+      ],
+      "description": "入夏升温：短袖与裙装加大曝光",
+      "terms": [
+        "立夏",
+        "小满",
+        "芒种"
+      ]
+    },
+    {
+      "categories": [
+        "T恤",
+        "背心/吊带",
+        "连衣裙",
+        "休闲裤"
+      ],
+      "description": "盛夏酷热：清凉透气款为核心",
+      "terms": [
+        "夏至",
+        "小暑",
+        "大暑"
+      ]
+    },
+    {
+      "categories": [
+        "针织衫",
+        "衬衫",
+        "风衣",
+        "西装"
+      ],
+      "description": "初秋过渡：针织与薄风衣起量，兼顾秋老虎",
+      "terms": [
+        "立秋",
+        "处暑",
+        "白露"
+      ]
+    },
+    {
+      "categories": [
+        "风衣",
+        "卫衣",
+        "牛仔裤",
+        "大衣",
+        "针织衫"
+      ],
+      "description": "深秋：外套厚度提升，牛仔卫衣转化窗",
+      "terms": [
+        "秋分",
+        "寒露",
+        "霜降"
+      ]
+    },
+    {
+      "categories": [
+        "羽绒服",
+        "大衣",
+        "针织衫",
+        "卫衣"
+      ],
+      "description": "冬令：羽绒与大衣为核心备货",
+      "terms": [
+        "立冬",
+        "小雪",
+        "大雪",
+        "冬至",
+        "小寒",
+        "大寒"
+      ]
+    }
+  ],
+  "temperature_rules": [
+    {
+      "categories": [
+        "T恤",
+        "休闲裤",
+        "半身裙",
+        "背心/吊带",
+        "衬衫",
+        "连衣裙"
+      ],
+      "temp_range": ">=28"
+    },
+    {
+      "categories": [
+        "T恤",
+        "休闲裤",
+        "半身裙",
+        "短外套",
+        "背心/吊带",
+        "衬衫",
+        "西装",
+        "连衣裙",
+        "针织衫"
+      ],
+      "temp_range": "22-28"
+    },
+    {
+      "categories": [
+        "休闲裤",
+        "牛仔裤",
+        "短外套",
+        "衬衫",
+        "针织衫",
+        "连衣裙",
+        "半身裙",
+        "背心/吊带"
+      ],
+      "temp_range": "15-22"
+    },
+    {
+      "categories": [
+        "休闲裤",
+        "半身裙",
+        "卫衣",
+        "大衣",
+        "牛仔裤",
+        "短外套",
+        "背心/吊带",
+        "衬衫",
+        "西装",
+        "连衣裙",
+        "配饰",
+        "针织衫",
+        "风衣",
+        "马夹/马夹裙",
+        "小香风"
+      ],
+      "temp_range": "10-15"
+    },
+    {
+      "categories": [
+        "休闲裤",
+        "半身裙",
+        "卫衣",
+        "大衣",
+        "牛仔裤",
+        "短外套",
+        "羽绒服",
+        "背心/吊带",
+        "衬衫",
+        "西装",
+        "连衣裙",
+        "配饰",
+        "针织衫",
+        "风衣",
+        "马夹/马夹裙",
+        "小香风"
+      ],
+      "temp_range": "5-10"
+    },
+    {
+      "categories": [
+        "休闲裤",
+        "半身裙",
+        "卫衣",
+        "大衣",
+        "小香风",
+        "牛仔裤",
+        "皮草",
+        "皮衣",
+        "短外套",
+        "组合套",
+        "羽绒服",
+        "背心/吊带",
+        "衬衫",
+        "西装",
+        "配饰",
+        "针织衫",
+        "风衣",
+        "马夹/马夹裙"
+      ],
+      "temp_range": "0-5"
+    },
+    {
+      "categories": [
+        "休闲裤",
+        "半身裙",
+        "卫衣",
+        "大衣",
+        "小香风",
+        "牛仔裤",
+        "皮草",
+        "皮衣",
+        "短外套",
+        "组合套",
+        "羽绒服",
+        "背心/吊带",
+        "衬衫",
+        "西装",
+        "连衣裙",
+        "配饰",
+        "针织衫",
+        "风衣",
+        "马夹/马夹裙"
+      ],
+      "temp_range": "-5~0"
+    },
+    {
+      "categories": [
+        "休闲裤",
+        "半身裙",
+        "大衣",
+        "小香风",
+        "牛仔裤",
+        "皮草",
+        "皮衣",
+        "短外套",
+        "组合套",
+        "羽绒服",
+        "背心/吊带",
+        "连衣裙",
+        "配饰",
+        "针织衫",
+        "风衣",
+        "衬衫",
+        "西装",
+        "马夹/马夹裙"
+      ],
+      "temp_range": "-15~-5"
+    }
+  ],
+  "weather_recommendation_framework": {
+    "inputs": [
+      "city",
+      "brand",
+      "avg_temp",
+      "rain_days",
+      "temp_trend",
+      "avg_humidity",
+      "avg_wind_scale",
+      "season",
+      "solar_term",
+      "national_rainy_city_count"
+    ],
+    "outputs": [
+      "recommended_categories",
+      "category_summary",
+      "recommended_products",
+      "purchase_advice"
+    ],
+    "review_dimensions": [
+      "rule_hit_coverage",
+      "sell_through_rate",
+      "stockout_risk",
+      "inventory_health"
+    ],
+    "rules": [
+      {
+        "description": "按体感温度区间决定主推荐品类",
+        "id": "temp_main",
+        "name": "温度主规则"
+      },
+      {
+        "description": "雨天叠加防泼水/外套类需求",
+        "id": "rain_overlay",
+        "name": "降雨叠加规则"
+      },
+      {
+        "description": "高湿时降低厚重针织优先级，提高透气类优先级",
+        "id": "humidity_overlay",
+        "name": "高湿叠加规则"
+      },
+      {
+        "description": "大风天气按季节叠加外套/保暖需求",
+        "id": "wind_overlay",
+        "name": "大风叠加规则"
+      },
+      {
+        "description": "同天气下按品牌策略进行品类权重修正",
+        "id": "brand_overlay",
+        "name": "品牌修正规则"
+      },
+      {
+        "description": "按当前二十四节气节点叠加中长期备货品类（超越16天数值预报）",
+        "id": "solar_term_overlay",
+        "name": "节气叠加规则"
+      }
+    ]
+  }
+}

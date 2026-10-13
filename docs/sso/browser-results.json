@@ -1,0 +1,346 @@
+{
+  "checks": 62,
+  "simulatedTokenExchanges": 7,
+  "interceptedInMemoryWrites": 4,
+  "protectedImageReads": 9,
+  "realBusinessWrites": 0,
+  "reports": [
+    {
+      "name": "登录前不挂载业务页面或请求业务接口",
+      "passed": true,
+      "width": 320
+    },
+    {
+      "name": "登录页宽度",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "登录页同时提供钉钉与统一账号入口",
+      "passed": true,
+      "width": 320
+    },
+    {
+      "name": "SSO 回调进入货盘并保留原页面参数",
+      "passed": true,
+      "width": 320,
+      "provider": "模拟统一账号"
+    },
+    {
+      "name": "身份凭证与应用会话不暴露给前端脚本或本地存储",
+      "passed": true,
+      "width": 320
+    },
+    {
+      "name": "登录后货盘宽度",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "登录后页面：直播排品",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "登录后页面：画像卡片",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "登录后页面：天气面板",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "登录后页面：配置后台",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "登录后页面：货盘",
+      "passed": true,
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "刷新后恢复登录态",
+      "passed": true,
+      "width": 320
+    },
+    {
+      "name": "退出后业务页面隐藏且接口拒绝访问",
+      "passed": true,
+      "width": 320
+    },
+    {
+      "name": "登录前不挂载业务页面或请求业务接口",
+      "passed": true,
+      "width": 390
+    },
+    {
+      "name": "登录页宽度",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录页同时提供钉钉与统一账号入口",
+      "passed": true,
+      "width": 390
+    },
+    {
+      "name": "SSO 回调进入货盘并保留原页面参数",
+      "passed": true,
+      "width": 390,
+      "provider": "模拟钉钉"
+    },
+    {
+      "name": "身份凭证与应用会话不暴露给前端脚本或本地存储",
+      "passed": true,
+      "width": 390
+    },
+    {
+      "name": "登录后货盘宽度",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录后货盘编辑宽度",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录后导出 Excel 成功且包含受保护的上传图与代理图",
+      "passed": true,
+      "embeddedImages": 8
+    },
+    {
+      "name": "登录后页面：直播排品",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录后页面：画像卡片",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录后页面：天气面板",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录后页面：配置后台",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "登录后页面：货盘",
+      "passed": true,
+      "width": 390,
+      "scrollWidth": 390
+    },
+    {
+      "name": "刷新后恢复登录态",
+      "passed": true,
+      "width": 390
+    },
+    {
+      "name": "退出后业务页面隐藏且接口拒绝访问",
+      "passed": true,
+      "width": 390
+    },
+    {
+      "name": "后端连接恢复后自动恢复登录按钮并清除旧连接失败提示",
+      "passed": true
+    },
+    {
+      "name": "后台会话到期后返回登录页",
+      "passed": true
+    },
+    {
+      "name": "授权码失败展示可重试提示并清理回调参数",
+      "passed": true
+    },
+    {
+      "name": "钉钉入口不可用时提示重试，统一账号登录仍可用",
+      "passed": true
+    },
+    {
+      "name": "登录前不挂载业务页面或请求业务接口",
+      "passed": true,
+      "width": 768
+    },
+    {
+      "name": "登录页宽度",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "登录页同时提供钉钉与统一账号入口",
+      "passed": true,
+      "width": 768
+    },
+    {
+      "name": "SSO 回调进入货盘并保留原页面参数",
+      "passed": true,
+      "width": 768,
+      "provider": "模拟统一账号"
+    },
+    {
+      "name": "身份凭证与应用会话不暴露给前端脚本或本地存储",
+      "passed": true,
+      "width": 768
+    },
+    {
+      "name": "登录后货盘宽度",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "登录后页面：直播排品",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "登录后页面：画像卡片",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "登录后页面：天气面板",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "登录后页面：配置后台",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "登录后页面：货盘",
+      "passed": true,
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "刷新后恢复登录态",
+      "passed": true,
+      "width": 768
+    },
+    {
+      "name": "退出后业务页面隐藏且接口拒绝访问",
+      "passed": true,
+      "width": 768
+    },
+    {
+      "name": "登录前不挂载业务页面或请求业务接口",
+      "passed": true,
+      "width": 1440
+    },
+    {
+      "name": "登录页宽度",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "登录页同时提供钉钉与统一账号入口",
+      "passed": true,
+      "width": 1440
+    },
+    {
+      "name": "SSO 回调进入货盘并保留原页面参数",
+      "passed": true,
+      "width": 1440,
+      "provider": "模拟钉钉"
+    },
+    {
+      "name": "身份凭证与应用会话不暴露给前端脚本或本地存储",
+      "passed": true,
+      "width": 1440
+    },
+    {
+      "name": "登录后货盘宽度",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "登录后页面：直播排品",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "登录后页面：画像卡片",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "登录后页面：天气面板",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "登录后页面：配置后台",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "登录后页面：货盘",
+      "passed": true,
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "name": "刷新后恢复登录态",
+      "passed": true,
+      "width": 1440
+    },
+    {
+      "name": "退出后业务页面隐藏且接口拒绝访问",
+      "passed": true,
+      "width": 1440
+    },
+    {
+      "name": "实际开发项目的登录页可用且无匿名业务请求",
+      "passed": true
+    },
+    {
+      "name": "真实 SSO 登录入口显示登记应用，回调匹配且不携带客户端密钥",
+      "passed": true
+    },
+    {
+      "name": "实际后端的业务与上传资源均需要登录",
+      "passed": true
+    },
+    {
+      "name": "真实项目钉钉按钮直达官方扫码页面，回调使用新 HTTPS 域名",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "realUserLoginCompleted": false
+}

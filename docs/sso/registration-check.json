@@ -1,0 +1,15 @@
+{
+  "clientId": "app_8ad2f33624094db18b55",
+  "applicationName": "智慧货盘选款系统",
+  "redirectUris": [
+    "http://localhost:3000/api/auth/sso/callback",
+    "http://127.0.0.1:3000/api/auth/sso/callback"
+  ],
+  "authorizeStatus": 200,
+  "applicationNameShown": true,
+  "supabaseLoginShown": true,
+  "dingtalkLoginShown": true,
+  "credentialCheckStatus": 400,
+  "credentialCheckError": "invalid_grant",
+  "credentialsFile": "C:\\Users\\Marius\\Desktop\\项目二\\Intelligent-Order-Fulfillment-System\\app\\server\\.env.sso"
+}

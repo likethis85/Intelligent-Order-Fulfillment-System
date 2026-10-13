@@ -1,0 +1,111 @@
+{
+  "mode": "board",
+  "reports": [
+    {
+      "width": 320,
+      "label": "选款看板",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "选款看板新建表单",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "选款看板",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "选款看板新建表单",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "选款看板",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "选款看板新建表单",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "选款看板",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "选款看板新建表单",
+      "scrollWidth": 1440,
+      "overflow": []
+    }
+  ],
+  "interactions": [
+    {
+      "name": "320px 看板创建并选择",
+      "passed": true
+    },
+    {
+      "name": "320px 看板快捷筛选",
+      "passed": true
+    },
+    {
+      "name": "390px 看板创建并选择",
+      "passed": true
+    },
+    {
+      "name": "390px 看板快捷筛选",
+      "passed": true
+    },
+    {
+      "name": "768px 看板创建并选择",
+      "passed": true
+    },
+    {
+      "name": "768px 看板快捷筛选",
+      "passed": true
+    },
+    {
+      "name": "1440px 看板创建并选择",
+      "passed": true
+    },
+    {
+      "name": "1440px 看板快捷筛选",
+      "passed": true
+    }
+  ],
+  "failures": [],
+  "errors": [],
+  "apiWrites": [
+    {
+      "width": 320,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 390,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 768,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 1440,
+      "path": "/trays",
+      "method": "PUT"
+    }
+  ]
+}

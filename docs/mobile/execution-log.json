@@ -1,0 +1,32 @@
+{
+  "requestedExecutor": "OpenCode",
+  "version": "1.19.0",
+  "executionDirectory": "系统临时目录中的无凭证前端副本",
+  "attempts": [
+    {
+      "model": "opencode/mimo-v2.6-flash-free",
+      "result": "failed",
+      "httpStatus": 403,
+      "message": "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."
+    },
+    {
+      "model": "opencode/big-pickle",
+      "result": "failed",
+      "httpStatus": 403,
+      "message": "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."
+    }
+  ],
+  "userDecision": "用户选择：由 Codex 继续完成适配（推荐）",
+  "actualExecutor": "Codex",
+  "completedTasks": [
+    "T01",
+    "T02",
+    "T03",
+    "T04",
+    "T05",
+    "T06",
+    "T07",
+    "T08",
+    "T09"
+  ]
+}

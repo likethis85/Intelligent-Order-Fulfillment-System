@@ -1,0 +1,44 @@
+[
+  {
+    "file": "src/App.tsx",
+    "beforeErrors": 5,
+    "afterErrors": 5,
+    "newMessages": []
+  },
+  {
+    "file": "src/main.tsx",
+    "beforeErrors": 0,
+    "afterErrors": 0,
+    "newMessages": []
+  },
+  {
+    "file": "src/data/api.ts",
+    "beforeErrors": 0,
+    "afterErrors": 0,
+    "newMessages": []
+  },
+  {
+    "file": "src/lib/traySync.ts",
+    "beforeErrors": 4,
+    "afterErrors": 4,
+    "newMessages": []
+  },
+  {
+    "file": "src/sections/TraysPage.tsx",
+    "beforeErrors": 26,
+    "afterErrors": 26,
+    "newMessages": []
+  },
+  {
+    "file": "src/components/AuthGate.tsx",
+    "beforeErrors": 0,
+    "afterErrors": 0,
+    "newMessages": []
+  },
+  {
+    "file": "src/lib/api-client.ts",
+    "beforeErrors": 0,
+    "afterErrors": 0,
+    "newMessages": []
+  }
+]

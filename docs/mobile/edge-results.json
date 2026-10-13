@@ -1,0 +1,44 @@
+{
+  "mode": "edge",
+  "reports": [
+    {
+      "width": 390,
+      "label": "短视口选款抽屉",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 844,
+      "label": "横屏编辑页",
+      "scrollWidth": 844,
+      "overflow": []
+    }
+  ],
+  "interactions": [
+    {
+      "name": "短视口抽屉动态高度",
+      "passed": true
+    },
+    {
+      "name": "短视口底部提交可达",
+      "passed": true
+    },
+    {
+      "name": "横屏转为平板导航",
+      "passed": true
+    },
+    {
+      "name": "打印隐藏所有导航",
+      "passed": true
+    }
+  ],
+  "failures": [],
+  "errors": [],
+  "apiWrites": [
+    {
+      "width": 390,
+      "path": "/trays",
+      "method": "PUT"
+    }
+  ]
+}

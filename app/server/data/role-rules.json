@@ -1,0 +1,26 @@
+{
+  "traffic": {
+    "minConversion": 6,
+    "priceBands": [
+      "低"
+    ]
+  },
+  "profit": {
+    "priceBands": [
+      "高"
+    ],
+    "excludeSlow": true
+  },
+  "stock": {
+    "slowTurnover": [
+      "无周转",
+      "周转>60天"
+    ],
+    "lowSellTags": [
+      "低销售",
+      "低售罄"
+    ],
+    "requireBoth": true,
+    "noSales30d": true
+  }
+}

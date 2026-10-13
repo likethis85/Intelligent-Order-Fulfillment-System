@@ -1,0 +1,46 @@
+{
+  "defaults": {
+    "minStock": 0,
+    "minConv": 0,
+    "maxReturn": 100,
+    "minNewBuyer": 0
+  },
+  "hints": {
+    "清仓": {
+      "roles": [
+        "库存"
+      ],
+      "noTransit": true,
+      "minStock": 200,
+      "minConv": 5,
+      "maxReturn": 30
+    },
+    "拉新": {
+      "minNewBuyer": 30,
+      "bands": [
+        "低",
+        "中"
+      ]
+    },
+    "利润": {
+      "roles": [
+        "利润"
+      ],
+      "bands": [
+        "高"
+      ],
+      "maxReturn": 30
+    },
+    "主推": {
+      "roles": [
+        "引流"
+      ],
+      "minConv": 6
+    }
+  },
+  "weatherThresholds": {
+    "humidityHigh": 75,
+    "windStrong": 6
+  },
+  "extraSystemPrompt": ""
+}

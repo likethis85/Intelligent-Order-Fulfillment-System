@@ -1,0 +1,33 @@
+
+> my-app@0.0.0 build
+> tsc -b && vite build
+
+src/lib/traySync.ts(52,49): error TS7015: Element implicitly has an 'any' type because index expression is not of type 'number'.
+src/lib/traySync.ts(53,48): error TS7015: Element implicitly has an 'any' type because index expression is not of type 'number'.
+src/lib/traySync.ts(63,38): error TS7015: Element implicitly has an 'any' type because index expression is not of type 'number'.
+src/lib/traySync.ts(253,70): error TS18004: No value exists in scope for the shorthand property 'trayId'. Either declare one or provide an initializer.
+src/sections/BoardPage.tsx(168,92): error TS4104: The type 'readonly ["低", "中", "高"]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
+src/sections/BoardPage.tsx(231,15): error TS2345: Argument of type '(c: ChatMsg[]) => (ChatMsg | { from: "ai"; text: string; patch: AiStrategyPatch; })[]' is not assignable to parameter of type 'SetStateAction<ChatMsg[]>'.
+  Type '(c: ChatMsg[]) => (ChatMsg | { from: "ai"; text: string; patch: AiStrategyPatch; })[]' is not assignable to type '(prevState: ChatMsg[]) => ChatMsg[]'.
+    Type '(ChatMsg | { from: "ai"; text: string; patch: AiStrategyPatch; })[]' is not assignable to type 'ChatMsg[]'.
+      Type 'ChatMsg | { from: "ai"; text: string; patch: AiStrategyPatch; }' is not assignable to type 'ChatMsg'.
+        Type '{ from: "ai"; text: string; patch: AiStrategyPatch; }' is not assignable to type 'ChatMsg'.
+          The types of 'patch.roles' are incompatible between these types.
+            Type 'string[] | undefined' is not assignable to type 'RoleTag[] | undefined'.
+              Type 'string[]' is not assignable to type 'RoleTag[]'.
+                Type 'string' is not assignable to type 'RoleTag'.
+src/sections/ConfigPage.tsx(3,226): error TS6133: 'WeatherTempRule' is declared but its value is never read.
+src/sections/ConfigPage.tsx(3,248): error TS6133: 'WeatherSolarRule' is declared but its value is never read.
+src/sections/ConfigPage.tsx(132,9): error TS6133: 'patchSolarTerms' is declared but its value is never read.
+src/sections/ProfilePage.tsx(1,30): error TS6133: 'useRef' is declared but its value is never read.
+src/sections/TraysPage.tsx(726,29): error TS2345: Argument of type '{ pdt: string; skc: string; color?: string | undefined; pieces: number; days: number; }' is not assignable to parameter of type '{ pdt: string; skc: string; color: string; pieces: number; days: number; }'.
+  Types of property 'color' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+src/sections/TraysPage.tsx(924,12): error TS2339: Property 'biOnly' does not exist on type 'Product'.
+src/sections/TraysPage.tsx(974,24): error TS2694: Namespace '"C:/Users/Marius/Desktop/\u9879\u76EE\u4E8C/Intelligent-Order-Fulfillment-System/app/node_modules/exceljs/index"' has no exported member 'RichTextFragment'.
+src/sections/TraysPage.tsx(1028,53): error TS2339: Property 'restockShortNames' does not exist on type 'Tray'.
+src/sections/TraysPage.tsx(1518,11): error TS6133: 'lowerTokens' is declared but its value is never read.
+src/sections/TraysPage.tsx(2311,16): error TS2339: Property 'biOnly' does not exist on type 'Product'.
+src/sections/TraysPage.tsx(3127,11): error TS6133: 'hasCostMap' is declared but its value is never read.
+src/sections/WeatherPage.tsx(376,15): error TS2322: Type 'number' is not assignable to type 'string'.

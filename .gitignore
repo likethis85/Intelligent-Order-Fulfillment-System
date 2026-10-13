@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Claude Code local session data (do not commit)
+.claude/
+
+# Backup files
+app/package-lock.json.bak
+
+# 样衣 BOM 运行时缓存（按款号，自动重建）
+app/server/data/sample-bom-cache.json
+
+# 参考项目（不纳入版本控制）
+reference/

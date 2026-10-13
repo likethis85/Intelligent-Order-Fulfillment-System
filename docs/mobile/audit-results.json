@@ -1,0 +1,1180 @@
+{
+  "originalFileCount": 164,
+  "changedSourceFiles": [
+    "src/App.tsx",
+    "src/index.css",
+    "src/data/products.ts",
+    "src/lib/traySync.ts",
+    "src/sections/BoardPage.tsx",
+    "src/sections/ConfigPage.tsx",
+    "src/sections/ProfilePage.tsx",
+    "src/sections/SequencePage.tsx",
+    "src/sections/TraysPage.tsx",
+    "src/sections/WeatherPage.tsx"
+  ],
+  "protectedFileCount": 154,
+  "protectedFilesUnchanged": true,
+  "unexpectedChanges": [],
+  "lint": {
+    "before": {
+      "errors": 70,
+      "warnings": 1
+    },
+    "after": {
+      "errors": 64,
+      "warnings": 1
+    },
+    "newMessageCount": 0,
+    "newMessages": []
+  },
+  "sourceAudit": [
+    {
+      "path": ".gitignore",
+      "beforeHash": "D5CDAA8910713B9679B1170A48E35A0DCD94B79D268BC7EFB213B225B421763E",
+      "currentHash": "D5CDAA8910713B9679B1170A48E35A0DCD94B79D268BC7EFB213B225B421763E",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "components.json",
+      "beforeHash": "22643B642F17CD817EC94D8439A272DAC28119AF0AEBF8219A96AC1C2F4C61DD",
+      "currentHash": "22643B642F17CD817EC94D8439A272DAC28119AF0AEBF8219A96AC1C2F4C61DD",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "eslint.config.js",
+      "beforeHash": "4EFE97B16D1200FAC0EAF07AA00930A8668B1F96A0BE1891ACE8C1E712FF0CCB",
+      "currentHash": "4EFE97B16D1200FAC0EAF07AA00930A8668B1F96A0BE1891ACE8C1E712FF0CCB",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "index.html",
+      "beforeHash": "19A4AD2492AEF034F6DBD38317CD5BD0DF34B78EA2DDA507C2E8FF75F17ED66B",
+      "currentHash": "19A4AD2492AEF034F6DBD38317CD5BD0DF34B78EA2DDA507C2E8FF75F17ED66B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "info.md",
+      "beforeHash": "E86B40922C19326C0D3DDF44AC003359F21F105A38324A471E21DDC678B6EAFC",
+      "currentHash": "E86B40922C19326C0D3DDF44AC003359F21F105A38324A471E21DDC678B6EAFC",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "package-lock.json",
+      "beforeHash": "50A72765E69DB95E9EE78208FA1B11BFF94149AD953042522CA968D84D5FBD32",
+      "currentHash": "50A72765E69DB95E9EE78208FA1B11BFF94149AD953042522CA968D84D5FBD32",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "package.json",
+      "beforeHash": "5358A99D26A1D7997432119F21403EC84D58124F3AF222209F13AA214C4F1B16",
+      "currentHash": "5358A99D26A1D7997432119F21403EC84D58124F3AF222209F13AA214C4F1B16",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "postcss.config.js",
+      "beforeHash": "190C877DB466995BF1482F4A16ABD06E04A89EDE3119341E2A86FF96E1737B27",
+      "currentHash": "190C877DB466995BF1482F4A16ABD06E04A89EDE3119341E2A86FF96E1737B27",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "README.md",
+      "beforeHash": "F58B5B17F83DB63C09A9F2C059EC435AC8A3FEB66F9337391ED5F3F62CFF4E63",
+      "currentHash": "F58B5B17F83DB63C09A9F2C059EC435AC8A3FEB66F9337391ED5F3F62CFF4E63",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "tailwind.config.js",
+      "beforeHash": "2293D2074876D764BC1D99133FDFE733A63A349FDC9AAA282BA1041FA7B1754D",
+      "currentHash": "2293D2074876D764BC1D99133FDFE733A63A349FDC9AAA282BA1041FA7B1754D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "tsconfig.app.json",
+      "beforeHash": "6ADC7EBEABAE8E2F7280CACCE1778B40A51743C240FFD7733B2EFD4EB017C53A",
+      "currentHash": "6ADC7EBEABAE8E2F7280CACCE1778B40A51743C240FFD7733B2EFD4EB017C53A",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "tsconfig.json",
+      "beforeHash": "A389BFB0309454CD0828A3C4A7431E56C3D6F50A70E648613FD0F51AE300057C",
+      "currentHash": "A389BFB0309454CD0828A3C4A7431E56C3D6F50A70E648613FD0F51AE300057C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "tsconfig.node.json",
+      "beforeHash": "C3DD0FB522FEBA3596713F51B95BD53D781D845D24AEDBFA2AC093D8B39C5120",
+      "currentHash": "C3DD0FB522FEBA3596713F51B95BD53D781D845D24AEDBFA2AC093D8B39C5120",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "vite.config.ts",
+      "beforeHash": "5E36B51D17C4E372EB14D77196DEEBAAFB267191C0582BCF9BDE32F73901C08B",
+      "currentHash": "5E36B51D17C4E372EB14D77196DEEBAAFB267191C0582BCF9BDE32F73901C08B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a1.png",
+      "beforeHash": "FBEA021AB38368B413A80551F6F7B1105A04379C81F8D65769BA464463F40B63",
+      "currentHash": "FBEA021AB38368B413A80551F6F7B1105A04379C81F8D65769BA464463F40B63",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a2.png",
+      "beforeHash": "FE313AF46EF8C9AF8B8A62B8A387EA4098D93CD51D3EACC45811A8DDF7FD4C9F",
+      "currentHash": "FE313AF46EF8C9AF8B8A62B8A387EA4098D93CD51D3EACC45811A8DDF7FD4C9F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a3.png",
+      "beforeHash": "6CBC79673CE4FCBD83B9CB5A3EC7489FB4A7398BB768AB188473F1AF4C86D5BA",
+      "currentHash": "6CBC79673CE4FCBD83B9CB5A3EC7489FB4A7398BB768AB188473F1AF4C86D5BA",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a4.png",
+      "beforeHash": "7E17E8912185114E93A096A5C9D6E5A096D5FAB876E75A6688D3774D28E7642B",
+      "currentHash": "7E17E8912185114E93A096A5C9D6E5A096D5FAB876E75A6688D3774D28E7642B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a5.png",
+      "beforeHash": "92E6BC9BEC9B430A2CC99CB68862601317B94A9D65B1CD183FE48DAC0878E4F7",
+      "currentHash": "92E6BC9BEC9B430A2CC99CB68862601317B94A9D65B1CD183FE48DAC0878E4F7",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a6.png",
+      "beforeHash": "0EBB75BBCC6210B3BC3D99E82D2CC94C54A056CF53473B4A5D62529185A3807A",
+      "currentHash": "0EBB75BBCC6210B3BC3D99E82D2CC94C54A056CF53473B4A5D62529185A3807A",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a7.png",
+      "beforeHash": "B6838A1931993BEAE361E9DB3E9797ED2CFC6E0E53C802B8C717345928B44517",
+      "currentHash": "B6838A1931993BEAE361E9DB3E9797ED2CFC6E0E53C802B8C717345928B44517",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/a8.png",
+      "beforeHash": "0111603BCF542EC456E10BDB05C6893AD9FF63F4C45F680C12EF3C8D80DB997C",
+      "currentHash": "0111603BCF542EC456E10BDB05C6893AD9FF63F4C45F680C12EF3C8D80DB997C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b1.png",
+      "beforeHash": "AB0EF8C67695A2A7B296899135086F973A1A72F775A126A43B0E818C72BB78EB",
+      "currentHash": "AB0EF8C67695A2A7B296899135086F973A1A72F775A126A43B0E818C72BB78EB",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b2.png",
+      "beforeHash": "7EC85CADAFD8A91BD0332FB80E8AFED406FEEBED8405D854C7E583BA925CC83F",
+      "currentHash": "7EC85CADAFD8A91BD0332FB80E8AFED406FEEBED8405D854C7E583BA925CC83F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b3.png",
+      "beforeHash": "D1F030EA098CD278638804C9A72E4A41B70216019D090BA134B637843CA2C99C",
+      "currentHash": "D1F030EA098CD278638804C9A72E4A41B70216019D090BA134B637843CA2C99C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b4.png",
+      "beforeHash": "1FC58EB54514D37F836B55EB679F128618E9BD203F2834F19F7B45582B6AF0F4",
+      "currentHash": "1FC58EB54514D37F836B55EB679F128618E9BD203F2834F19F7B45582B6AF0F4",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b5.png",
+      "beforeHash": "A2C673C2B6D5E37DF28D41E4FCB2A8AA0C7908AE1536260DB73E51B3A2C62A6C",
+      "currentHash": "A2C673C2B6D5E37DF28D41E4FCB2A8AA0C7908AE1536260DB73E51B3A2C62A6C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b6.png",
+      "beforeHash": "3E5B473A679758D43DC84A6DAD013EFA2D1529EB94AB66A3AB1565977BC90E22",
+      "currentHash": "3E5B473A679758D43DC84A6DAD013EFA2D1529EB94AB66A3AB1565977BC90E22",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b7.png",
+      "beforeHash": "8A04816261B643C2A444035C671FD1B9137C74E42E949CA48B169235F0481361",
+      "currentHash": "8A04816261B643C2A444035C671FD1B9137C74E42E949CA48B169235F0481361",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/b8.png",
+      "beforeHash": "AF1BA6290B3D8A73A11ED24F331ADF7EB1E2B1C4599E762C68761A4E889BE877",
+      "currentHash": "AF1BA6290B3D8A73A11ED24F331ADF7EB1E2B1C4599E762C68761A4E889BE877",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c1.png",
+      "beforeHash": "216BF8152C570EF99201C66463A5B6260BC3EC923C0582C8D06D03AF259FC3FB",
+      "currentHash": "216BF8152C570EF99201C66463A5B6260BC3EC923C0582C8D06D03AF259FC3FB",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c2.png",
+      "beforeHash": "3E1C49ACDFA852C362BF573B24E1232A936E9A01CC4A842A5B07F566C5253965",
+      "currentHash": "3E1C49ACDFA852C362BF573B24E1232A936E9A01CC4A842A5B07F566C5253965",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c3.png",
+      "beforeHash": "844677756E591C39D86BA2A657541A84449D06EC10749D5AC0F195A6D2B594F5",
+      "currentHash": "844677756E591C39D86BA2A657541A84449D06EC10749D5AC0F195A6D2B594F5",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c4.png",
+      "beforeHash": "6A27280DB95A04D98DD88C24A83FCE8FE3B201C133B802227ED074CEB5C2A424",
+      "currentHash": "6A27280DB95A04D98DD88C24A83FCE8FE3B201C133B802227ED074CEB5C2A424",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c5.png",
+      "beforeHash": "20BA311DA7AB5FB323D7FE1919D9B257934BD26A6B07FC7AAA02F98D4FEFC56F",
+      "currentHash": "20BA311DA7AB5FB323D7FE1919D9B257934BD26A6B07FC7AAA02F98D4FEFC56F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c6.png",
+      "beforeHash": "1364D7243A7E8A7795AFA62FC96ABB2B04C315A77291009AF12E761EAD0C1E4B",
+      "currentHash": "1364D7243A7E8A7795AFA62FC96ABB2B04C315A77291009AF12E761EAD0C1E4B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c7.png",
+      "beforeHash": "6C53D259382B54202A03C5CDB139CF677D424BE95C1656ED5A845F6F95C4A415",
+      "currentHash": "6C53D259382B54202A03C5CDB139CF677D424BE95C1656ED5A845F6F95C4A415",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/c8.png",
+      "beforeHash": "C5AE3244E1F4CAB10E18E3A8A93C10AD1529B763565E740C4CB881C5481B791F",
+      "currentHash": "C5AE3244E1F4CAB10E18E3A8A93C10AD1529B763565E740C4CB881C5481B791F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d1.png",
+      "beforeHash": "D721D557223982CCB74621C76E9CA6897F86B8286CD4092EE343E599A7F3967F",
+      "currentHash": "D721D557223982CCB74621C76E9CA6897F86B8286CD4092EE343E599A7F3967F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d2.png",
+      "beforeHash": "507731CB736BB6E5A2D04D779542218A80CEAA4DAB073C073AE49482E8E2F716",
+      "currentHash": "507731CB736BB6E5A2D04D779542218A80CEAA4DAB073C073AE49482E8E2F716",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d3.png",
+      "beforeHash": "375ADF35D9A5DE4F9B7BB1575EB1B5359D9D057F4D96B2B072390F46A8B0C422",
+      "currentHash": "375ADF35D9A5DE4F9B7BB1575EB1B5359D9D057F4D96B2B072390F46A8B0C422",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d4.png",
+      "beforeHash": "8683982F27451A20DBD53F8096D3FE4B754BA62AA908EAE929518AC325CCEAB0",
+      "currentHash": "8683982F27451A20DBD53F8096D3FE4B754BA62AA908EAE929518AC325CCEAB0",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d5.png",
+      "beforeHash": "3D3471BEFC059673D82CB109A1F237E0D2F980FB1F480C0AB9D85DA3C552F3B0",
+      "currentHash": "3D3471BEFC059673D82CB109A1F237E0D2F980FB1F480C0AB9D85DA3C552F3B0",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d6.png",
+      "beforeHash": "B7CAA13D699BCA0803B1067AB18C96E36F71D21692EAD217E1D796DA8D972B27",
+      "currentHash": "B7CAA13D699BCA0803B1067AB18C96E36F71D21692EAD217E1D796DA8D972B27",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d7.png",
+      "beforeHash": "0D43E055249520EC8CC368E5357F7C0395228DCDE4B644983144CCA1FC999EDE",
+      "currentHash": "0D43E055249520EC8CC368E5357F7C0395228DCDE4B644983144CCA1FC999EDE",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "public/products/d8.png",
+      "beforeHash": "D07453AF49A5A459EDAC65B185A0E62D927713CD39E246A8E45DB985FA27AC5D",
+      "currentHash": "D07453AF49A5A459EDAC65B185A0E62D927713CD39E246A8E45DB985FA27AC5D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/bi-connection.md",
+      "beforeHash": "4AA8DFF21F9504FF4AB2674C4D4315EF71A7FE2B3BE7654ED5EDEF89DF7A6D17",
+      "currentHash": "4AA8DFF21F9504FF4AB2674C4D4315EF71A7FE2B3BE7654ED5EDEF89DF7A6D17",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/bi-views.sql",
+      "beforeHash": "084CA3968ADC71C054AC083C2207D423A490B6B36C1D66652F863868B423DD47",
+      "currentHash": "084CA3968ADC71C054AC083C2207D423A490B6B36C1D66652F863868B423DD47",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-auth.mjs",
+      "beforeHash": "B63ED05C3B69A91C1AD25656E7B954BA03CB20A2BA3A05256586717F49C44152",
+      "currentHash": "B63ED05C3B69A91C1AD25656E7B954BA03CB20A2BA3A05256586717F49C44152",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-check-status.mjs",
+      "beforeHash": "F9377A7208C48BFF79FF8B2B539BC08D599C13DA441A4D4BEEF332CCF7E1D6A4",
+      "currentHash": "F9377A7208C48BFF79FF8B2B539BC08D599C13DA441A4D4BEEF332CCF7E1D6A4",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-copy-tsv.mjs",
+      "beforeHash": "0B7F27F17382F027ABDBED8787CB417343B3EF74D8C9C45CB0430F5C3AB4822B",
+      "currentHash": "0B7F27F17382F027ABDBED8787CB417343B3EF74D8C9C45CB0430F5C3AB4822B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-export-probe.mjs",
+      "beforeHash": "A175F36E90A684A0AA64CAD1950969FAA24672DCEAF76EC4E0A0AD9452CAE223",
+      "currentHash": "A175F36E90A684A0AA64CAD1950969FAA24672DCEAF76EC4E0A0AD9452CAE223",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-export-storage.mjs",
+      "beforeHash": "7340D493AEF8E1FB60EE0D1BC304B126DC907F581DC01B249CAAB4634750A564",
+      "currentHash": "7340D493AEF8E1FB60EE0D1BC304B126DC907F581DC01B249CAAB4634750A564",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-export-ui.mjs",
+      "beforeHash": "EBDB29E0BF095975759B0726EDCA211C860FFE18285598C7A6E9500CFBFC372A",
+      "currentHash": "EBDB29E0BF095975759B0726EDCA211C860FFE18285598C7A6E9500CFBFC372A",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-export2.mjs",
+      "beforeHash": "3E5FE5B19DA85FDC6C12ED634FBC8DA27A750578C7C01FDE9E446EA9E95C49D7",
+      "currentHash": "3E5FE5B19DA85FDC6C12ED634FBC8DA27A750578C7C01FDE9E446EA9E95C49D7",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-probe.mjs",
+      "beforeHash": "FD7689639B51C7F1C986756FBDB0A0A5C9914BA85D3B0E8A5B691ED73B3A9808",
+      "currentHash": "FD7689639B51C7F1C986756FBDB0A0A5C9914BA85D3B0E8A5B691ED73B3A9808",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/kdocs-sync-cost.mjs",
+      "beforeHash": "76AB422F877990BA08AB4E63C03A1D3454C3617ACBCD62861EFA5D99B1C08271",
+      "currentHash": "76AB422F877990BA08AB4E63C03A1D3454C3617ACBCD62861EFA5D99B1C08271",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "scripts/sales-tables.sql",
+      "beforeHash": "FF2F5D554B4680033945F6FED91F82BE0AE3B3A7756C0585698FA1C90593A541",
+      "currentHash": "FF2F5D554B4680033945F6FED91F82BE0AE3B3A7756C0585698FA1C90593A541",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/.env",
+      "beforeHash": "D70733D35FCCBC39C75445CACF440DB2FFCF7C318C541EE1135AE7AB34224DA9",
+      "currentHash": "D70733D35FCCBC39C75445CACF440DB2FFCF7C318C541EE1135AE7AB34224DA9",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/bi-client.js",
+      "beforeHash": "0BAF92CC5593B1E3242969844C52C44FC4CFAC00439C726A1258A15F0D1CD9DF",
+      "currentHash": "0BAF92CC5593B1E3242969844C52C44FC4CFAC00439C726A1258A15F0D1CD9DF",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/cost-client.js",
+      "beforeHash": "FCC68E8778989FCDDD04131F48C97F81404CDCF5621FA90BB199B14E2B5D082C",
+      "currentHash": "FCC68E8778989FCDDD04131F48C97F81404CDCF5621FA90BB199B14E2B5D082C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/daysales-client.js",
+      "beforeHash": "1FC68070223F77B4D4914AF107BA745A3B346DEBE60BD225698713EB687BE478",
+      "currentHash": "1FC68070223F77B4D4914AF107BA745A3B346DEBE60BD225698713EB687BE478",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/eta-client.js",
+      "beforeHash": "F822EBF12B1327F1E553E166C2939F959F830B21ED9093A0FE48C25B5C7C3637",
+      "currentHash": "F822EBF12B1327F1E553E166C2939F959F830B21ED9093A0FE48C25B5C7C3637",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/hengji-client.js",
+      "beforeHash": "980E1C30CBDD0FE1AC2F6691186B5E25C8B4544A60CCE2E5143BF897362CE5A6",
+      "currentHash": "980E1C30CBDD0FE1AC2F6691186B5E25C8B4544A60CCE2E5143BF897362CE5A6",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/index.js",
+      "beforeHash": "A552F56C59A1A3669F006305D91612872AD6740BD5634728F40BB0BDB0AE761F",
+      "currentHash": "A552F56C59A1A3669F006305D91612872AD6740BD5634728F40BB0BDB0AE761F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/profile-client.js",
+      "beforeHash": "AD8AD85FA22ABF53295833D1EA1E6031C73EAE16C050C337A2D953D3415D5B07",
+      "currentHash": "AD8AD85FA22ABF53295833D1EA1E6031C73EAE16C050C337A2D953D3415D5B07",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/remaining-inventory-client.js",
+      "beforeHash": "BB197570CEF0FD3758F321F048592B7FA7394C0A48EC0E236D3A6CDC7AF84E70",
+      "currentHash": "BB197570CEF0FD3758F321F048592B7FA7394C0A48EC0E236D3A6CDC7AF84E70",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/role-rules.js",
+      "beforeHash": "E75983F8D629019F521AD7DDD1BB91CDE0A1EE6D804161C8E3B266B8F5ACF1B4",
+      "currentHash": "E75983F8D629019F521AD7DDD1BB91CDE0A1EE6D804161C8E3B266B8F5ACF1B4",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/sales-persist.js",
+      "beforeHash": "83C030B24662C9B2BA82E28EFEA5C2A306EC5536F0943802289884980D6895B2",
+      "currentHash": "83C030B24662C9B2BA82E28EFEA5C2A306EC5536F0943802289884980D6895B2",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/scene-rules.js",
+      "beforeHash": "C6779671EA88088CDA7B2AE8456E864B6BF6C59CF6DC5E28FF1E4B597842F385",
+      "currentHash": "C6779671EA88088CDA7B2AE8456E864B6BF6C59CF6DC5E28FF1E4B597842F385",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/scm-sample-bom.js",
+      "beforeHash": "4B52D1EF0B52FF9D0CCE9835FB4145FCD20C89F0B9128CF011E0E2D88F797F73",
+      "currentHash": "4B52D1EF0B52FF9D0CCE9835FB4145FCD20C89F0B9128CF011E0E2D88F797F73",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/size-client.js",
+      "beforeHash": "0354947198B973B2231999AA9C1A4587E6134BA53CB0C3ACA9487959BBEE872D",
+      "currentHash": "0354947198B973B2231999AA9C1A4587E6134BA53CB0C3ACA9487959BBEE872D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/strategy-rules.js",
+      "beforeHash": "B3488868DBCDD3111A3DD1DAFF4B7ACA1129707F6E33229FC21B6A07EF207814",
+      "currentHash": "B3488868DBCDD3111A3DD1DAFF4B7ACA1129707F6E33229FC21B6A07EF207814",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/supabase-client.js",
+      "beforeHash": "734592FB2E17019AEF2370C431DF31D2C0071138DC44FBDD620CF51A1B64EC48",
+      "currentHash": "734592FB2E17019AEF2370C431DF31D2C0071138DC44FBDD620CF51A1B64EC48",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/trays-store.js",
+      "beforeHash": "F29AD733B79F98C18499049BBFCBCE1C2559B3A086CD4C82752697FE2091FFB6",
+      "currentHash": "F29AD733B79F98C18499049BBFCBCE1C2559B3A086CD4C82752697FE2091FFB6",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/uploads.js",
+      "beforeHash": "A1F66D549421D4628366847AAF7D7BBBA270297CC5513A59B5FC8DEB6C4C2F95",
+      "currentHash": "A1F66D549421D4628366847AAF7D7BBBA270297CC5513A59B5FC8DEB6C4C2F95",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/vscm-client.js",
+      "beforeHash": "8E7A714902EC0C54C41F9A3B7DED1EF181B2CB94F92575B2B34D2B64284E552E",
+      "currentHash": "8E7A714902EC0C54C41F9A3B7DED1EF181B2CB94F92575B2B34D2B64284E552E",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/weather-client.js",
+      "beforeHash": "C89204647A6A35156718EF632237C29405C9EC434720AC3FC606F6627D163032",
+      "currentHash": "C89204647A6A35156718EF632237C29405C9EC434720AC3FC606F6627D163032",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/weather-rules.js",
+      "beforeHash": "AC8210E645B377898B338452533E24D054EA96DC10E1D7E8807F9BA74F1692DE",
+      "currentHash": "AC8210E645B377898B338452533E24D054EA96DC10E1D7E8807F9BA74F1692DE",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/ws-trays.js",
+      "beforeHash": "6761562C4E563D7BC3C8290163406DC649DCF76E537FE84A278DD21352F084A8",
+      "currentHash": "6761562C4E563D7BC3C8290163406DC649DCF76E537FE84A278DD21352F084A8",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/data/hengji-cost.json",
+      "beforeHash": "B125E98AB4392FD3170D063E1918F1E8D18852C514C00EAF14E35E4EF840F922",
+      "currentHash": "B125E98AB4392FD3170D063E1918F1E8D18852C514C00EAF14E35E4EF840F922",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/data/products.json",
+      "beforeHash": "3D3510C29EEEBF19337A33288B1DA888B1A946C13451DACB4344B5B6F55B59F2",
+      "currentHash": "3D3510C29EEEBF19337A33288B1DA888B1A946C13451DACB4344B5B6F55B59F2",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/data/role-rules.json",
+      "beforeHash": "0964DFA192A04BE0FE77D7DDB2E2AA8015DBC1A7AFBCA7CA6914ADE8008FEC7F",
+      "currentHash": "0964DFA192A04BE0FE77D7DDB2E2AA8015DBC1A7AFBCA7CA6914ADE8008FEC7F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/data/strategy-rules.json",
+      "beforeHash": "B236D9E747FE12A90AE73728F0C3FF636B12B9D3A714FAF60F8D1B6CA73E7275",
+      "currentHash": "B236D9E747FE12A90AE73728F0C3FF636B12B9D3A714FAF60F8D1B6CA73E7275",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/data/weather-recommendation-rules.json",
+      "beforeHash": "226F4BA1E3078FA05AB29773CC58859C51754CE1E2C035741CF499910A7BC2E0",
+      "currentHash": "226F4BA1E3078FA05AB29773CC58859C51754CE1E2C035741CF499910A7BC2E0",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/ai.js",
+      "beforeHash": "83BDD39300A1A84385653D5A2382DF3CDB36C8640892BC2224B625373856908A",
+      "currentHash": "83BDD39300A1A84385653D5A2382DF3CDB36C8640892BC2224B625373856908A",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/products.js",
+      "beforeHash": "049351EC671EFF49B8219BBC641DF38804E5BF236714121BD81ACA85382D94BE",
+      "currentHash": "049351EC671EFF49B8219BBC641DF38804E5BF236714121BD81ACA85382D94BE",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/profiles.js",
+      "beforeHash": "43916429A6EA2575347D6FACB12D55E59B9C05283657690E88D7AE76F25ECA7A",
+      "currentHash": "43916429A6EA2575347D6FACB12D55E59B9C05283657690E88D7AE76F25ECA7A",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/remaining-inventory.js",
+      "beforeHash": "AC6F69992F46B93524AA4F4DDA8FDD667216000233AD9436CEA7CE9CB3D8A49B",
+      "currentHash": "AC6F69992F46B93524AA4F4DDA8FDD667216000233AD9436CEA7CE9CB3D8A49B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/sales.js",
+      "beforeHash": "3DFE553D3784E74273C822FBD5BAD3198FBE42B7403AEAC5E48FBC4BF068C1B4",
+      "currentHash": "3DFE553D3784E74273C822FBD5BAD3198FBE42B7403AEAC5E48FBC4BF068C1B4",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/samples.js",
+      "beforeHash": "D60E2CBDC5E14C1005ECC523B9091BD22D15E9668474BC2EBFAF2CC18120ABE2",
+      "currentHash": "D60E2CBDC5E14C1005ECC523B9091BD22D15E9668474BC2EBFAF2CC18120ABE2",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "server/routes/trays.js",
+      "beforeHash": "8D8720E88AFF20E8A76F6B976443FEF0F78F8B2D1A20CDAD4FC9225DDBA0317B",
+      "currentHash": "8D8720E88AFF20E8A76F6B976443FEF0F78F8B2D1A20CDAD4FC9225DDBA0317B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/App.css",
+      "beforeHash": "E21EC97635BD3D1FEB606ACED6283F77F6204DF928AFD12597E8C863EE99C5EF",
+      "currentHash": "E21EC97635BD3D1FEB606ACED6283F77F6204DF928AFD12597E8C863EE99C5EF",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/App.tsx",
+      "beforeHash": "A8BEF526F8ED18241798A95DD51ADF9E2E4102D58804085AC85C8386089EE698",
+      "currentHash": "A2C8A693CCD70D3C636BA847FB72A21EB5B051B68134F8812369632B36902850",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/index.css",
+      "beforeHash": "A30234B59E89D333EC9DABAC098B0325A270EB4CA278039C24EB915FE7BE6EA1",
+      "currentHash": "386F8E2E2C169EE9F57B7C4BDA476AD430FFF34550F0BB31497EC81BD39A5F3C",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/main.tsx",
+      "beforeHash": "9861E637825001AF4F96DBD8B0D3FA551B8B1B2A01BED5E31A9A2EEC21454FF8",
+      "currentHash": "9861E637825001AF4F96DBD8B0D3FA551B8B1B2A01BED5E31A9A2EEC21454FF8",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/accordion.tsx",
+      "beforeHash": "1E00288C7EEE72380002164EA3FF7589DF5D92F2F1B8C7AA5077596EF680ACDB",
+      "currentHash": "1E00288C7EEE72380002164EA3FF7589DF5D92F2F1B8C7AA5077596EF680ACDB",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/alert.tsx",
+      "beforeHash": "49D8311589B810B106AADA8EF7B13F70B2B1F68CFCE4E1458B7F31A191F420E9",
+      "currentHash": "49D8311589B810B106AADA8EF7B13F70B2B1F68CFCE4E1458B7F31A191F420E9",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/aspect-ratio.tsx",
+      "beforeHash": "6A75117416AA89200CF31E8D61643B428E812F479CAEA857C80004B26D893E79",
+      "currentHash": "6A75117416AA89200CF31E8D61643B428E812F479CAEA857C80004B26D893E79",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/avatar.tsx",
+      "beforeHash": "E637AB3522C01631EAC2E456588EF301314E2BB7940EBF7CD96E698A868D47BC",
+      "currentHash": "E637AB3522C01631EAC2E456588EF301314E2BB7940EBF7CD96E698A868D47BC",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/badge.tsx",
+      "beforeHash": "E7455FEB113B38C59456BA29A9EC264B5FFA1DAAE8883866332AD637FFD57C31",
+      "currentHash": "E7455FEB113B38C59456BA29A9EC264B5FFA1DAAE8883866332AD637FFD57C31",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/breadcrumb.tsx",
+      "beforeHash": "22F3F4C13ED1085C4131379BFCCC6FB173A474F861636BC2736506820153AA08",
+      "currentHash": "22F3F4C13ED1085C4131379BFCCC6FB173A474F861636BC2736506820153AA08",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/button-group.tsx",
+      "beforeHash": "CCBF09097F5EBF2EEC86F1A96CB92E8DD39D251EBB5867394196C8B4FEC68A5C",
+      "currentHash": "CCBF09097F5EBF2EEC86F1A96CB92E8DD39D251EBB5867394196C8B4FEC68A5C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/button.tsx",
+      "beforeHash": "5A5C4B8B60A8A80BA7B8B5D0319BE2D3C61BFD2CE4FC2A645371DEE9F6DB0A77",
+      "currentHash": "5A5C4B8B60A8A80BA7B8B5D0319BE2D3C61BFD2CE4FC2A645371DEE9F6DB0A77",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/calendar.tsx",
+      "beforeHash": "C8E67D15D8622135B72045D974A3234EA99F5FFCC1B981EAFEA8847A14AE1F12",
+      "currentHash": "C8E67D15D8622135B72045D974A3234EA99F5FFCC1B981EAFEA8847A14AE1F12",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/card.tsx",
+      "beforeHash": "2040CDFF27CD1ED771E0EBBD15ABCD73D31F2F1E4BE6664BD6816FFFD2A87476",
+      "currentHash": "2040CDFF27CD1ED771E0EBBD15ABCD73D31F2F1E4BE6664BD6816FFFD2A87476",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/carousel.tsx",
+      "beforeHash": "10C5388B66D98F0C555DAD2E5B89B9BC846FBC1A3DE101EE8B98ABC305EC2C51",
+      "currentHash": "10C5388B66D98F0C555DAD2E5B89B9BC846FBC1A3DE101EE8B98ABC305EC2C51",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/chart.tsx",
+      "beforeHash": "8C64C596076C485DA16E8428572F191BC2966DDCC764EF68B4D3AE03566B8AC4",
+      "currentHash": "8C64C596076C485DA16E8428572F191BC2966DDCC764EF68B4D3AE03566B8AC4",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/checkbox.tsx",
+      "beforeHash": "A8292972A5B81EFF164F621AC0BB66F4ED4419D1599E2D4901968E216574677F",
+      "currentHash": "A8292972A5B81EFF164F621AC0BB66F4ED4419D1599E2D4901968E216574677F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/collapsible.tsx",
+      "beforeHash": "661444318605C90D19E47E4D21289A68B4C5F7F01782BE70DAFA80D3F7A4CD08",
+      "currentHash": "661444318605C90D19E47E4D21289A68B4C5F7F01782BE70DAFA80D3F7A4CD08",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/command.tsx",
+      "beforeHash": "416CDC19EB9E7301B51F9665B4F1A797534769A6BB58A563808979F460B0B8A2",
+      "currentHash": "416CDC19EB9E7301B51F9665B4F1A797534769A6BB58A563808979F460B0B8A2",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/context-menu.tsx",
+      "beforeHash": "70E547A9BECECCC98ADF2FBFB2CAE05C99179707AB0EDB1DDFB5D2DE329DAB42",
+      "currentHash": "70E547A9BECECCC98ADF2FBFB2CAE05C99179707AB0EDB1DDFB5D2DE329DAB42",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/dialog.tsx",
+      "beforeHash": "6333F1124E85FF25BCE5061AC9AB5981E5346782D5535C9DFEEB51B2D535A7CC",
+      "currentHash": "6333F1124E85FF25BCE5061AC9AB5981E5346782D5535C9DFEEB51B2D535A7CC",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/drawer.tsx",
+      "beforeHash": "0C9464ED4F95207FF6EC0B8F433F550388EA0FE57FECD36BBE100B084EE46A3E",
+      "currentHash": "0C9464ED4F95207FF6EC0B8F433F550388EA0FE57FECD36BBE100B084EE46A3E",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/dropdown-menu.tsx",
+      "beforeHash": "BA022169876B487C849D046AC577654AB61A4CFBA158305C8790C572B704ED9E",
+      "currentHash": "BA022169876B487C849D046AC577654AB61A4CFBA158305C8790C572B704ED9E",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/empty.tsx",
+      "beforeHash": "584B491F9EB69F8041B3D3732A4D139F5AF01DE19A00B7A97656C7AF7A78716A",
+      "currentHash": "584B491F9EB69F8041B3D3732A4D139F5AF01DE19A00B7A97656C7AF7A78716A",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/field.tsx",
+      "beforeHash": "E9DCB51B16E5F235BDF23A0B4A092E55C05B2BAD08A83126AC675B72AAE5380D",
+      "currentHash": "E9DCB51B16E5F235BDF23A0B4A092E55C05B2BAD08A83126AC675B72AAE5380D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/form.tsx",
+      "beforeHash": "A12F73507AB613E9D797979B988A15E32D23458FC8DD4BA71B922AEEE977A3B6",
+      "currentHash": "A12F73507AB613E9D797979B988A15E32D23458FC8DD4BA71B922AEEE977A3B6",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/hover-card.tsx",
+      "beforeHash": "031F6A309D87C8E42A2282FCCC277DDE75E373DE8C93DAD881582C9DC13E05D0",
+      "currentHash": "031F6A309D87C8E42A2282FCCC277DDE75E373DE8C93DAD881582C9DC13E05D0",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/input-group.tsx",
+      "beforeHash": "C0DF02569E483DB8EE86BD51B3B392A1BA62B276604D8C7EA90A9EFC5FAA9E25",
+      "currentHash": "C0DF02569E483DB8EE86BD51B3B392A1BA62B276604D8C7EA90A9EFC5FAA9E25",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/input-otp.tsx",
+      "beforeHash": "7FD7ED5273F849CDE558238148EE1BBAE729AA1149407C7C732B6C65906933D2",
+      "currentHash": "7FD7ED5273F849CDE558238148EE1BBAE729AA1149407C7C732B6C65906933D2",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/input.tsx",
+      "beforeHash": "56B7FD30208ADDBCC2468CFDA4F5BC0A55342211DEAAB61EE35B1C352B1622F1",
+      "currentHash": "56B7FD30208ADDBCC2468CFDA4F5BC0A55342211DEAAB61EE35B1C352B1622F1",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/item.tsx",
+      "beforeHash": "6D64B756260749245B3A1F292E2AAF2774D7EC0B8BB99403EB8C1BE31BD26900",
+      "currentHash": "6D64B756260749245B3A1F292E2AAF2774D7EC0B8BB99403EB8C1BE31BD26900",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/kbd.tsx",
+      "beforeHash": "886E04C83AAA016DFCE924E461AA38AA68A9F5C83BDAEDD6209DC358C32A8F22",
+      "currentHash": "886E04C83AAA016DFCE924E461AA38AA68A9F5C83BDAEDD6209DC358C32A8F22",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/label.tsx",
+      "beforeHash": "9EC42C8A57E82311118B794318409EE02B2CEBFA49BA6CCE8457CFF6448CD471",
+      "currentHash": "9EC42C8A57E82311118B794318409EE02B2CEBFA49BA6CCE8457CFF6448CD471",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/menubar.tsx",
+      "beforeHash": "B4BE4DA586CE1288E8259B1E760A9E317EB0EE9183548C762D8B2A222BBDB3E5",
+      "currentHash": "B4BE4DA586CE1288E8259B1E760A9E317EB0EE9183548C762D8B2A222BBDB3E5",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/navigation-menu.tsx",
+      "beforeHash": "D71F57FE0F365541FBF5D00196B0B78A461D8C4F38D35293E5754680D93B9245",
+      "currentHash": "D71F57FE0F365541FBF5D00196B0B78A461D8C4F38D35293E5754680D93B9245",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/pagination.tsx",
+      "beforeHash": "374AD135C3D4FF3EC080A0009CD9745CDD0E12FAA89D2B0E86074F11E5127FD1",
+      "currentHash": "374AD135C3D4FF3EC080A0009CD9745CDD0E12FAA89D2B0E86074F11E5127FD1",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/popover.tsx",
+      "beforeHash": "29A217781737BBF5C430859B3DE46097A44ADA81C4143C2D05543D2167DE0EE1",
+      "currentHash": "29A217781737BBF5C430859B3DE46097A44ADA81C4143C2D05543D2167DE0EE1",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/progress.tsx",
+      "beforeHash": "9E36CA3F10BC56B69058D8EDD342832B72C8C1B2D36CD142A0DECB2445C3B724",
+      "currentHash": "9E36CA3F10BC56B69058D8EDD342832B72C8C1B2D36CD142A0DECB2445C3B724",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/radio-group.tsx",
+      "beforeHash": "B12CA5CEF859DD75B274337234BAE66E413B0F97845243254A1DEDCB2D7A7237",
+      "currentHash": "B12CA5CEF859DD75B274337234BAE66E413B0F97845243254A1DEDCB2D7A7237",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/resizable.tsx",
+      "beforeHash": "4634B0A700B91E5D422BABC1F068B6D145B5F000C8AFF62D5CFC9B5711FBFF73",
+      "currentHash": "4634B0A700B91E5D422BABC1F068B6D145B5F000C8AFF62D5CFC9B5711FBFF73",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/scroll-area.tsx",
+      "beforeHash": "1C5D0B242D0513848F4BFA9B57BA7F438D9B1120617029941BFAA137196ECEAD",
+      "currentHash": "1C5D0B242D0513848F4BFA9B57BA7F438D9B1120617029941BFAA137196ECEAD",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/select.tsx",
+      "beforeHash": "68FC754D3042F9FEC3406895845E6FCC05D44F93A049478A9D3C706919100EBE",
+      "currentHash": "68FC754D3042F9FEC3406895845E6FCC05D44F93A049478A9D3C706919100EBE",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/separator.tsx",
+      "beforeHash": "E9DDDBD8DBBC0ECCD683306481B0F0BBC8E2B60EA97817416EBB9FE7FBBBDCA8",
+      "currentHash": "E9DDDBD8DBBC0ECCD683306481B0F0BBC8E2B60EA97817416EBB9FE7FBBBDCA8",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/sheet.tsx",
+      "beforeHash": "FBE9B257FD95B9865E1ABA651489899C959ED5C16CB8493FE8C2733F83B92EE1",
+      "currentHash": "FBE9B257FD95B9865E1ABA651489899C959ED5C16CB8493FE8C2733F83B92EE1",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/sidebar.tsx",
+      "beforeHash": "6074D8027B4BC9EA2D5EB1527A8528A7FA69DF96F6261B9C6441C3980D41700F",
+      "currentHash": "6074D8027B4BC9EA2D5EB1527A8528A7FA69DF96F6261B9C6441C3980D41700F",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/skeleton.tsx",
+      "beforeHash": "F2AEA81D8BAF2B621945382AABAC150E3DB40F20D19AC1ABEA7AFF805F1DC33C",
+      "currentHash": "F2AEA81D8BAF2B621945382AABAC150E3DB40F20D19AC1ABEA7AFF805F1DC33C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/slider.tsx",
+      "beforeHash": "26C888120FBBD62DF2E3BC93BF4403F446BFF593C13E7691BA95BBCB00F22975",
+      "currentHash": "26C888120FBBD62DF2E3BC93BF4403F446BFF593C13E7691BA95BBCB00F22975",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/sonner.tsx",
+      "beforeHash": "A3868F2A8AAFD8E2DC96B7AE145009939E9D8723CBB5A4B61D7B7D9BED9DF478",
+      "currentHash": "A3868F2A8AAFD8E2DC96B7AE145009939E9D8723CBB5A4B61D7B7D9BED9DF478",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/spinner.tsx",
+      "beforeHash": "3E6E6E8D37FB4069F8E43E55318F8DB06FBC36E6C8BE0096DA3C9337C1C798B9",
+      "currentHash": "3E6E6E8D37FB4069F8E43E55318F8DB06FBC36E6C8BE0096DA3C9337C1C798B9",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/switch.tsx",
+      "beforeHash": "17F2390D98E8CE4D9E90155EAC1918266914D6A9ADA7C276B5D1C917CEF0E969",
+      "currentHash": "17F2390D98E8CE4D9E90155EAC1918266914D6A9ADA7C276B5D1C917CEF0E969",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/table.tsx",
+      "beforeHash": "95E3EF5DB88B3BBFB68EED12F341FB942E40CA815F4342E1D5DBC8C8D47C783D",
+      "currentHash": "95E3EF5DB88B3BBFB68EED12F341FB942E40CA815F4342E1D5DBC8C8D47C783D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/tabs.tsx",
+      "beforeHash": "E8469E599381CF021CE751C27CCA3D8CB06440A45665CA9C2EF2EFB0ACEF1FD9",
+      "currentHash": "E8469E599381CF021CE751C27CCA3D8CB06440A45665CA9C2EF2EFB0ACEF1FD9",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/textarea.tsx",
+      "beforeHash": "DE4E9FB0FD8E8ED10EA2E475FFE202A922FFE77E3F3EDB2C517B0781447AD1B4",
+      "currentHash": "DE4E9FB0FD8E8ED10EA2E475FFE202A922FFE77E3F3EDB2C517B0781447AD1B4",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/toggle-group.tsx",
+      "beforeHash": "C63C671FE328F2C1E0D58E3DF82A474E73834037C5A39A9FF566A4B3B2CF9010",
+      "currentHash": "C63C671FE328F2C1E0D58E3DF82A474E73834037C5A39A9FF566A4B3B2CF9010",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/toggle.tsx",
+      "beforeHash": "AB2E52DEBB86451889AC9519DFE27DAF3A86D70AA2833DA8ED8F6CF3146197FF",
+      "currentHash": "AB2E52DEBB86451889AC9519DFE27DAF3A86D70AA2833DA8ED8F6CF3146197FF",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/components/ui/tooltip.tsx",
+      "beforeHash": "CBC12F4086448F8A307ED5FBB160F79467C84A44C48CA0DBD2C62E39A2DB6F5D",
+      "currentHash": "CBC12F4086448F8A307ED5FBB160F79467C84A44C48CA0DBD2C62E39A2DB6F5D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/data/api.ts",
+      "beforeHash": "09C320E5F443C75D335CE84B29C31E655B9DCFDCE977AAD73C6BED58907E155C",
+      "currentHash": "09C320E5F443C75D335CE84B29C31E655B9DCFDCE977AAD73C6BED58907E155C",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/data/products.ts",
+      "beforeHash": "142C8C290970B8750FA7E2EA3BCC9FFE000C1CEE09731751B1F234FC5466D1DD",
+      "currentHash": "1D148E10D6582E179CC61DEB5E2A664707D60C9E37F12097C0C7EAB402AE424C",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/data/ProductsContext.tsx",
+      "beforeHash": "145EFBB6D3AC1727CB4C3AD0EFA7D8BF747AFE31C2DF0D6FCDA4D0AF7C41382D",
+      "currentHash": "145EFBB6D3AC1727CB4C3AD0EFA7D8BF747AFE31C2DF0D6FCDA4D0AF7C41382D",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/hooks/use-mobile.ts",
+      "beforeHash": "AD0936F84F1DF79D3697BFBFF9C18F8AD58431C1CBAF2359C6A853B0FCC9F28B",
+      "currentHash": "AD0936F84F1DF79D3697BFBFF9C18F8AD58431C1CBAF2359C6A853B0FCC9F28B",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/lib/sceneHits.ts",
+      "beforeHash": "8502C6AED71F217C0ABF3300ABD1F7B2DAF1AE94F97868F9F382810266347714",
+      "currentHash": "8502C6AED71F217C0ABF3300ABD1F7B2DAF1AE94F97868F9F382810266347714",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/lib/solarTermData.ts",
+      "beforeHash": "FE4BCEEBD991A8E47B2C6E94B7642EDECB73879D06B20E9A97F0B02F4A45F8FB",
+      "currentHash": "FE4BCEEBD991A8E47B2C6E94B7642EDECB73879D06B20E9A97F0B02F4A45F8FB",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/lib/solarTerms.ts",
+      "beforeHash": "BFC374BEF2E0C8B51F2E69A4B89DC491F95C2FA4B681EE2196B9C1084DEF00BF",
+      "currentHash": "BFC374BEF2E0C8B51F2E69A4B89DC491F95C2FA4B681EE2196B9C1084DEF00BF",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/lib/traySync.ts",
+      "beforeHash": "B3427C8D0DBCDCDCA9DC4023B66FC9F8EB0F013F465A81415D5ABD3C5CACAAB0",
+      "currentHash": "3E2C516A3BD36636A5F0B868CC2D7E2121DD674FAFB890F21E8F31959B05B42D",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/lib/utils.ts",
+      "beforeHash": "D59CD39AF918A1B4634F1E278DFE4584FC179E8A5CDCF931EE2D0CA4D0EA8CEB",
+      "currentHash": "D59CD39AF918A1B4634F1E278DFE4584FC179E8A5CDCF931EE2D0CA4D0EA8CEB",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/pages/Home.tsx",
+      "beforeHash": "A5BCE711417781CBDD2EE0426EB5ECA10120F263DD054C4A43AC1B7B6D071DF5",
+      "currentHash": "A5BCE711417781CBDD2EE0426EB5ECA10120F263DD054C4A43AC1B7B6D071DF5",
+      "unchanged": true,
+      "allowed": false
+    },
+    {
+      "path": "src/sections/BoardPage.tsx",
+      "beforeHash": "C0FD8D594A16CEBA31CFF419FB644F59408A19DCD95392EAC9DB558AD1D1F072",
+      "currentHash": "87F6745EFEB1BDE797774577ACA36AE6412725B9C625A420309B8D78F8579286",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/sections/ConfigPage.tsx",
+      "beforeHash": "072CE177F7FEB81B141FD49875FAD4699DAD4E1F189BF14A242FE41750A361FD",
+      "currentHash": "BC99EB8828C8773A3A208BE5BD375A742BC72FBA6244150F0EA09B0EB8E98D2F",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/sections/ProfilePage.tsx",
+      "beforeHash": "394D23807650D49A957A7858EFA1FF2BC4551E1D8F727C32017E721EEA9B8F99",
+      "currentHash": "6BFC059D5EF94CFA78C084C97E74190F8D971CA7E47D0F27C8970672CDBB8D4E",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/sections/SequencePage.tsx",
+      "beforeHash": "036967B75235BD1BB1DF0399C1208FD36CCBA7DBCB5DAF450094FE9F82832C68",
+      "currentHash": "6D4C1907E8D2F83C022D4297D5DF47B1D7CD75F2BBE4F909858BD5204D4DEB6A",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/sections/TraysPage.tsx",
+      "beforeHash": "ABA1C63A3616C4FA7967541FE899E7F1F0CD5387FC61067009B5284C7403CACD",
+      "currentHash": "23E2098BF3C24DBC941C941DB89D608422A8D072EAE3B61673F3275B6E64F887",
+      "unchanged": false,
+      "allowed": true
+    },
+    {
+      "path": "src/sections/WeatherPage.tsx",
+      "beforeHash": "C595FB96543A579FD161458D79629ACE463E91D307192B0ADAD029E00133EE22",
+      "currentHash": "465B9E841F96358AD77C515EDC33F4FD2948672082027FCA6243FBDB0BF97DAD",
+      "unchanged": false,
+      "allowed": true
+    }
+  ]
+}

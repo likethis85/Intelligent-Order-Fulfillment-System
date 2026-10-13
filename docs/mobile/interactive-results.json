@@ -1,0 +1,352 @@
+{
+  "mode": "interactive",
+  "reports": [
+    {
+      "width": 320,
+      "label": "新建货盘表单",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "长名称货盘",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "多图管理",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "排品线轴",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "已选商品画像对比",
+      "scrollWidth": 320,
+      "overflow": [
+        {
+          "tag": "BUTTON",
+          "cls": "rounded-full border px-3.5 py-1.5 text-[12px] transition-colors border-edge-strong bg-surface-card hover:border-edge",
+          "txt": "店铺画像",
+          "right": 358
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "label": "新建货盘表单",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "长名称货盘",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "多图管理",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "排品线轴",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "已选商品画像对比",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "无数据状态",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "错误状态",
+      "scrollWidth": 320,
+      "overflow": []
+    }
+  ],
+  "interactions": [
+    {
+      "name": "320px 五项导航触屏尺寸",
+      "passed": true
+    },
+    {
+      "name": "320px 新建并打开货盘",
+      "passed": true
+    },
+    {
+      "name": "320px 改名保存",
+      "passed": true
+    },
+    {
+      "name": "320px 选款抽屉不超视口",
+      "passed": true
+    },
+    {
+      "name": "320px 抽屉背景锁定",
+      "passed": true
+    },
+    {
+      "name": "320px 选款写入坑位",
+      "passed": true
+    },
+    {
+      "name": "320px 抽屉关闭恢复滚动",
+      "passed": true
+    },
+    {
+      "name": "320px 取消删除保留货盘",
+      "passed": true
+    },
+    {
+      "name": "320px 表格可滑到末尾",
+      "passed": true
+    },
+    {
+      "name": "320px 左侧字段固定",
+      "passed": true
+    },
+    {
+      "name": "320px 多图弹窗宽度",
+      "passed": true
+    },
+    {
+      "name": "320px 面料弹窗完整可见",
+      "passed": true
+    },
+    {
+      "name": "320px 面料回填保持原逻辑",
+      "passed": true
+    },
+    {
+      "name": "320px 翻单回填保持原逻辑",
+      "passed": true
+    },
+    {
+      "name": "320px 记录抽屉宽度",
+      "passed": true
+    },
+    {
+      "name": "320px 触屏下移",
+      "passed": true
+    },
+    {
+      "name": "320px 存在保存按钮",
+      "passed": true
+    },
+    {
+      "name": "320px 排品保存写入",
+      "passed": true
+    },
+    {
+      "name": "320px 追加返场",
+      "passed": true
+    },
+    {
+      "name": "320px 放弃草稿恢复",
+      "passed": true
+    },
+    {
+      "name": "320px 手机策略生成并折叠",
+      "passed": true
+    },
+    {
+      "name": "320px 线轴可滑到末尾",
+      "passed": true
+    },
+    {
+      "name": "320px 对比两个平台纵向排列",
+      "passed": true
+    },
+    {
+      "name": "320px 城市切换",
+      "passed": true
+    },
+    {
+      "name": "320px 图表父容器可缩小",
+      "passed": true
+    },
+    {
+      "name": "320px 配置沿用初始值",
+      "passed": true
+    },
+    {
+      "name": "320px 保存配置只由测试截获",
+      "passed": true
+    },
+    {
+      "name": "320px 导航复位滚动",
+      "passed": true
+    },
+    {
+      "name": "390px 五项导航触屏尺寸",
+      "passed": true
+    },
+    {
+      "name": "390px 新建并打开货盘",
+      "passed": true
+    },
+    {
+      "name": "390px 改名保存",
+      "passed": true
+    },
+    {
+      "name": "390px 选款抽屉不超视口",
+      "passed": true
+    },
+    {
+      "name": "390px 抽屉背景锁定",
+      "passed": true
+    },
+    {
+      "name": "390px 选款写入坑位",
+      "passed": true
+    },
+    {
+      "name": "390px 抽屉关闭恢复滚动",
+      "passed": true
+    },
+    {
+      "name": "390px 取消删除保留货盘",
+      "passed": true
+    },
+    {
+      "name": "390px 表格可滑到末尾",
+      "passed": true
+    },
+    {
+      "name": "390px 左侧字段固定",
+      "passed": true
+    },
+    {
+      "name": "390px 多图弹窗宽度",
+      "passed": true
+    },
+    {
+      "name": "390px 面料弹窗完整可见",
+      "passed": true
+    },
+    {
+      "name": "390px 面料回填保持原逻辑",
+      "passed": true
+    },
+    {
+      "name": "390px 翻单回填保持原逻辑",
+      "passed": true
+    },
+    {
+      "name": "390px 记录抽屉宽度",
+      "passed": true
+    },
+    {
+      "name": "390px 触屏下移",
+      "passed": true
+    },
+    {
+      "name": "390px 存在保存按钮",
+      "passed": true
+    },
+    {
+      "name": "390px 排品保存写入",
+      "passed": true
+    },
+    {
+      "name": "390px 追加返场",
+      "passed": true
+    },
+    {
+      "name": "390px 放弃草稿恢复",
+      "passed": true
+    },
+    {
+      "name": "390px 手机策略生成并折叠",
+      "passed": true
+    },
+    {
+      "name": "390px 线轴可滑到末尾",
+      "passed": true
+    },
+    {
+      "name": "390px 对比两个平台纵向排列",
+      "passed": true
+    },
+    {
+      "name": "390px 城市切换",
+      "passed": true
+    },
+    {
+      "name": "390px 图表父容器可缩小",
+      "passed": true
+    },
+    {
+      "name": "390px 配置沿用初始值",
+      "passed": true
+    },
+    {
+      "name": "390px 保存配置只由测试截获",
+      "passed": true
+    },
+    {
+      "name": "390px 导航复位滚动",
+      "passed": true
+    },
+    {
+      "name": "空数据仍能新建货盘",
+      "passed": true
+    },
+    {
+      "name": "失败状态显示重试",
+      "passed": true
+    }
+  ],
+  "failures": [],
+  "errors": [],
+  "apiWrites": [
+    {
+      "width": 320,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 320,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 320,
+      "path": "/config/role-rules",
+      "method": "PUT"
+    },
+    {
+      "width": 390,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 390,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 390,
+      "path": "/config/role-rules",
+      "method": "PUT"
+    }
+  ]
+}

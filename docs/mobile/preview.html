@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marius 移动端适配 · 实现效果</title>
+<style>
+*{box-sizing:border-box}body{margin:0;color:#1c1b18;background:#eeece5;font-family:"Microsoft YaHei",sans-serif}main{max-width:1288px;padding:36px;margin:auto}small{color:#8a877f;letter-spacing:2px}h1{font-size:28px;margin:12px 0}p{color:#6b685e;font-size:13px;line-height:1.8}.links{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0 30px}.links a{color:#1c1b18;text-decoration:none;background:white;border:1px solid #d8d5cc;border-radius:6px;padding:10px 14px;font-size:12px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px 22px}figure{margin:0}h2{font-size:16px;margin:0 0 12px}figure img{display:block;width:100%;border:1px solid #d8d5cc;border-radius:14px;background:#fff;box-shadow:0 8px 20px #1c1b1808}figcaption{font-size:12px;color:#6b685e;line-height:1.8;margin-top:10px}.comparison{margin:38px 0 0;padding-top:24px;border-top:1px solid #d8d5cc}.pair{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:810px;margin-top:22px}.wide{margin-top:30px}.wide img{border-radius:8px}.badge{display:inline-block;font-size:12px;padding:5px 10px;border-radius:4px;margin-right:8px;background:#fff;color:#6b8060}@media(max-width:850px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}main{padding:24px}}@media(max-width:540px){.grid{grid-template-columns:1fr}.pair{grid-template-columns:1fr}main{padding:20px}}
+</style>
+<main>
+<small>MARIUS / MOBILE UI</small><h1>移动端适配 · 实现效果</h1>
+<p>以下为实际前端在 390 × 844 视口下的浏览器截图。使用独立验收样例与模拟接口，展示现有功能的布局适配。</p>
+<div class="links"><a href="mobile-design.html">移动版 UI 设计稿</a><a href="TODO.md">TODO 执行清单</a><a href="VERIFICATION.md">验收报告</a><a href="execution-log.json">执行工具记录</a></div>
+<div class="grid" id="screens">
+<figure><h2>01 / 货盘列表</h2><a href="after-trays.png"><img src="after-trays.png" alt="手机货盘列表"></a><figcaption>单列卡片、完整权限信息、五项底部导航。</figcaption></figure>
+<figure><h2>02 / 货盘表格</h2><a href="after-table.png"><img src="after-table.png" alt="手机货盘表格"></a><figcaption>保留全部字段和编辑操作，固定左侧字段列，坑位可横向滑动。</figcaption></figure>
+<figure><h2>03 / 直播排品</h2><a href="after-sequence-cards.png"><img src="after-sequence-cards.png" alt="手机直播排品卡片"></a><figcaption>多款坑位卡片、上移 / 下移 / 返场 / 删除，草稿保存逻辑保留。</figcaption></figure>
+<figure><h2>04 / 画像卡片</h2><a href="after-profile.png"><img src="after-profile.png" alt="手机画像卡片"></a><figcaption>主播改为顶部选项，模式条局部滑动，画像和平台对比纵向排布。</figcaption></figure>
+<figure><h2>05 / 天气指标与图表</h2><a href="after-weather-charts.png"><img src="after-weather-charts.png" alt="手机天气图表"></a><figcaption>双列指标、可收缩图表、城市切换与场景规则保留。</figcaption></figure>
+<figure><h2>06 / 配置后台</h2><a href="after-config.png"><img src="after-config.png" alt="手机配置后台"></a><figcaption>仅调整表单界面，现有规则值与配置文件未修改。</figcaption></figure>
+</div>
+<div class="comparison"><h2>适配前后</h2><p>同一验收样例、同一 390 px 宽度。</p><div class="pair"><figure><h2>适配前</h2><img src="before-mobile.png" alt="适配前手机页面"></figure><figure><h2>适配后</h2><img src="after-trays.png" alt="适配后手机页面"></figure></div></div>
+<figure class="wide"><h2>桌面端回归 · 1440 px</h2><a href="after-desktop.png"><img src="after-desktop.png" alt="桌面端保持原有布局"></a><figcaption>原有横向导航与货盘清单布局保留。</figcaption></figure>
+<p style="margin-top:26px">配置及后端原文件 SHA-256 核对通过。外部面料 / 翻单服务的真实数据联调不在模拟验收范围，详见验收报告。</p>
+</main>
+</html>

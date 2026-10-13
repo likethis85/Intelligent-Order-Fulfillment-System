@@ -1,0 +1,517 @@
+{
+  "mode": "matrix",
+  "reports": [
+    {
+      "width": 320,
+      "label": "货盘列表",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "货盘编辑",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "直播排品",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "画像卡片",
+      "scrollWidth": 320,
+      "overflow": [
+        {
+          "tag": "BUTTON",
+          "cls": "rounded-full border px-3.5 py-1.5 text-[12px] transition-colors border-edge-strong bg-surface-card hover:border-edge",
+          "txt": "店铺画像",
+          "right": 358
+        },
+        {
+          "tag": "BUTTON",
+          "cls": "flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-[12.5px] transition-colors hover:bg-surface-subtle",
+          "txt": "日常店播9,800件",
+          "right": 375
+        },
+        {
+          "tag": "SPAN",
+          "cls": "text-[10px] text-ink-muted",
+          "txt": "9,800件",
+          "right": 362
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 320,
+      "overflow": [
+        {
+          "tag": "BUTTON",
+          "cls": "rounded-full border px-3.5 py-1.5 text-[12px] transition-colors border-edge-strong bg-surface-card hover:border-edge",
+          "txt": "店铺画像",
+          "right": 358
+        },
+        {
+          "tag": "BUTTON",
+          "cls": "flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-[12.5px] transition-colors hover:bg-surface-subtle",
+          "txt": "日常店播9,800件",
+          "right": 375
+        },
+        {
+          "tag": "SPAN",
+          "cls": "text-[10px] text-ink-muted",
+          "txt": "9,800件",
+          "right": 362
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 320,
+      "overflow": [
+        {
+          "tag": "BUTTON",
+          "cls": "rounded-full border px-3.5 py-1.5 text-[12px] transition-colors border-edge-strong bg-surface-card hover:border-edge",
+          "txt": "店铺画像",
+          "right": 358
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 320,
+      "overflow": [
+        {
+          "tag": "BUTTON",
+          "cls": "rounded-full border px-3.5 py-1.5 text-[12px] transition-colors border-edge-strong bg-surface-card hover:border-edge",
+          "txt": "店铺画像",
+          "right": 358
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "label": "天气面板",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 320,
+      "label": "配置后台",
+      "scrollWidth": 320,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "货盘列表",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "货盘编辑",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "直播排品",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "画像卡片",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "天气面板",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 375,
+      "label": "配置后台",
+      "scrollWidth": 375,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "货盘列表",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "货盘编辑",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "直播排品",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "画像卡片",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "天气面板",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 390,
+      "label": "配置后台",
+      "scrollWidth": 390,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "货盘列表",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "货盘编辑",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "直播排品",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "画像卡片",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "天气面板",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 430,
+      "label": "配置后台",
+      "scrollWidth": 430,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "货盘列表",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "货盘编辑",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "直播排品",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "画像卡片",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "天气面板",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 768,
+      "label": "配置后台",
+      "scrollWidth": 768,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "货盘列表",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "货盘编辑",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "直播排品",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "画像卡片",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "天气面板",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1024,
+      "label": "配置后台",
+      "scrollWidth": 1024,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "货盘列表",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "货盘编辑",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "直播排品",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "画像卡片",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "画像卡片 / 店铺画像",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "画像卡片 / 主播热卖榜",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "画像卡片 / 画像对比",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "画像卡片 / 款号画像",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "天气面板",
+      "scrollWidth": 1440,
+      "overflow": []
+    },
+    {
+      "width": 1440,
+      "label": "配置后台",
+      "scrollWidth": 1440,
+      "overflow": []
+    }
+  ],
+  "interactions": [],
+  "failures": [],
+  "errors": [],
+  "apiWrites": [
+    {
+      "width": 320,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 375,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 390,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 430,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 768,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 1024,
+      "path": "/trays",
+      "method": "PUT"
+    },
+    {
+      "width": 1440,
+      "path": "/trays",
+      "method": "PUT"
+    }
+  ]
+}

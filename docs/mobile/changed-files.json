@@ -1,0 +1,42 @@
+[
+  {
+    "path": "src\\App.tsx",
+    "status": "changed"
+  },
+  {
+    "path": "src\\index.css",
+    "status": "changed"
+  },
+  {
+    "path": "src\\data\\products.ts",
+    "status": "changed"
+  },
+  {
+    "path": "src\\lib\\traySync.ts",
+    "status": "changed"
+  },
+  {
+    "path": "src\\sections\\BoardPage.tsx",
+    "status": "changed"
+  },
+  {
+    "path": "src\\sections\\ConfigPage.tsx",
+    "status": "changed"
+  },
+  {
+    "path": "src\\sections\\ProfilePage.tsx",
+    "status": "changed"
+  },
+  {
+    "path": "src\\sections\\SequencePage.tsx",
+    "status": "changed"
+  },
+  {
+    "path": "src\\sections\\TraysPage.tsx",
+    "status": "changed"
+  },
+  {
+    "path": "src\\sections\\WeatherPage.tsx",
+    "status": "changed"
+  }
+]

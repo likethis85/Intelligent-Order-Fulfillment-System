@@ -1,0 +1,26 @@
+{
+  "baselineFiles": 164,
+  "changed": [
+    ".\\src\\sections\\TraysPage.tsx",
+    ".\\src\\main.tsx",
+    ".\\src\\lib\\traySync.ts",
+    ".\\src\\index.css",
+    ".\\src\\data\\api.ts",
+    ".\\server\\ws-trays.js",
+    ".\\server\\size-client.js",
+    ".\\server\\routes\\trays.js",
+    ".\\server\\remaining-inventory-client.js",
+    ".\\server\\profile-client.js",
+    ".\\server\\index.js",
+    ".\\server\\eta-client.js",
+    ".\\server\\daysales-client.js",
+    ".\\src\\App.tsx",
+    ".\\server\\cost-client.js",
+    ".\\server\\bi-client.js"
+  ],
+  "unchangedCount": 148,
+  "unexpectedChanges": [],
+  "existingConfigurationAndBusinessDataUnchanged": true,
+  "clientSecretInFrontendBuild": false,
+  "repairScope": "Handle optional BI process failures; preserve source IDs, queries and normal aggregations."
+}

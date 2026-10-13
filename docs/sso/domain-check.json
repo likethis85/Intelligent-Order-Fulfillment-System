@@ -1,0 +1,66 @@
+{
+  "ssoBaseUrl": "https://sso.marius.com.cn",
+  "clientId": "app_8ad2f33624094db18b55",
+  "healthStatus": 200,
+  "providersReportedByService": {
+    "supabase": {
+      "enabled": true,
+      "ready": true
+    },
+    "dingtalk": {
+      "enabled": true,
+      "ready": true
+    }
+  },
+  "registeredCallbacks": [
+    {
+      "redirectUri": "http://localhost:3000/api/auth/sso/callback",
+      "status": 200,
+      "applicationNameShown": true
+    },
+    {
+      "redirectUri": "http://127.0.0.1:3000/api/auth/sso/callback",
+      "status": 200,
+      "applicationNameShown": true
+    }
+  ],
+  "credentialCheckStatus": 400,
+  "credentialCheckError": "invalid_grant",
+  "dingtalk": {
+    "realUserLoginVerified": false,
+    "entryStatus": 303,
+    "callbackUri": "https://sso.marius.com.cn/login/callback",
+    "callbackUsesNewDomain": true,
+    "projectDirectEntries": [
+      {
+        "projectOrigin": "http://localhost:3000",
+        "status": 302,
+        "authorizeOrigin": "https://login.dingtalk.com",
+        "authorizePath": "/oauth2/auth",
+        "callbackUri": "https://sso.marius.com.cn/login/callback",
+        "browserBindingCookie": true
+      },
+      {
+        "projectOrigin": "http://127.0.0.1:3000",
+        "status": 302,
+        "authorizeOrigin": "https://login.dingtalk.com",
+        "authorizePath": "/oauth2/auth",
+        "callbackUri": "https://sso.marius.com.cn/login/callback",
+        "browserBindingCookie": true
+      }
+    ],
+    "officialQrPageVerified": true,
+    "domainConfigurationConfirmedByUser": true
+  },
+  "realUserLoginCompleted": false,
+  "localBackend": {
+    "authorizeStatus": 302,
+    "authorizeOrigin": "https://sso.marius.com.cn",
+    "invalidCodeCallbackStatus": 303,
+    "invalidCodeError": "login_failed",
+    "httpsTokenTransportConfirmed": true,
+    "existingCredentialsAndCallbacksUnchanged": true,
+    "processRestartedForDingTalk": true
+  },
+  "verificationScope": "Project entry, official authorization/QR display and registered callbacks; no real person authenticated."
+}
