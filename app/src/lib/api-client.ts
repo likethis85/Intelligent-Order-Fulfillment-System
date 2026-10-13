@@ -1,6 +1,5 @@
-// Keep the existing direct connection for large responses during local Vite development.
-// Deployed pages use their own origin so HTTPS and reverse proxies work without fixed ports.
-const direct = location.port === '3000' || location.port === '5173';
+const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const direct = isLocalhost && (location.port === '3700' || location.port === '3000' || location.port === '5173');
 export const API_ORIGIN = direct ? `${location.protocol}//${location.hostname}:3737` : location.origin;
 export const API_BASE = API_ORIGIN + '/api';
 export const AUTH_REQUIRED_EVENT = 'marius:auth-required';

@@ -29,6 +29,11 @@ import { createSsoAuth, readSsoConfig } from './sso-auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const envFile = path.join(__dirname, '.env');
+if (fs.existsSync(envFile) && typeof process.loadEnvFile === 'function') {
+  try { process.loadEnvFile(envFile); } catch {}
+}
+
 const app = express();
 const PORT = process.env.PORT || 3737;
 

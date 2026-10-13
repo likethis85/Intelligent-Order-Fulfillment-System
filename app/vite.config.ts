@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [inspectAttr(), react()],
   server: {
     host: true,
-    port: 3000,
+    port: 3700,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3737',

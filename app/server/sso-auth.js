@@ -21,7 +21,7 @@ export function readSsoConfig() {
 
 export function makeSsoConfig(env = {}) {
   const baseUrl = (env.SSO_BASE_URL || 'https://sso.marius.com.cn').replace(/\/$/, '');
-  const primary = env.SSO_REDIRECT_URI || 'http://localhost:3000' + CALLBACK_PATH;
+  const primary = env.SSO_REDIRECT_URI || 'http://localhost:3700' + CALLBACK_PATH;
   const redirectUris = [...new Set([primary, ...(env.SSO_REDIRECT_URIS || '').split(',').filter(Boolean)])];
   for (const value of [baseUrl, ...redirectUris]) {
     const url = new URL(value);
