@@ -111,13 +111,8 @@ router.get('/calc-restock-stock', async (req, res) => {
     let rows = [];
     try {
       rows = await getFabricDataRows();
-    } catch {
-      const base = process.env.FABRIC_Q_BASE || 'http://127.0.0.1:3721';
-      const r = await fetch(`${base}/api/fabric-data`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
-      if (r && r.ok) {
-        const j = await r.json().catch(() => ({}));
-        rows = Array.isArray(j?.data) ? j.data : [];
-      }
+    } catch (err) {
+      console.warn('[samples/calc-restock-stock] 读取内置面料数据异常:', err.message);
     }
     // 过滤：pdt_code 命中 pids，或 sku_code 命中 skcs
     const pidSet = new Set(pids);
