@@ -3,6 +3,8 @@ import { hasCredentials, listSamplesCached, listSampleByCodes } from '../vscm-cl
 import { applyHengjiSalesPriceFallback, applyHengjiCostFallback } from '../hengji-client.js';
 import { getSampleMaterials, getMaterialBaseInfo } from '../scm-sample-bom.js';
 
+import { getFabricDataRows } from './fabric.js';
+
 const router = Router();
 
 function parseCodes(raw) {
@@ -106,15 +108,17 @@ router.get('/calc-restock-stock', async (req, res) => {
   const skcs = parseCodes(req.query.skcs).map((s) => s.toUpperCase());
   if (!pids.length && !skcs.length) return res.json({ updatedAt: new Date().toISOString(), count: 0, items: [] });
   try {
-    const base = process.env.FABRIC_Q_BASE || 'http://127.0.0.1:3721';
-    const url = `${base}/api/fabric-data`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) {
-      res.status(502).json({ error: 'fabric_q_unreachable', message: `GET /api/fabric-data → ${r.status}` });
-      return;
+    let rows = [];
+    try {
+      rows = await getFabricDataRows();
+    } catch {
+      const base = process.env.FABRIC_Q_BASE || 'http://127.0.0.1:3721';
+      const r = await fetch(`${base}/api/fabric-data`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      if (r && r.ok) {
+        const j = await r.json().catch(() => ({}));
+        rows = Array.isArray(j?.data) ? j.data : [];
+      }
     }
-    const j = await r.json();
-    const rows = Array.isArray(j?.data) ? j.data : [];
     // 过滤：pdt_code 命中 pids，或 sku_code 命中 skcs
     const pidSet = new Set(pids);
     const skuSet = new Set(skcs);
@@ -195,8 +199,8 @@ router.get('/calc-restock-stock', async (req, res) => {
     items.sort((a, b) => b.M - a.M);
     res.json({ updatedAt: new Date().toISOString(), count: items.length, items, source: 'fabric-q' });
   } catch (err) {
-    console.error('[samples/calc-restock-stock] 失败:', err.message);
-    res.status(500).json({ error: 'fetch_failed', message: err.message });
+    console.warn('[samples/calc-restock-stock] 获取面料库存降级:', err.message);
+    res.json({ updatedAt: new Date().toISOString(), count: 0, items: [], error: err.message });
   }
 });
 

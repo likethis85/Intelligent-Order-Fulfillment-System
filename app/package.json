@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n FE,BE -c blue,magenta \"vite\" \"node --env-file=server/.env server/index.js\"",
+    "dev": "concurrently -n FE,BE -c blue,magenta \"vite\" \"node --watch --env-file=server/.env server/index.js\"",
     "dev:fe": "vite",
-    "dev:be": "node --env-file=server/.env server/index.js",
+    "dev:be": "node --watch --env-file=server/.env server/index.js",
     "sync:hengji": "node scripts/kdocs-sync-cost.mjs",
     "kdocs:export": "node scripts/kdocs-export-storage.mjs",
     "build": "tsc -b && vite build",

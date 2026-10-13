@@ -828,7 +828,7 @@ interface TraySalesSnap { daily: Record<string, number>; cumulative: Record<stri
 
 const SLOT_DATA_COLS = 8; // 每版块 8 个坑位；总列数 = 1 (标签) + 8 = 9 列 A..I
 const IMG_BASE = API_ORIGIN; // 后端 /uploads 静态服务（主机名跟随页面来源，局域网可访问）
-const FABRIC_BASE = location.protocol + '//' + location.hostname + ':3721'; // 面料查询服务（同局域网规则）
+const FABRIC_BASE = '/fabric'; // 内置面料与翻单服务（同源免端口）
 const THIN_BORDER: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FF000000' } },
   left: { style: 'thin', color: { argb: 'FF000000' } },
@@ -2756,7 +2756,7 @@ export default function TraysPage({
       fabricTipAbort.current?.abort();
       const ac = new AbortController();
       fabricTipAbort.current = ac;
-      fetch(FABRIC_BASE + '/api/query', {
+      fetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pdtCodes: codes.map((c) => c.toUpperCase()) }),
@@ -4143,7 +4143,7 @@ export default function TraysPage({
             type: 'fabric-prefill',
             codes: fpPids.map((p) => p.toUpperCase()),
             autoSubmit: true,
-          }, FABRIC_BASE);
+          }, window.location.origin);
         }
         // 聚合所有 pid 的 noRestock 计数（占位标记且该款已有真实面料时不算数，跟面料格渲染口径一致）
         const totalNoRestock = fpPids.reduce((n, pid) => {
@@ -4154,10 +4154,10 @@ export default function TraysPage({
           return n + effectiveNoRestockItems(allItems, hasRealFabric).length;
         }, 0);
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/30" onClick={() => setFabricPicker(null)} />
-            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[85vh] w-[90vw] max-w-[1100px] flex-col border border-edge bg-surface-card shadow-2xl">
-              <div className="flex items-center justify-between border-b border-edge px-5 py-3">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setFabricPicker(null)} />
+            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[100dvh] w-full sm:h-[85vh] sm:w-[90vw] max-w-[1100px] flex-col border-0 sm:border border-edge bg-surface-card shadow-2xl rounded-none sm:rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between border-b border-edge px-3 py-2 sm:px-5 sm:py-3">
                 <div>
                   <div className="text-[13px] font-bold">
                     查询面料 · {fpPids.length > 1 ? `${fpPids.length} 个款号` : (PRODUCTS.find((x) => x.id === fabricPicker.pid)?.name ?? fabricPicker.pid)}
@@ -4173,7 +4173,7 @@ export default function TraysPage({
               <iframe
                 key="fabric-q-iframe"
                 ref={fabricIframeRef}
-                src={`${FABRIC_BASE}/?codes=${fpPids.map((p) => p.toUpperCase()).join(',')}`}
+                src={`${FABRIC_BASE}/index.html?codes=${fpPids.map((p) => p.toUpperCase()).join(',')}`}
                 className="flex-1 w-full border-0"
                 title="fabric_Q 面料查询"
                 onLoad={() => {
@@ -4182,7 +4182,7 @@ export default function TraysPage({
                 }}
               />
               {/* 底部说明：勾选操作在 fabric_Q 内部完成（结果表格最右列「翻单」checkbox） */}
-              <div className="flex items-center justify-between border-t border-edge bg-surface-subtle px-5 py-2.5 text-[11.5px]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-edge bg-surface-subtle px-3 py-2 sm:px-5 sm:py-2.5 text-[11px] sm:text-[11.5px] gap-1 sm:gap-2">
                 <span className="text-ink-secondary">
                   提示：fabric_Q 结果表格最右列「翻单」checkbox 可标记「无面料不翻单」（SKC 级）
                 </span>
@@ -4230,7 +4230,7 @@ export default function TraysPage({
             pids: rpPids.map((p) => p.toUpperCase()),
             autoSelect: true,
             items: sampleItems,
-          }, FABRIC_BASE);
+          }, window.location.origin);
         }
         function openInNewTab() {
           const url = `${FABRIC_BASE}/sales.html?pids=${rpPids.map((p) => p.toUpperCase()).join(',')}`;
@@ -4238,10 +4238,10 @@ export default function TraysPage({
           setRestockPicker(null);
         }
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/30" onClick={() => setRestockPicker(null)} />
-            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[85vh] w-[90vw] max-w-[1100px] flex-col border border-edge bg-surface-card shadow-2xl">
-              <div className="flex items-center justify-between border-b border-edge px-5 py-3">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setRestockPicker(null)} />
+            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[100dvh] w-full sm:h-[85vh] sm:w-[90vw] max-w-[1100px] flex-col border-0 sm:border border-edge bg-surface-card shadow-2xl rounded-none sm:rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between border-b border-edge px-3 py-2 sm:px-5 sm:py-3">
                 <div>
                   <div className="text-[13px] font-bold">
                     翻单计划 · {rpPids.length} 个款号

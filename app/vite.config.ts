@@ -19,6 +19,10 @@ export default defineConfig({
         target: 'http://127.0.0.1:3737',
         changeOrigin: true,
       },
+      '/fabric': {
+        target: 'http://127.0.0.1:3737',
+        changeOrigin: true,
+      },
     },
   },
   resolve: {

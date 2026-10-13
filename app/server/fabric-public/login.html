@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - 面料查询工具</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-card {
+      background: #fff;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      width: 100%;
+      max-width: 400px;
+    }
+    .login-title {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #333;
+      font-size: 24px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: #555;
+      font-size: 14px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #333;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-group input:focus {
+      outline: none;
+      border-color: #333;
+      box-shadow: 0 0 0 3px rgba(51,51,51,0.1);
+    }
+    input::placeholder { color: #999; }
+    input:disabled { background: #f5f5f5; cursor: not-allowed; }
+    .btn-login {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-login:hover {
+      opacity: 0.9;
+    }
+    .btn-login:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .error-msg {
+      color: #e53935;
+      font-size: 14px;
+      margin-top: 15px;
+      text-align: center;
+      display: none;
+    }
+    .error-msg.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <h1 class="login-title">面料查询工具</h1>
+    <form id="loginForm">
+      <div class="form-group">
+        <label>邮箱</label>
+        <input type="email" id="email" placeholder="请输入邮箱" required>
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="password" placeholder="请输入密码" required>
+      </div>
+      <button type="submit" class="btn-login" id="loginBtn">登录</button>
+      <p class="error-msg" id="errorMsg"></p>
+    </form>
+  </div>
+
+  <script src="/vendor/supabase.min.js"></script>
+  <script>
+    let supabaseClient = null;
+    let initError = null;
+
+    // 显示错误
+    function showError(msg) {
+      const errorMsg = document.getElementById('errorMsg');
+      errorMsg.textContent = msg;
+      errorMsg.classList.add('show');
+    }
+
+    // 初始化：从服务器获取配置
+    async function init() {
+      try {
+        const res = await fetch('/api/app-config');
+        if (!res.ok) {
+          throw new Error('获取配置失败');
+        }
+        const config = await res.json();
+        
+        if (!config.supabase || !config.supabase.url || !config.supabase.key) {
+          throw new Error('Supabase配置缺失');
+        }
+        
+        if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+          throw new Error('Supabase库未加载');
+        }
+        supabaseClient = window.supabase.createClient(config.supabase.url, config.supabase.key);
+
+        // 如果本地已有Supabase session（但后端cookie丢失），自动补写cookie并跳转
+        const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+        if (sessionError) {
+          console.log('读取session失败:', sessionError);
+        }
+        if (session && session.access_token) {
+          console.log('检测到已有session，尝试设置cookie...');
+          const sessionRes = await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: session.access_token })
+          });
+          if (sessionRes.ok) {
+            window.location.href = '/';
+            return;
+          }
+          const errData = await sessionRes.json().catch(() => ({}));
+          showError(errData.error || '设置登录状态失败');
+        }
+
+      } catch (err) {
+        console.error('初始化失败:', err);
+        initError = err.message || '系统初始化失败';
+        showError(initError);
+      }
+    }
+    init();
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('loginBtn');
+      const errorMsg = document.getElementById('errorMsg');
+      
+      // 检查supabase是否初始化
+      if (!supabaseClient) {
+        showError(initError || '系统未初始化，请刷新页面');
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.textContent = '登录中...';
+      errorMsg.classList.remove('show');
+      
+      try {
+        console.log('开始登录:', email);
+        
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+          email,
+          password
+        });
+        
+        console.log('Supabase登录结果:', { data, error });
+        
+        if (error) {
+          throw error;
+        }
+        
+        if (!data || !data.session) {
+          throw new Error('登录返回数据异常');
+        }
+        
+        console.log('登录成功，设置cookie...');
+        
+        // 登录成功，调用后端接口设置cookie
+        const sessionRes = await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token: data.session.access_token })
+        });
+        
+        console.log('设置cookie响应:', sessionRes.status);
+        
+        if (!sessionRes.ok) {
+          const errData = await sessionRes.json().catch(() => ({}));
+          throw new Error(errData.error || '设置登录状态失败');
+        }
+        
+        // 跳转到主页
+        window.location.href = '/';
+      } catch (err) {
+        console.error('登录错误:', err);
+        let msg = err.message || '登录失败';
+        // 翻译常见错误
+        if (msg.includes('Invalid login')) {
+          msg = '邮箱或密码错误';
+        } else if (msg.includes('Email not confirmed')) {
+          msg = '邮箱未验证';
+        } else if (msg.includes('Network')) {
+          msg = '网络错误，请检查连接';
+        }
+        showError(msg);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '登录';
+      }
+    });
+  </script>
+</body>
+</html>

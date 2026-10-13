@@ -1,0 +1,2878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>面料用量及库存查询</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .left-panel {
+      width: 46px;               /* 默认收起为窄带 */
+      background: white;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      overflow: hidden;
+      transition: width 0.25s ease;
+      position: relative;
+      flex-shrink: 0;
+    }
+    /* 鼠标移到左侧窄带 → 展开完整面板 */
+    .left-panel:hover {
+      width: 380px;
+    }
+    /* 面板内所有叠层内容绝对定位，铺满面板，避免 flex 挤开产生空白 */
+    .panel-inner,
+    .panel-trigger {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      box-sizing: border-box;
+    }
+    /* 内容区：占满面板、有内边距、独立滚动 */
+    .panel-inner {
+      display: flex;
+      flex-direction: column;
+      width: 380px;
+      padding: 24px;
+      opacity: 0;
+      transition: opacity 0.18s ease 0.1s;
+      pointer-events: none;
+      overflow-y: auto;
+    }
+    .left-panel:hover .panel-inner {
+      opacity: 1;
+      transition-delay: 0.12s;
+      pointer-events: auto;
+    }
+    /* 收起态显示的窄条提示 */
+    .panel-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 46px;
+      writing-mode: vertical-rl;
+      letter-spacing: 4px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #999;
+      user-select: none;
+      transition: opacity 0.15s ease;
+    }
+    .left-panel:hover .panel-trigger { opacity: 0; }
+    .logout-section {
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .user-email {
+      font-size: 13px;
+      color: #666;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
+    .logout-btn {
+      padding: 10px 20px;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      color: #666;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .logout-btn:hover {
+      background: #e0e0e0;
+      color: #333;
+    }
+    .right-panel {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      height: 100vh;
+      box-sizing: border-box;
+    }
+    h1 {
+      font-size: 20px;
+      color: #333;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      color: #888;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    textarea {
+      width: 100%;
+      height: 180px;
+      padding: 12px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #333;
+      background: #fff;
+      resize: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #333;
+      box-shadow: 0 0 0 3px rgba(51,51,51,0.1);
+    }
+    .input-tip {
+      font-size: 12px;
+      color: #999;
+      margin-top: 6px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: #333;
+      color: white;
+    }
+    .btn-primary:hover { background: #555; }
+    .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-secondary {
+      background: #eee;
+      color: #333;
+    }
+    .btn-secondary:hover { background: #ddd; }
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+    .btn-success:hover { background: #059669; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #ddd;
+      color: #666;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .btn-outline:hover { background: #f5f5f5; }
+    .clear-all-btn {
+      width: 100%;
+      margin-top: 10px;
+      color: #d32f2f;
+      border-color: #f0c4c4;
+      justify-content: center;
+    }
+    .clear-all-btn:hover { background: #fdecec; }
+    .btn-mini {
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: normal;
+      background: transparent;
+      border: 1px solid #ddd;
+      color: #999;
+    }
+    .btn-mini:hover { background: #f5f5f5; color: #d32f2f; }
+    .file-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .file-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #f9f9f9;
+      border: 1px dashed #ccc;
+      border-radius: 6px;
+      cursor: default;
+      font-size: 13px;
+      color: #666;
+      user-select: none;
+    }
+    .file-label:hover { border-color: #999; cursor: pointer; }
+    .file-input { display: none; }
+    .file-name {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: #e8f5e9;
+      border: 1px solid #81c784;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #2e7d32;
+    }
+    .file-name:empty { display: none; }
+    .file-name::before { content: '📄'; }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #666;
+      margin: 20px 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .history-filter {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .history-filter input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .history-filter input:focus { outline: none; border-color: #333; box-shadow: 0 0 0 3px rgba(51,51,51,0.1); }
+    .history-filter select {
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .history-filter select:focus { outline: none; border-color: #333; box-shadow: 0 0 0 3px rgba(51,51,51,0.1); }
+    .delete-select {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 11px;
+      background: white;
+      cursor: pointer;
+      color: #666;
+    }
+    .delete-select:hover { border-color: #e74c3c; color: #e74c3c; }
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      padding: 6px;
+    }
+    .history-item {
+      background: #f9f9f9;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .history-item:hover { background: #eee; }
+    .history-time { color: #999; font-size: 11px; }
+    .history-codes { flex: 1; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-count { background: #333; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .history-item .delete { color: #999; font-size: 12px; }
+    .history-item:hover .delete { color: #e74c3c; }
+    .history-empty { color: #999; font-size: 13px; }
+    .result-card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .result-header-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .result-header-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .result-header-primary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12.5px;
+    }
+    .mobile-panel-toggle {
+      display: none;
+    }
+    .norestock-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      gap: 4px;
+      padding: 3px 8px;
+      min-height: 28px;
+      background: #fef2f2;
+      border: 1px solid #fee2e2;
+      border-radius: 4px;
+      user-select: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .norestock-label:hover {
+      background: #fee2e2;
+      border-color: #fca5a5;
+    }
+    .norestock-label input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      accent-color: #dc2626;
+      cursor: pointer;
+      margin: 0;
+    }
+    .norestock-label span {
+      font-size: 11px;
+      font-weight: 600;
+      color: #b91c1c;
+      white-space: nowrap;
+    }
+    .result-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .result-count {
+      background: #333;
+      color: white;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    .table-container {
+      overflow: auto;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      max-height: calc(100vh - 260px);
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x pan-y;
+    }
+    table { width: 100%; min-width: 1600px; border-collapse: collapse; font-size: 12px; }
+    th {
+      background: #f9f9f9;
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: 500;
+      color: #666;
+      border-bottom: 1px solid #eee;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+      white-space: nowrap;
+    }
+    /* 横向冻结的前 9 列（款式编码 → 物料颜色）—— left 由 renderResults 后 JS 动态赋值 */
+    /* min-width 强制列宽，避免被 100% 容器压扁；sticky.left 才有"可滚动的距离" */
+    th.freeze-col, td.freeze-col {
+      position: sticky;
+      background: #fff;
+      z-index: 2;
+      min-width: 90px;
+      white-space: nowrap;
+    }
+    thead th.freeze-col { z-index: 4; background: #f9f9f9; }
+    td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; user-select: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+    td .col-input { height: 26px; padding: 2px 6px; }
+    tbody tr { cursor: pointer; height: 32px; }
+    tbody tr:hover { background: #d0e8ff !important; }
+    tr:last-child td { border-bottom: none; }
+    .copy-tip {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .copy-tip.show { opacity: 1; }
+    .stock-high { color: #10b981; font-weight: 500; }
+    .stock-low { color: #f59e0b; font-weight: 500; }
+    .stock-zero { color: #999; }
+    .error-row { background: #fef2f2; }
+    .error-text { color: #ef4444; font-size: 12px; }
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 60px;
+      color: #666;
+    }
+    .loading.show { display: block; }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #eee;
+      border-top-color: #333;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: #999;
+    }
+    .empty-state h2 { font-size: 16px; color: #666; margin-bottom: 8px; }
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .settings-btn {
+      background: transparent;
+      border: none;
+      padding: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      color: #999;
+      display: flex;
+      align-items: center;
+    }
+    .settings-btn:hover { color: #333; }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.4);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal.show { display: flex; }
+    .modal-content {
+      background: white;
+      padding: 24px;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 420px;
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { font-size: 13px; margin-bottom: 4px; }
+    .form-group input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #333;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-group input:focus { outline: none; border-color: #333; box-shadow: 0 0 0 3px rgba(51,51,51,0.1); }
+    input::placeholder, textarea::placeholder { color: #999; }
+    input:disabled, textarea:disabled, select:disabled { background: #f5f5f5; cursor: not-allowed; }
+    .config-status {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .config-status.ok { background: #d1fae5; color: #065f46; }
+    .config-status.error { background: #fee2e2; color: #991b1b; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    /* 新增列样式 */
+    .col-input { width: 70px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; text-align: right; }
+    .btn-inquiry { padding: 4px 10px; font-size: 12px; border: 1px solid #333; background: #333; color: white; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+    .btn-inquiry:hover { background: #555; }
+    .btn-inquiry:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
+    .col-input:focus { outline: none; border-color: #333; }
+    .col-input[type="date"] { width: 120px; text-align: center; }
+    /* 货盘文字模态框 */
+    .huopan-textarea { width: 100%; min-height: 200px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; line-height: 1.8; resize: vertical; font-family: monospace; }
+    .huopan-actions { display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end; }
+    .result-actions { display: flex; gap: 8px; }
+    /* 采购明细浮层 */
+    .po-popover { position: relative; display: inline-block; }
+    .po-detail-btn { background: transparent; border: 1px solid #ddd; color: #666;
+      padding: 2px 6px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+    .po-detail-btn.has-pos { color: #10b981; border-color: #10b981; }
+    .po-popup { display: none; position: absolute; top: 100%; left: 0; z-index: 100;
+      background: white; border: 1px solid #ddd; border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 12px; min-width: 340px; }
+    .po-popup.show { display: block; }
+    .po-popup-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .po-item { display: flex; justify-content: space-between; padding: 6px 0;
+      border-bottom: 1px solid #f0f0f0; font-size: 12px; }
+    .po-item:last-child { border-bottom: none; }
+    .po-item-qty input { width: 55px; padding: 2px 4px; border: 1px solid #ddd;
+      border-radius: 3px; font-size: 11px; text-align: right; }
+    .po-popup-total { margin-top: 8px; padding-top: 8px; border-top: 2px solid #eee;
+      font-size: 12px; color: #333; }
+    .po-popup-close { position: absolute; top: 6px; right: 8px; background: none;
+      border: none; font-size: 16px; color: #999; cursor: pointer; }
+
+    /* 嵌入模式 (iframe) 优化 */
+    body.iframe-mode {
+      background: #fff;
+    }
+    body.iframe-mode .layout {
+      min-height: auto;
+    }
+    body.iframe-mode .left-panel {
+      display: none !important; /* 嵌入弹窗内默认隐藏侧栏，全宽展示结果 */
+    }
+    body.iframe-mode .left-panel.show-panel {
+      display: block !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100% !important;
+      max-width: 360px;
+      height: 100vh;
+      z-index: 100;
+      box-shadow: 2px 0 16px rgba(0,0,0,0.25);
+    }
+    body.iframe-mode .right-panel {
+      padding: 10px 12px;
+      height: auto;
+      min-height: 100vh;
+    }
+    body.iframe-mode .mobile-panel-toggle {
+      display: inline-flex !important;
+    }
+
+    /* 移动端响应式 (@media (max-width: 768px)) */
+    @media (max-width: 768px) {
+      .layout {
+        flex-direction: column;
+        min-height: auto;
+      }
+      .left-panel {
+        width: 100% !important;
+        height: auto !important;
+        border-right: none;
+        border-bottom: 1px solid #e0e0e0;
+        display: none;
+      }
+      .left-panel.show-panel {
+        display: block !important;
+      }
+      .panel-trigger {
+        display: none !important;
+      }
+      .panel-inner {
+        position: static !important;
+        width: 100% !important;
+        padding: 14px !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+      }
+      .right-panel {
+        padding: 8px !important;
+        height: auto !important;
+        min-height: calc(100vh - 16px);
+        width: 100% !important;
+        box-sizing: border-box;
+      }
+      .result-card {
+        padding: 10px 8px !important;
+        border-radius: 6px;
+      }
+      .result-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .result-header-main {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .result-header-tools {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .result-header-tools button {
+        padding: 5px 8px;
+        font-size: 11.5px;
+      }
+      .result-header-primary {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      #confirmSyncBtn, #genFabricBtn, #sendToTraysBtn {
+        width: 100% !important;
+        min-height: 42px !important;
+        font-size: 13.5px !important;
+        font-weight: 600 !important;
+        justify-content: center !important;
+        border-radius: 6px !important;
+      }
+      .table-container {
+        max-height: calc(100vh - 170px);
+        -webkit-overflow-scrolling: touch;
+      }
+      table {
+        min-width: 1100px;
+      }
+      /* 移动端只冻结第1列款式编码，其余列取消强制sticky并减小min-width以防遮挡 */
+      th.freeze-col, td.freeze-col {
+        min-width: 75px;
+      }
+      th.freeze-col:nth-of-type(n+2), td.freeze-col:nth-of-type(n+2) {
+        position: static !important;
+        left: auto !important;
+        box-shadow: none !important;
+      }
+      .mobile-panel-toggle {
+        display: inline-flex !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="copy-tip" id="copyTip">已复制到剪贴板</div>
+  <div class="modal" id="settingsModal">
+    <div class="modal-content">
+      <div class="modal-title">设置</div>
+      <div class="config-status" id="configStatus">检查中...</div>
+      <div class="form-group">
+        <label>App ID</label>
+        <input type="text" id="configAppId" placeholder="输入 App ID">
+      </div>
+      <div class="form-group">
+        <label>App Secret</label>
+        <input type="password" id="configAppSecret" placeholder="输入 App Secret（留空表示不修改）">
+      </div>
+      <div class="form-group">
+        <label>API 地址</label>
+        <input type="text" id="configBaseUrl" placeholder="输入 API 地址">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-primary" onclick="saveSettings()">保存配置</button>
+        <button type="button" class="btn-secondary" onclick="closeSettings()">取消</button>
+        <button type="button" class="btn-danger" onclick="resetSettings()">重置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 货盘文字生成模态框 -->
+  <div class="modal" id="huopanModal">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-title">生成面料信息</div>
+      <textarea class="huopan-textarea" id="huopanText" placeholder="可手动修改"></textarea>
+      <div class="huopan-actions">
+        <button type="button" class="btn-secondary" onclick="closeHuopanModal()">关闭</button>
+        <button type="button" class="btn-success" onclick="copyHuopanText()">复制</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 询单文案预览模态框 -->
+  <div class="modal" id="inquiryModal">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-title">询单文案预览</div>
+      <textarea class="huopan-textarea" id="inquiryText" placeholder="此文案可手动修改"></textarea>
+      <p style="font-size: 12px; color: #999; margin-top: 8px;">复制前可在此修改内容，确认无误后再复制。</p>
+      <div class="huopan-actions">
+        <button type="button" class="btn-secondary" onclick="closeInquiryModal()">关闭</button>
+        <button type="button" class="btn-success" onclick="copyInquiryText()">复制文案</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="left-panel">
+      <!-- 收起态显示的窄条提示 -->
+      <div class="panel-trigger">查 询</div>
+      <div class="panel-inner">
+      <div class="header-row">
+        <h1>面料查询</h1>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <a href="/fabric/sales.html" style="font-size: 13px; color: #333; text-decoration: underline;">翻单计划</a>
+          <button type="button" class="settings-btn" onclick="openSettings()" title="设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <p class="subtitle">批量查询面料用量和库存</p>
+      
+      <div class="file-row">
+        <label>款式编码</label>
+        <label class="file-label">
+          <span>📁</span> 导入txt
+          <input type="file" class="file-input" id="fileInput" accept=".txt" onchange="handleFileUpload(event)">
+        </label>
+      </div>
+      <span class="file-name" id="fileName"></span>
+      <textarea id="pdtCodes" placeholder="每行一个款式编码&#10;MD13DW008&#10;MD13DW009"></textarea>
+      <div class="input-tip">每行输入一个款式编码，或导入txt文件</div>
+
+      <div class="btn-row">
+        <button type="button" class="btn-primary" id="queryBtn" onclick="handleQuery()">查询</button>
+        <button type="button" class="btn-secondary" onclick="handleClear()">清空</button>
+      </div>
+
+      <button type="button" class="btn-outline clear-all-btn" onclick="clearAllSupplementaryData()">清空所有补充信息</button>
+
+      <div class="section-title">
+        <span>历史记录 <span style="font-weight:normal;color:#999;font-size:11px;">（最多存储500条）</span></span>
+        <button type="button" class="btn-mini" onclick="clearAllHistory()">清空查询历史</button>
+      </div>
+      <div class="history-filter">
+        <input type="text" id="historySearch" placeholder="搜索编号..." oninput="filterHistory()">
+        <select id="historyTime" onchange="filterHistory()">
+          <option value="all">全部时间</option>
+          <option value="today">今天</option>
+          <option value="week">近7天</option>
+          <option value="month">近30天</option>
+        </select>
+      </div>
+      <div class="history-list" id="historyList">
+        <span class="history-empty">暂无记录</span>
+      </div>
+      
+      <div class="logout-section">
+        <span class="user-email" id="userEmail"></span>
+        <button type="button" class="logout-btn" onclick="handleLogout()">退出登录</button>
+      </div>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>查询中...</p>
+      </div>
+
+      <div class="empty-state" id="emptyState">
+        <h2>暂无查询结果</h2>
+        <p>在左侧输入款式编码开始查询</p>
+      </div>
+
+      <div class="result-card" id="resultSection" style="display: none;">
+        <div class="result-header">
+          <div class="result-header-main">
+            <div class="result-title">
+              查询结果
+              <span class="result-count" id="resultCount">0</span>
+            </div>
+            <div class="result-header-tools">
+              <button type="button" class="btn-outline btn-sm mobile-panel-toggle" onclick="toggleMobileLeftPanel()" title="查看/修改查询款号">🔍 改款号</button>
+              <button type="button" class="btn-success btn-sm" onclick="handleDownload()">下载CSV</button>
+              <button type="button" class="btn-outline btn-sm" onclick="resetSupplementaryData()">重置补充</button>
+            </div>
+          </div>
+          <div class="result-header-primary">
+            <button type="button" class="btn-primary" id="genFabricBtn" onclick="handleGenerateAndSubmit()">确认并生成面料信息</button>
+            <button type="button" class="btn-success" id="confirmSyncBtn" onclick="confirmAndSyncToTray()" style="display: none;">✓ 确认并同步面料信息到货盘</button>
+            <button type="button" class="btn-info" id="sendToTraysBtn" onclick="sendToTraysApp()" style="display: none;">📤 发送到货盘</button>
+          </div>
+        </div>
+
+        <!-- BOM无面料提示区域 -->
+        <div id="bomWarning" style="display: none; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; font-size: 13px; color: #92400e;">
+          <strong>⚠️ 以下款号的 BOM 未填写面料：</strong>
+          <div id="bomWarningList" style="margin-top: 6px;"></div>
+          <div style="margin-top: 6px; color: #b45309;">请联系相关人员补充工艺库面料信息。</div>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th class="freeze-col">款式编码</th>
+                <th class="freeze-col">SKC</th>
+                <th class="freeze-col">成衣颜色</th>
+                <th class="freeze-col">物料编码</th>
+                <th class="freeze-col">物料名称</th>
+                <th class="freeze-col">物料类型</th>
+                <th class="freeze-col">物料规格名称</th>
+                <th class="freeze-col">供应商</th>
+                <th class="freeze-col">物料颜色</th>
+                <th>仓库</th>
+                <th>用量(米)</th>
+                <th>单价(元)</th>
+                <th>库存(米)</th>
+                <th>可生产</th>
+                <th>在途(米)</th>
+                <th>交期</th>
+                <th>采购明细<span style="font-weight:normal;font-size:10px;">(点击)</span></th>
+                <th>工厂现货(米)</th>
+                <th>可订货(米)</th>
+                <th>订货周期(天)</th>
+                <th>询单</th>
+                <th style="text-align: center; min-width: 68px;">翻单</th>
+              </tr>
+            </thead>
+            <tbody id="resultBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/fabric/vendor/supabase.min.js"></script>
+  <script>
+    let supabaseClient = null;
+    let queryResults = [];
+    let historyData = [];
+    let currentUser = null;
+    let accessToken = null;
+    let saveTimer = null;
+    let supabaseSyncTimer = null;
+
+    // 本会话内手动改过的「在途/交期」格子（key+字段），重新查询不再用采购接口自动值覆盖
+    let editedPurchasingCells = new Set();
+
+    // PO级别覆盖（key__poCode -> { qty?, date? }），持久化到 localStorage
+    let poOverrides = loadPoOverrides();
+
+    // localStorage key
+    const FABRIC_DATA_KEY = 'fabric_supplementary_data';
+
+    // 加载已保存的补充数据
+    function loadSavedData() {
+      try {
+        const saved = localStorage.getItem(FABRIC_DATA_KEY);
+        return saved ? JSON.parse(saved) : {};
+      } catch { return {}; }
+    }
+
+    // 保存补充数据到 localStorage（debounce）
+    function saveDataDebounced() {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const data = {};
+        queryResults.forEach((item, idx) => {
+          const key = buildRowKey(item);
+          if (item._extra) {
+            data[key] = { ...item._extra };
+          }
+        });
+        localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(data));
+      }, 500);
+    }
+
+    // 构建行的唯一 key（含物料编码，避免同 SKC 同仓库的不同面料共享补充数据）
+    function buildRowKey(item) {
+      return `${item.pdtCode}__${item.skuCode}__${item.mtCode}__${item.warehouse}`;
+    }
+
+    // 读取某行的补充数据
+    function getRowExtra(item) {
+      const saved = loadSavedData();
+      const key = buildRowKey(item);
+      return saved[key] || { inTransitQty: '', deliveryDate: '', factorySpotQty: '', orderableQty: '', leadTimeDays: '' };
+    }
+
+    // 查询后从 Supabase 恢复补充信息（在途/交期/可订货/订货周期）
+    // 刷新、换浏览器或清空 localStorage 后仍能显示已保存的补充信息
+    async function syncSupplementsFromServer() {
+      try {
+        const res = await authFetch('/api/fabric-data');
+        const result = await res.json();
+        if (!result.success || !result.data) return;
+
+        // 用 (款号,SKC,物料,仓库) 建立映射
+        const map = new Map();
+        result.data.forEach(r => {
+          const k = `${r.pdt_code}__${r.sku_code}__${r.mt_code}__${r.warehouse}`;
+          if (!map.has(k)) map.set(k, r);
+        });
+
+        const saved = loadSavedData();
+        let changed = false;
+        queryResults.forEach(item => {
+          const key = buildRowKey(item);
+          const row = map.get(key);
+          if (!row) return;
+          const cur = saved[key] || {};
+          const out = { ...cur };
+          // 本地已填过则保留本地，否则用服务器上的值恢复
+          // 在途/交期：本次查询已从采购接口拿到数据（含0）的话，以接口为准，不从服务器回填旧值
+          if (item.inTransitQty === undefined && Number(row.in_transit_qty) > 0 && !cur.inTransitQty) {
+            out.inTransitQty = String(row.in_transit_qty) !== 'undefined' ? String(row.in_transit_qty) : '';
+            changed = true;
+          }
+          if (item.deliverDate === undefined && row.delivery_date && !cur.deliveryDate) {
+            const d = String(row.delivery_date || '').slice(0, 10);
+            out.deliveryDate = (d && d !== 'undefined' && d !== 'null') ? d : '';
+            changed = true;
+          }
+          if (Number(row.orderable_qty) > 0 && !cur.orderableQty) {
+            out.orderableQty = String(row.orderable_qty) !== 'undefined' ? String(row.orderable_qty) : '';
+            changed = true;
+          }
+          if (Number(row.factory_spot_qty) > 0 && !cur.factorySpotQty) {
+            out.factorySpotQty = String(row.factory_spot_qty) !== 'undefined' ? String(row.factory_spot_qty) : '';
+            changed = true;
+          }
+          if (Number(row.lead_time_days) > 0 && !cur.leadTimeDays) {
+            out.leadTimeDays = String(row.lead_time_days) !== 'undefined' ? String(row.lead_time_days) : '';
+            changed = true;
+          }
+          saved[key] = out;
+        });
+
+        if (changed) {
+          localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
+          renderResults(queryResults);
+        }
+      } catch (err) {
+        console.error('从Supabase恢复补充信息失败:', err);
+      }
+    }
+
+    // 检查BOM未填写面料的情况，显示提示
+    function checkBomWarning() {
+      const bomEmptyItems = queryResults.filter(item => {
+        return item.mtName === '无此款' || item.mtName === '查无此款' || item.mtName === '未找到物料' || item.mtCode === '-';
+      });
+
+      const warningEl = document.getElementById('bomWarning');
+      const listEl = document.getElementById('bomWarningList');
+
+      if (bomEmptyItems.length > 0) {
+        // 按款号去重
+        const emptyPdtCodes = [...new Set(bomEmptyItems.map(item => item.pdtCode))];
+        listEl.innerHTML = emptyPdtCodes.map(code => `• <strong>${code}</strong>`).join('<br>');
+        warningEl.style.display = 'block';
+      } else {
+        warningEl.style.display = 'none';
+      }
+    }
+
+    // 复制行数据（用于点击行复制）
+    function getRowCopyText(item) {
+      const extra = getRowExtra(item);
+      return [
+        item.pdtCode,
+        item.skuCode || '-',
+        item.pdtColorName || '-',
+        item.mtCode,
+        item.mtName,
+        item.mtType || '-',
+        item.mtSpecName || '-',
+        item.supplierName || '-',
+        item.colorName || '-',
+        item.warehouse || '-',
+        item.useAmt.toFixed(2),
+        formatPrice(item.mtPrice),
+        item.stock.toFixed(2),
+        item.canProduce,
+        extra.inTransitQty,
+        extra.deliveryDate,
+        extra.factorySpotQty,
+        extra.orderableQty,
+        extra.leadTimeDays
+      ].join('\t');
+    }
+
+    // 生成询单文案并打开预览（可修改后再复制）
+    function generateInquiryText(item) {
+      const pdt = item.pdtCode || '';
+      const mtCode = item.mtCode || '';
+      const mtSpec = item.mtSpecName || '';
+      const text = `你好，麻烦报下${pdt} + ${mtCode} + ${mtSpec}的现货库存数，若无现货，麻烦告知定制生产交期，有无起订量需求，谢谢`;
+      document.getElementById('inquiryText').value = text;
+      document.getElementById('inquiryModal').classList.add('show');
+    }
+
+    function closeInquiryModal() {
+      document.getElementById('inquiryModal').classList.remove('show');
+    }
+
+    // 复制预览中的询单文案（可先修改再复制）
+    function copyInquiryText() {
+      const text = document.getElementById('inquiryText').value;
+      if (!text.trim()) {
+        alert('没有可复制的内容');
+        return;
+      }
+      const showTip = () => {
+        const tip = document.getElementById('copyTip');
+        if (tip) {
+          tip.textContent = '询单文案已复制';
+          tip.classList.add('show');
+          setTimeout(() => tip.classList.remove('show'), 1500);
+        }
+      };
+      const fallback = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch {}
+        document.body.removeChild(ta);
+        showTip();
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(showTip).catch(fallback);
+      } else {
+        fallback();
+      }
+    }
+
+    // 带认证的fetch函数（DEMO 模式下若无 token 则不带 Authorization）
+    async function authFetch(url, options = {}) {
+      // 获取最新的token
+      if (supabaseClient) {
+        const { data } = await supabaseClient.auth.getSession();
+        if (data?.session?.access_token) {
+          accessToken = data.session.access_token;
+        }
+      }
+
+      const headers = { ...options.headers };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      } else {
+        // DEMO 模式：没有 token 也不跳转登录，让调用方处理错误
+        console.log('[authFetch] 无 access_token，DEMO 模式直接请求:', url);
+      }
+
+      const response = await fetch(url, { ...options, headers });
+      return response;
+    }
+
+    // 立即检查登录状态（不等DOM加载）
+    (async function checkAuth() {
+      function initPage() {
+        const userEmailEl = document.getElementById('userEmail');
+        if (userEmailEl) userEmailEl.textContent = currentUser?.email || '';
+        loadConfig();
+        loadHistory();
+      }
+
+      function scheduleInit() {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initPage);
+        } else {
+          initPage();
+        }
+      }
+
+      try {
+        const res = await fetch('/api/app-config');
+        const config = await res.json().catch(() => ({}));
+
+        if (config?.supabase?.url && config?.supabase?.key && window.supabase && typeof window.supabase.createClient === 'function') {
+          try {
+            supabaseClient = window.supabase.createClient(config.supabase.url, config.supabase.key);
+            const { data } = await supabaseClient.auth.getSession();
+            if (data?.session?.user) {
+              currentUser = data.session.user;
+              accessToken = data.session.access_token;
+            }
+          } catch (e) {
+            console.warn('[auth] Supabase 会话初始化异常，降级直通:', e);
+          }
+        }
+        scheduleInit();
+      } catch (err) {
+        console.warn('[auth] 配置拉取异常，继续直通初始化:', err);
+        scheduleInit();
+      }
+    })();
+
+    // 设置相关函数
+    let configLoaded = false;
+    async function loadConfig() {
+      try {
+        const res = await authFetch('/api/config');
+        const data = await res.json();
+        if (data.success) {
+          const appIdInput = document.getElementById('configAppId');
+          const secretInput = document.getElementById('configAppSecret');
+          const urlInput = document.getElementById('configBaseUrl');
+          
+          // 设置placeholder提示
+          appIdInput.placeholder = data.data.appId ? `已配置: ${data.data.appId}` : '输入 App ID';
+          secretInput.placeholder = data.data.secretMasked ? `已配置: ${data.data.secretMasked}` : '输入 App Secret';
+          
+          // 只在首次加载时设置URL默认值
+          if (!configLoaded) {
+            urlInput.value = data.data.baseUrl || '';
+          }
+          
+          const isConfigured = data.data.appIdMasked && data.data.hasSecret && data.data.baseUrl;
+          updateConfigStatus(isConfigured);
+          
+          // 首次加载且未配置时自动弹出配置窗口
+          if (!configLoaded && !isConfigured) {
+            openSettings();
+          }
+          configLoaded = true;
+        } else {
+          updateConfigStatus(false);
+        }
+      } catch (err) {
+        console.error('加载配置失败:', err);
+        updateConfigStatus(false);
+      }
+    }
+
+    function updateConfigStatus(isConfigured) {
+      const status = document.getElementById('configStatus');
+      if (isConfigured) {
+        status.className = 'config-status ok';
+        status.textContent = '✅ 已配置 - API配置已保存';
+      } else {
+        status.className = 'config-status error';
+        status.textContent = '⚠️ 未配置 - 请填写 App ID、App Secret 和 API地址';
+      }
+    }
+
+    function openSettings() {
+      document.getElementById('settingsModal').classList.add('show');
+      // 每次打开设置时重新加载配置状态
+      loadConfig();
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').classList.remove('show');
+      document.getElementById('configAppSecret').value = '';
+    }
+
+    async function saveSettings() {
+      const appId = document.getElementById('configAppId').value.trim();
+      const appSecret = document.getElementById('configAppSecret').value.trim();
+      const baseUrl = document.getElementById('configBaseUrl').value.trim();
+
+      const body = { baseUrl };
+      // 只有输入了新值才更新
+      if (appId) body.appId = appId;
+      if (appSecret) body.appSecret = appSecret;
+
+      try {
+        const res = await authFetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('配置已保存');
+          closeSettings();
+          loadConfig();
+        }
+      } catch (err) {
+        alert('保存失败: ' + err.message);
+      }
+    }
+
+    async function resetSettings() {
+      if (!confirm('确定要重置所有配置吗？')) return;
+      try {
+        const res = await authFetch('/api/config', { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('configAppId').value = '';
+          document.getElementById('configAppSecret').value = '';
+          document.getElementById('configBaseUrl').value = '';
+          document.getElementById('configAppId').placeholder = '输入 App ID';
+          document.getElementById('configAppSecret').placeholder = '输入 App Secret';
+          updateConfigStatus(false);
+          alert('配置已重置');
+        } else {
+          alert('重置失败: ' + (data.error || '未知错误'));
+        }
+      } catch (err) {
+        alert('重置失败: ' + err.message);
+      }
+    }
+
+    async function loadHistory() {
+      try {
+        const res = await authFetch('/api/history');
+        const data = await res.json();
+        if (data.success) {
+          historyData = data.data;
+          renderHistory();
+        }
+      } catch {}
+    }
+
+    function filterHistory() {
+      const search = document.getElementById('historySearch').value.trim().toLowerCase();
+      const timeFilter = document.getElementById('historyTime').value;
+      const now = new Date();
+      
+      const filtered = historyData.filter(record => {
+        // 编号搜索
+        if (search && !record.codes.some(c => c.toLowerCase().includes(search))) {
+          return false;
+        }
+        // 时间筛选
+        if (timeFilter !== 'all') {
+          const recordDate = new Date(record.time.replace(/\//g, '-'));
+          const diffDays = (now - recordDate) / (1000 * 60 * 60 * 24);
+          if (timeFilter === 'today' && diffDays > 1) return false;
+          if (timeFilter === 'week' && diffDays > 7) return false;
+          if (timeFilter === 'month' && diffDays > 30) return false;
+        }
+        return true;
+      });
+      
+      renderHistoryList(filtered);
+    }
+
+    function renderHistory() {
+      renderHistoryList(historyData);
+    }
+
+    function renderHistoryList(data) {
+      const container = document.getElementById('historyList');
+      if (data.length === 0) {
+        container.innerHTML = '<span class="history-empty">暂无匹配记录</span>';
+        return;
+      }
+      // 简化时间格式：2025/12/24 15:55:50 -> 12/24 15:55
+      const formatTime = (time) => {
+        const match = time.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+)/);
+        if (match) return `${match[2]}/${match[3]} ${match[4]}:${match[5]}`;
+        return time;
+      };
+      container.innerHTML = data.map(record => `
+        <div class="history-item" onclick="viewHistory('${record.id}')">
+          <span class="history-time">${formatTime(record.time)}</span>
+          <span class="history-codes">${record.codes.slice(0,3).join(', ')}${record.codes.length > 3 ? '...' : ''}</span>
+          <span class="history-count">${record.results.length}条</span>
+          <span class="delete" onclick="event.stopPropagation(); deleteHistory('${record.id}')">\u2715</span>
+        </div>
+      `).join('');
+    }
+
+    function viewHistory(id) {
+      const record = historyData.find(h => h.id === id);
+      if (record) {
+        // 回看历史时也排除 恒隆仓 / 工厂物料仓库（与查询一致）
+        queryResults = (record.results || []).filter(item => {
+          const w = (item.warehouse || '');
+          return !(w.includes('恒隆') || w.includes('工厂物料'));
+        });
+        renderResults(queryResults);
+        syncSupplementsFromServer();  // 回看历史时也从数据库恢复补充信息
+        document.getElementById('pdtCodes').value = record.codes.join('\n');
+      }
+    }
+
+    async function deleteHistory(id) {
+      try {
+        await authFetch('/api/history/' + id, { method: 'DELETE' });
+        historyData = historyData.filter(h => h.id !== id);
+        renderHistory();
+      } catch {}
+    }
+
+    async function clearAllHistory() {
+      if (!confirm('确定要清空所有历史记录吗？')) return;
+      try {
+        await authFetch('/api/history', { method: 'DELETE' });
+        historyData = [];
+        renderHistory();
+      } catch {}
+    }
+
+    // 解析txt文件内容到textarea
+    function parseFileToTextarea(file) {
+      if (!file) return;
+      if (!file.name.endsWith('.txt')) {
+        alert('请选择txt文件');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const content = e.target.result;
+        const textarea = document.getElementById('pdtCodes');
+        
+        // 解析txt文件（每行一个款式编码）
+        const codes = content
+          .split(/[\n\r]+/)
+          .map(s => s.trim())
+          .filter(s => s);
+        
+        if (codes.length > 0) {
+          textarea.value = codes.join('\n');
+          // 更新文件名显示，包含导入数量
+          document.getElementById('fileName').textContent = file.name + ` (${codes.length}条)`;
+        } else {
+          document.getElementById('fileName').textContent = '';
+          alert('文件为空或格式不正确');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function handleFileUpload(event) {
+      parseFileToTextarea(event.target.files[0]);
+    }
+
+    // 支持拖拽文件到textarea
+    (function setupDragDrop() {
+      const textarea = document.getElementById('pdtCodes');
+      if (!textarea) return;
+      
+      textarea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        textarea.style.borderColor = '#3498db';
+      });
+      
+      textarea.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        textarea.style.borderColor = '';
+      });
+      
+      textarea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        textarea.style.borderColor = '';
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          parseFileToTextarea(files[0]);
+        }
+      });
+    })();
+
+    // 用采购接口返回的在途/交期 刷新每行默认值（写到本地存储，供渲染直接用）
+    // 规则：接口返回了采购数据（含 0/无交期，即为权威）→ 覆盖旧的在途/交期；
+    //       本会话内手动改过的格子以手改为准，不再覆盖。
+    //       接口没返回采购数据（查询失败等）→ 不动，保留已保存值。
+    function seedAutoPurchasing() {
+      if (!queryResults || queryResults.length === 0) return;
+      const saved = loadSavedData();
+      let changed = false;
+
+      queryResults.forEach(item => {
+        const key = buildRowKey(item);
+
+        // 接口没返回采购数据（inTransitQty/deliverDate 均 undefined 且无 PO 明细）时跳过
+        const hasApi = item.inTransitQty !== undefined || item.deliverDate !== undefined || (item.purchaseOrders?.length ?? 0) > 0;
+        if (!hasApi) return;
+
+        // 初始化 saved[key]，确保可写
+        if (!saved[key]) saved[key] = {};
+        const out = { ...saved[key] };
+
+        // 在途：接口值 >0 写入；=0 清空（权威：无在途）
+        if (!editedPurchasingCells.has(key + ':inTransitQty') && item.inTransitQty !== undefined) {
+          const v = Number(item.inTransitQty) > 0 ? String(Math.round(Number(item.inTransitQty))) : '';
+          if (out.inTransitQty !== v) { out.inTransitQty = v; changed = true; }
+        }
+        // 交期：接口有值写入；接口无在途/PO时清空旧交期
+        if (!editedPurchasingCells.has(key + ':deliveryDate')) {
+          if (item.deliverDate) {
+            const v = String(item.deliverDate).slice(0, 10);
+            if (out.deliveryDate !== v) { out.deliveryDate = v; changed = true; }
+          } else if (
+            out.deliveryDate &&
+            (item.inTransitQty === undefined || item.inTransitQty === 0) &&
+            !((item.purchaseOrders || []).length)
+          ) {
+            out.deliveryDate = '';
+            changed = true;
+          }
+        }
+
+        saved[key] = out;
+      });
+
+      if (changed) localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
+    }
+
+    // 查询后根据 PO 明细把主格值覆盖为 PO 覆盖值（PO overrides 持久化在 localStorage）
+    // 注意：必须写回 savedData（localStorage），因为 renderResults 是从 savedData 读主格显示值，
+    // 只改 item._extra 会被 renderResults 用 savedData 覆盖掉，导致刷新/重查后 PO 覆盖丢失。
+    function syncPoOverridesToMainCells() {
+      if (!queryResults || queryResults.length === 0) return;
+      const saved = loadSavedData();
+      let changed = false;
+
+      queryResults.forEach(item => {
+        const key = buildRowKey(item);
+        if (!item.purchaseOrders?.length) return;
+
+        // 计算 PO 覆盖后的合计与最近交期（每个单元格单独判断是否被本会话手动改过）
+        const total = item.purchaseOrders.reduce((sum, po) => {
+          const ov = poOverrides[key + '__' + po.poCode] || {};
+          return sum + (ov.qty !== undefined ? ov.qty : po.remaining);
+        }, 0);
+        const dates = item.purchaseOrders
+          .map(po => {
+            const ov = poOverrides[key + '__' + po.poCode] || {};
+            return { qty: ov.qty !== undefined ? ov.qty : po.remaining, date: ov.date || po.deliverDate };
+          })
+          .filter(x => x.qty > 0 && x.date)
+          .map(x => x.date)
+          .sort();
+        const nearestDate = dates[0] || '';
+
+        const cur = saved[key] || {};
+        const out = { ...cur };
+
+        // 覆盖到持久化数据（手动改过的格子不覆盖）
+        if (!editedPurchasingCells.has(key + ':inTransitQty')) {
+          const v = total > 0 ? String(Math.round(total)) : '';
+          if (out.inTransitQty !== v) { out.inTransitQty = v; changed = true; }
+        }
+        if (!editedPurchasingCells.has(key + ':deliveryDate')) {
+          if (out.deliveryDate !== nearestDate) { out.deliveryDate = nearestDate; changed = true; }
+        }
+
+        saved[key] = out;
+
+        // 同步到 item._extra，保证当前会话后续逻辑（如文字生成）立即读到覆盖值
+        if (!item._extra) item._extra = {};
+        if (!editedPurchasingCells.has(key + ':inTransitQty')) {
+          item._extra.inTransitQty = total > 0 ? String(Math.round(total)) : '';
+        }
+        if (!editedPurchasingCells.has(key + ':deliveryDate')) {
+          item._extra.deliveryDate = nearestDate || '';
+        }
+      });
+
+      if (changed) localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
+    }
+
+    async function handleQuery() {
+      const textarea = document.getElementById('pdtCodes');
+      const input = textarea.value.trim();
+      
+      if (!input) {
+        alert('请输入款式编码');
+        return;
+      }
+
+      const pdtCodes = input.split('\n').map(s => s.trim()).filter(s => s);
+      
+      if (pdtCodes.length === 0) {
+        alert('请输入有效的款式编码');
+        return;
+      }
+
+      // 显示loading
+      document.getElementById('loading').classList.add('show');
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('resultSection').style.display = 'none';
+      document.getElementById('queryBtn').disabled = true;
+
+      try {
+        const response = await authFetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdtCodes })
+        });
+        
+        const result = await response.json();
+
+        if (result.success) {
+          queryResults = result.data;
+          // 先把采购接口返回的在途/交期写成默认值（本会话手动改过的格子不覆盖）
+          seedAutoPurchasing();
+          // PO overrides 从 localStorage 加载后同步到主格（但手动编辑过的格不覆盖）
+          syncPoOverridesToMainCells();
+          renderResults(queryResults);
+          // 检查BOM无面料情况并显示提示
+          checkBomWarning();
+          await syncSupplementsFromServer();  // 先从数据库恢复已保存的补充信息，再保存，避免覆盖
+          loadHistory();
+          // 自动保存到 Supabase
+          autoSaveToSupabase();
+        } else {
+          alert('查询失败: ' + (result.error || '未知错误'));
+        }
+      } catch (error) {
+        alert('请求失败: ' + error.message);
+      } finally {
+        document.getElementById('loading').classList.remove('show');
+        document.getElementById('queryBtn').disabled = false;
+      }
+    }
+
+    // 登记每行的补充输入框（key=buildRowKey(item)），供共用面料联动即时更新兄弟行
+    let supplementInputs = {};
+    // 排序：先按款号；同一款内「主料排最前」。主料按「SKC级主料物料」整组判定——
+    // 同SKC、同主料物料(mtCode)的面料，不管拆成几行（不同仓库等），整组作为主料排最前；
+    // 主料整组之后再按供应商分组排其他行（里料/其他物料）。页面与 CSV 共用，顺序一致。
+    function sortQueryResults(data) {
+      const rows = [...data];
+
+      const groupKey = (it) => `${it.pdtCode || ''}__${it.skuCode || ''}`;
+      const groups = {};
+      rows.forEach(it => {
+        const k = groupKey(it);
+        if (!groups[k]) groups[k] = [];
+        groups[k].push(it);
+      });
+      // 建立「(款号,SKC,mtCode) → 是否主料物料」映射：每 SKC 用 pickMainFabric 选出主料行，
+      // 其 mtCode 即该 SKC 的主料物料；该 SKC 下所有同 mtCode 的行（不同仓库）都算主料组。
+      const isMainRow = new Map();
+      Object.values(groups).forEach(items => {
+        const main = pickMainFabric(items);
+        if (!main) return;
+        const mainCode = main.mtCode || '';
+        items.forEach(it => {
+          if ((it.mtCode || '') === mainCode) {
+            isMainRow.set(groupKey(it) + '__' + it.mtCode, true);
+          }
+        });
+      });
+
+      return rows.sort((a, b) => {
+        // 先按款号
+        if (a.pdtCode !== b.pdtCode) {
+          return a.pdtCode.localeCompare(b.pdtCode);
+        }
+        // 同一款内：主料整组排最前（主料优先于所有非主料）
+        const aMain = isMainRow.has(groupKey(a) + '__' + a.mtCode);
+        const bMain = isMainRow.has(groupKey(b) + '__' + b.mtCode);
+        if (aMain !== bMain) {
+          return aMain ? -1 : 1;
+        }
+        if (aMain && bMain) {
+          // 都是主料：先按SKC，再按物料编码，保证同SKC主料多仓库行相邻
+          const skc = (a.skuCode || '').localeCompare(b.skuCode || '');
+          if (skc !== 0) return skc;
+          return (a.mtCode || '').localeCompare(b.mtCode || '');
+        }
+        // 非主料：按供应商分组（同厂家相邻）
+        const supA = (a.supplierName || '').trim();
+        const supB = (b.supplierName || '').trim();
+        if (supA !== supB) {
+          return supA.localeCompare(supB);
+        }
+        if (a.skuCode !== b.skuCode) {
+          return a.skuCode.localeCompare(b.skuCode);
+        }
+        if (a.mtType !== b.mtType) {
+          return a.mtType.localeCompare(b.mtType);
+        }
+        return (b.useAmt || 0) - (a.useAmt || 0);
+      });
+    }
+    // ── 无面料不翻单：按 (mtCode, mtSpecName) 组合键联动勾选 ──
+    // 持久化到 localStorage；勾选/取消时同步所有同组合键的行，并逐 SKC 通知父窗口（货盘）
+    const NO_RESTOCK_LS_KEY = 'fabric_no_restock_keys';
+    const noRestockKeys = new Set(JSON.parse(localStorage.getItem(NO_RESTOCK_LS_KEY) || '[]'));
+    let lastRenderedRows = null;
+    function saveNoRestockKeys() {
+      localStorage.setItem(NO_RESTOCK_LS_KEY, JSON.stringify([...noRestockKeys]));
+    }
+    function noRestockComboKey(mtCode, mtSpecName, skc) {
+      return (mtCode && mtSpecName)
+        ? (mtCode + '||' + mtSpecName)
+        : ((mtCode || '') + '__' + (mtSpecName || '') + '__' + (skc || ''));
+    }
+    function syncNoRestockRow(skc, mtCode, mtSpecName, cb) {
+      if (!cb) return;
+      cb.checked = noRestockKeys.has(noRestockComboKey(mtCode, mtSpecName, skc));
+    }
+    function handleNoRestockChange(skc, pdtCode, mtCode, mtSpecName, color, mtName, checked) {
+      const key = noRestockComboKey(mtCode, mtSpecName, skc);
+      if (checked) noRestockKeys.add(key); else noRestockKeys.delete(key);
+      saveNoRestockKeys();
+      // 组合键联动：同一 (mtCode, mtSpecName) 的所有行同步勾选态
+      // 实际表结构是 <table>(无id) + <tbody id="resultBody">，所以选 #resultBody
+      document.querySelectorAll('#resultBody input[type="checkbox"][data-key]').forEach((el) => {
+        if (el.dataset.key === key && el.checked !== checked) el.checked = checked;
+      });
+      // 逐行通知父窗口（货盘）——同一组合键的每个 SKC 都要发，父端按 skc 落库
+      document.querySelectorAll('#resultBody input[type="checkbox"][data-key]').forEach((el) => {
+        if (el.dataset.key !== key) return;
+        try {
+          window.parent.postMessage({
+            type: 'fabric-no-restock',
+            source: 'fabric-query',
+            skc: el.dataset.skc || '',
+            pid: el.dataset.pdt || '',
+            color: color || '',
+            fabric: mtName || '',
+            checked,
+          }, '*');
+        } catch (e) { /* ignore */ }
+      });
+      // 快照也刷新一次（勾选态变了）
+      if (Array.isArray(lastRenderedRows)) postNoRestockSnapshot(lastRenderedRows);
+    }
+
+    function renderResults(data) {
+      const sortedData = sortQueryResults(data);
+
+      // 按 (pdtCode, skuCode, mtCode, warehouse, mtSpecName) 去重，优先保留有库存的记录
+      const seenKeys = new Map();
+      sortedData.forEach(item => {
+        const key = `${item.pdtCode}__${item.skuCode}__${item.mtCode}__${item.warehouse}__${item.mtSpecName || ''}`;
+        const existing = seenKeys.get(key);
+        if (!existing) {
+          seenKeys.set(key, item);
+        } else if ((item.stock || 0) > 0 && (!existing.stock || existing.stock === 0)) {
+          // 已有记录没有库存，新记录有库存 → 用新记录替换
+          seenKeys.set(key, item);
+        }
+      });
+      const uniqueData = Array.from(seenKeys.values());
+
+      const tbody = document.getElementById('resultBody');
+      tbody.innerHTML = '';
+      supplementInputs = {};
+
+      // 为每个款式编码分配颜色
+      const codeColors = {};
+      const colors = ['#fff', '#e3f0ff'];
+      let colorIndex = 0;
+      let lastCode = '';
+
+      // 加载已保存的数据
+      const savedData = loadSavedData();
+
+      uniqueData.forEach((item, idx) => {
+        // 如果是新的款式编码，切换颜色
+        if (item.pdtCode !== lastCode) {
+          if (lastCode !== '') colorIndex = 1 - colorIndex;
+          codeColors[item.pdtCode] = colors[colorIndex];
+          lastCode = item.pdtCode;
+        }
+
+        const tr = document.createElement('tr');
+        tr.style.backgroundColor = codeColors[item.pdtCode];
+
+        if (item.error) {
+          tr.classList.add('error-row');
+        }
+
+        let stockClass = 'stock-zero';
+        if (item.stock > 100) stockClass = 'stock-high';
+        else if (item.stock > 0) stockClass = 'stock-low';
+
+        // 无此款或无匹配库存的行标红
+        const isNotFound = item.mtName === '无此款' || item.mtName === '查无此款' || item.mtName === '未找到物料' || item.mtCode === '-';
+        const isNoStock = item.mtName === '无匹配库存';
+        if (isNotFound || isNoStock) {
+          tr.style.backgroundColor = '#d32f2f';
+          tr.style.color = '#000';
+        }
+        const showDash = isNotFound || isNoStock;
+
+        // 读取保存的数据
+        const key = buildRowKey(item);
+        const rawExtra = savedData[key];
+        const extra = {
+          inTransitQty: (rawExtra && rawExtra.inTransitQty !== undefined) ? rawExtra.inTransitQty : '',
+          deliveryDate: (rawExtra && rawExtra.deliveryDate !== undefined) ? rawExtra.deliveryDate : '',
+          factorySpotQty: (rawExtra && rawExtra.factorySpotQty !== undefined) ? rawExtra.factorySpotQty : '',
+          orderableQty: (rawExtra && rawExtra.orderableQty !== undefined) ? rawExtra.orderableQty : '',
+          leadTimeDays: (rawExtra && rawExtra.leadTimeDays !== undefined) ? rawExtra.leadTimeDays : ''
+        };
+        // 保存到 item._extra 供后续使用
+        item._extra = { ...extra };
+        // 规范化交期日期为 YYYY-MM-DD，供 date input（非法/undefined/格式不符置空，避免 Chrome out of range 报错）
+        const rawDispDate = (extra.deliveryDate || '').toString().trim();
+        const dispDate = (!rawDispDate || rawDispDate === 'undefined') ? '' :
+          (() => { const m = rawDispDate.match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/); return m ? `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}` : ''; })();
+
+        tr.innerHTML = `
+          <td class="freeze-col">${item.pdtCode}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.skuCode || '-')}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.pdtColorName || '-')}</td>
+          <td class="freeze-col">${showDash ? '-' : item.mtCode}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.mtName || '-')}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.mtType || '-')}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.mtSpecName || '-')}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.supplierName || '-')}</td>
+          <td class="freeze-col">${showDash ? '-' : (item.colorName || '-')}</td>
+          <td>${showDash ? '-' : (item.warehouse || '-')}</td>
+          <td>${showDash ? '-' : item.useAmt.toFixed(2)}</td>
+          <td>${showDash ? '-' : formatPrice(item.mtPrice)}</td>
+          <td class="${stockClass}">${showDash ? '-' : item.stock.toFixed(2)}</td>
+          <td>${showDash ? '-' : item.canProduce}</td>
+          <td>
+            <input type="number" class="col-input" id="transit-${idx}" value="${extra.inTransitQty}" placeholder="0"
+              ${showDash ? 'disabled' : ''}
+              onchange="handleExtraChange('${key}', 'inTransitQty', this.value)"
+              oninput="handleExtraChange('${key}', 'inTransitQty', this.value)">
+          </td>
+          <td>
+            <input type="date" class="col-input" id="date-${idx}" value="${dispDate}" placeholder="交期"
+              ${showDash ? 'disabled' : ''}
+              onchange="handleExtraChange('${key}', 'deliveryDate', this.value)"
+              oninput="handleExtraChange('${key}', 'deliveryDate', this.value)">
+          </td>
+          <td>
+            ${showDash ? '-' : `<div class="po-popover">
+              <button type="button" class="po-detail-btn ${(item.purchaseOrders?.length || 0) ? 'has-pos' : ''}"
+                      onclick="togglePoPopover(this, '${key}')">
+                ${item.purchaseOrders?.length || 0}个
+              </button>
+              <div class="po-popup" id="po-popup-${key}">
+                <button type="button" class="po-popup-close" onclick="closePoPopovers()">&times;</button>
+                <div class="po-popup-title">采购单明细</div>
+                <div id="po-items-${key}"></div>
+                <div class="po-popup-total" id="po-total-${key}"></div>
+              </div>
+            </div>`}
+          </td>
+          <td>
+            <input type="number" class="col-input" id="spot-${idx}" value="${extra.factorySpotQty}" placeholder="0"
+              ${showDash ? 'disabled' : ''}
+              onchange="handleExtraChange('${key}', 'factorySpotQty', this.value)"
+              oninput="handleExtraChange('${key}', 'factorySpotQty', this.value)">
+          </td>
+          <td>
+            <input type="number" class="col-input" id="orderable-${idx}" value="${extra.orderableQty}" placeholder="0"
+              ${showDash ? 'disabled' : ''}
+              onchange="handleExtraChange('${key}', 'orderableQty', this.value)"
+              oninput="handleExtraChange('${key}', 'orderableQty', this.value)">
+          </td>
+          <td>
+            <input type="number" class="col-input" id="leadtime-${idx}" value="${extra.leadTimeDays}" placeholder="0"
+              ${showDash ? 'disabled' : ''}
+              onchange="handleExtraChange('${key}', 'leadTimeDays', this.value)"
+              oninput="handleExtraChange('${key}', 'leadTimeDays', this.value)">
+          </td>
+          <td>
+            <button type="button" class="btn-inquiry" id="inq-${idx}" title="预览询单文案，可修改后复制">询单</button>
+          </td>
+          <td style="text-align: center;">
+            <label class="norestock-label" title="勾选：该 SKC 无面料，不翻单">
+              <input type="checkbox" id="norestock-${idx}" data-skc="${item.skuCode || ''}" data-pdt="${item.pdtCode || ''}" data-key="${noRestockComboKey(item.mtCode, item.mtSpecName, item.skuCode).replace(/"/g, '&quot;')}"
+                onchange="handleNoRestockChange('${item.skuCode || ''}', '${item.pdtCode || ''}', '${(item.mtCode || '').replace(/'/g, "\\'")}', '${(item.mtSpecName || '').replace(/'/g, "\\'")}', '${(item.pdtColorName || item.colorName || '').replace(/'/g, "\\'")}', '${(item.mtName || '').replace(/'/g, "\\'")}', this.checked)">
+              <span>无面料</span>
+            </label>
+          </td>
+        `;
+
+        // 登记该行的补充输入框，供共用面料联动即时更新兄弟行（写的时候同步显示）
+        // 注意：此时 tr 尚未 append 进 document，需用 tr.querySelector 在行子树内查找
+        supplementInputs[key] = {
+          inTransitQty: tr.querySelector('#transit-' + idx),
+          deliveryDate: tr.querySelector('#date-' + idx),
+          factorySpotQty: tr.querySelector('#spot-' + idx),
+          orderableQty: tr.querySelector('#orderable-' + idx),
+          leadTimeDays: tr.querySelector('#leadtime-' + idx)
+        };
+
+        // 询单按钮：生成并复制该行的询单文案（点击不触发行复制）
+        const inqBtn = tr.querySelector('#inq-' + idx);
+        if (inqBtn) {
+          inqBtn.onclick = (e) => {
+            e.stopPropagation();
+            generateInquiryText(item);
+          };
+        }
+
+        // 点击行复制（排除输入框区域）
+        tr.onclick = (e) => {
+          if (e.target.tagName === 'INPUT') return;
+          const text = getRowCopyText(item);
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+              const tip = document.getElementById('copyTip');
+              tip.classList.add('show');
+              setTimeout(() => tip.classList.remove('show'), 1500);
+            });
+          }
+        };
+        tbody.appendChild(tr);
+        // 恢复无面料不翻单状态（按 (mtCode, mtSpecName) 组合键联动）
+        const cb = tr.querySelector('#norestock-' + idx);
+        if (cb) syncNoRestockRow(item.skuCode, item.mtCode, item.mtSpecName, cb);
+      });
+
+      // 全量快照：把当前已勾选组合键发给父窗口（货盘）
+      lastRenderedRows = uniqueData;
+      postNoRestockSnapshot(uniqueData);
+
+      // 设置前 9 列（款式编码 → 物料颜色）的 sticky.left，横向冻结
+      applyFreezeCols();
+
+      document.getElementById('resultCount').textContent = data.length;
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('resultSection').style.display = 'block';
+    }
+
+    // 横向冻结：把前 9 列（款式编码 → 物料颜色）的 sticky.left 累加 offsetWidth 后写到 th/td 上
+    // 移动端视口窄，只冻结第 1 列（款式编码），避免多列 sticky 覆盖整个小屏视口导致无法横向滚动
+    const FREEZE_COL_COUNT = 9;
+    function applyFreezeCols() {
+      const table = document.querySelector('.table-container table');
+      if (!table) return;
+      const firstRow = table.querySelector('tbody tr');
+      if (!firstRow) return;
+      const cells = firstRow.cells;
+      const isMobile = window.innerWidth <= 768;
+      const freezeCount = isMobile ? 1 : Math.min(FREEZE_COL_COUNT, cells.length);
+
+      // 先清除可能残留的 sticky / left / shadow 样式
+      table.querySelectorAll('th.freeze-col, td.freeze-col').forEach(function (c) {
+        c.style.position = '';
+        c.style.left = '';
+        c.style.boxShadow = '';
+      });
+
+      let cumulative = 0;
+      for (let i = 0; i < freezeCount; i++) {
+        const width = cells[i].offsetWidth || 0;
+        const selector = `th.freeze-col:nth-of-type(${i + 1}), td.freeze-col:nth-of-type(${i + 1})`;
+        table.querySelectorAll(selector).forEach(function (c) {
+          c.style.position = 'sticky';
+          c.style.left = cumulative + 'px';
+          if (i === freezeCount - 1) {
+            c.style.boxShadow = '2px 0 5px rgba(0,0,0,0.08)';
+          }
+        });
+        cumulative += width;
+      }
+    }
+    // 窗口尺寸变化时重算（列宽可能变化）
+    window.addEventListener('resize', function () {
+      const table = document.querySelector('.table-container table');
+      if (table && table.querySelector('tbody tr')) applyFreezeCols();
+    });
+
+    // 共用面料明细 key：物料编码 + 物料规格 + 仓库（判断不同款是否用同一面料）
+    function fabricDetailKey(item) {
+      return `${item.mtCode || ''}__${item.mtSpecName || ''}__${item.warehouse || ''}`;
+    }
+
+    // 共用面料联动：在某个款填了面料补充信息后，把同一面料明细的其它款明细行也设为同值
+    // （在途/交期/工厂现货/可订货/订货周期 属于面料本身、与款号无关，各款应一致）
+    function propagateSharedFabricExtra(origin, field, value) {
+      const ok = fabricDetailKey(origin);
+      queryResults.forEach(other => {
+        if (other === origin) return;
+        if (fabricDetailKey(other) !== ok) return;
+        if (!other._extra) other._extra = {};
+        other._extra[field] = value;
+        // 在途/交期联动到兄弟行时，兄弟行同样记为本会话手动改过，重新查询不覆盖
+        if (field === 'inTransitQty' || field === 'deliveryDate') {
+          editedPurchasingCells.add(buildRowKey(other) + ':' + field);
+        }
+        // 即时更新兄弟行的输入框（写的时候就联动，不依赖刷新重渲染）
+        const els = supplementInputs[buildRowKey(other)];
+        if (els && els[field]) {
+          els[field].value = (value === undefined || value === null) ? '' : String(value);
+        }
+      });
+    }
+
+    // 处理补充字段变化
+    function handleExtraChange(key, field, value) {
+      // 找到对应的 item 并更新其 _extra
+      const item = queryResults.find(r => buildRowKey(r) === key);
+      if (item) {
+        if (!item._extra) item._extra = {};
+        // 日期字段不能是 undefined/null，转空字符串避免 <input type=date> 报错
+        item._extra[field] = (field === 'deliveryDate' && !value) ? '' : value;
+        // 在途/交期：记为本会话手动改过，重新查询时不再用采购接口自动值覆盖
+        if (field === 'inTransitQty' || field === 'deliveryDate') {
+          editedPurchasingCells.add(key + ':' + field);
+        }
+        // 同一面料明细的其他款同步同值（改一个，其余各行同时显示）
+        propagateSharedFabricExtra(item, field, value);
+      }
+      // 保存到 localStorage
+      saveDataDebounced();
+      // 同步到 Supabase（debounced）
+      if (supabaseSyncTimer) clearTimeout(supabaseSyncTimer);
+      supabaseSyncTimer = setTimeout(() => saveExtraToSupabase(), 1000);
+    }
+
+    // ===== 采购明细弹窗 =====
+    function loadPoOverrides() {
+      try { return JSON.parse(localStorage.getItem('fabric_po_overrides') || '{}'); }
+      catch { return {}; }
+    }
+    function savePoOverrides() {
+      localStorage.setItem('fabric_po_overrides', JSON.stringify(poOverrides));
+    }
+
+    function togglePoPopover(btn, key) {
+      closePoPopovers();
+      const popup = document.getElementById('po-popup-' + key);
+      const item = queryResults.find(r => buildRowKey(r) === key);
+      if (!popup || !item?.purchaseOrders?.length) return;
+
+      const container = document.getElementById('po-items-' + key);
+      container.innerHTML = item.purchaseOrders.map(po => {
+        const ovKey = key + '__' + po.poCode;
+        const ov = poOverrides[ovKey] || {};
+        const qty = ov.qty !== undefined ? ov.qty : po.remaining;
+        const date = (ov.date || po.deliverDate || '').toString().trim();
+        // 规范化为 YYYY-MM-DD，否则 Chrome date input 报 out of range
+        let cleanDate = '';
+        if (date && date !== 'undefined') {
+          const m = String(date).match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
+          cleanDate = m ? `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}` : '';
+        }
+        return `<div class="po-item">
+          <div>
+            <div>${po.poCode}</div>
+            <div style="color:#999;font-size:10px">原: ${po.remaining}米</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="number" class="po-item-qty" value="${qty}"
+                   onchange="handlePoOverride('${key}','${po.poCode}','qty',this.value)"
+                   oninput="handlePoOverride('${key}','${po.poCode}','qty',this.value)">
+            <span>米</span>
+            <span style="color:#999">交:</span>
+            <input type="date" value="${cleanDate}" style="width:90px;font-size:11px;border:1px solid #ddd;border-radius:3px;padding:1px 3px"
+                   onchange="handlePoOverride('${key}','${po.poCode}','date',this.value)">
+          </div>
+        </div>`;
+      }).join('');
+
+      popup.classList.add('show');
+      renderPoTotal(key, item.purchaseOrders);
+    }
+
+    function handlePoOverride(key, poCode, field, value) {
+      const ovKey = key + '__' + poCode;
+      if (!poOverrides[ovKey]) poOverrides[ovKey] = {};
+      poOverrides[ovKey][field] = field === 'qty' ? parseFloat(value) || 0 : value;
+
+      const item = queryResults.find(r => buildRowKey(r) === key);
+      if (!item) return;
+
+      // 计算合计
+      const total = item.purchaseOrders.reduce((sum, po) => {
+        const ov = poOverrides[key + '__' + po.poCode] || {};
+        return sum + (ov.qty !== undefined ? ov.qty : po.remaining);
+      }, 0);
+
+      // 取最早交期
+      const dates = item.purchaseOrders
+        .map(po => {
+          const ov = poOverrides[key + '__' + po.poCode] || {};
+          return { qty: ov.qty !== undefined ? ov.qty : po.remaining, date: ov.date || po.deliverDate };
+        })
+        .filter(x => x.qty > 0 && x.date)
+        .map(x => x.date)
+        .sort();
+      const nearestDate = dates[0] || '';
+
+      // 同步到主格（触发 editedPurchasingCells 标记）
+      const idx = queryResults.indexOf(item);
+      const transitInput = document.getElementById('transit-' + idx);
+      if (transitInput) { transitInput.value = Math.round(total); }
+      handleExtraChange(key, 'inTransitQty', total);
+
+      const dateInput = document.getElementById('date-' + idx);
+      if (dateInput) { dateInput.value = nearestDate; }
+      handleExtraChange(key, 'deliveryDate', nearestDate);
+
+      renderPoTotal(key, item.purchaseOrders);
+      savePoOverrides();
+    }
+
+    function renderPoTotal(key, purchaseOrders) {
+      const total = purchaseOrders.reduce((sum, po) => {
+        const ov = poOverrides[key + '__' + po.poCode] || {};
+        return sum + (ov.qty !== undefined ? ov.qty : po.remaining);
+      }, 0);
+      const dates = purchaseOrders
+        .map(po => {
+          const ov = poOverrides[key + '__' + po.poCode] || {};
+          return { qty: ov.qty !== undefined ? ov.qty : po.remaining, date: ov.date || po.deliverDate };
+        })
+        .filter(x => x.qty > 0 && x.date)
+        .map(x => x.date)
+        .sort();
+      const nearestDate = dates[0] || '';
+      const el = document.getElementById('po-total-' + key);
+      if (el) el.textContent = `合计 ${Math.round(total)}米  最近交期: ${nearestDate}`;
+    }
+
+    function closePoPopovers() {
+      document.querySelectorAll('.po-popup.show').forEach(p => p.classList.remove('show'));
+    }
+
+    // 点击空白处关闭浮层
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.po-popover')) {
+        closePoPopovers();
+      }
+    });
+
+    // 重置所有补充信息（在途/交期/工厂现货/可订货/订货周期）——库存保留实时值，不受影响
+    function resetSupplementaryData() {
+      if (!confirm('确定要重置所有补充信息吗？\n将清空：在途(米)、交期、工厂现货(米)、可订货(米)、订货周期(天)。\n库存保持不变。')) return;
+      // 重置视为用户意图清空，后续重新查询可按采购接口重新填充
+      editedPurchasingCells.clear();
+
+      // 清空每个 item 的补充字段
+      queryResults.forEach(item => {
+        if (!item._extra) item._extra = {};
+        item._extra.inTransitQty = '';
+        item._extra.deliveryDate = '';
+        item._extra.factorySpotQty = '';
+        item._extra.orderableQty = '';
+        item._extra.leadTimeDays = '';
+      });
+
+      // 清空 localStorage（先写再渲染，避免 renderResults 读到旧数据）
+      const data = {};
+      queryResults.forEach(item => {
+        data[buildRowKey(item)] = { ...item._extra };
+      });
+      localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(data));
+
+      // 重新渲染表格
+      renderResults(queryResults);
+
+      // 同步到 Supabase：把在途/交期/可订货/订货周期清零
+      saveExtraToSupabase();
+    }
+
+    // 清空【所有款式】的补充信息（在途/交期/工厂现货/可订货/订货周期）——清空全部已保存款式，库存保留实时值
+    async function clearAllSupplementaryData() {
+      if (!confirm('确定要清空【所有款式】的补充信息吗？\n将清空所有已保存款式的：在途(米)、交期、工厂现货(米)、可订货(米)、订货周期(天)。\n同时清空对应的翻单计划（件数、交期天数、批次）。\n库存保持不变，此操作不可恢复。')) return;
+
+      // 清空后重新查询会按采购接口重新填充在途/交期
+      editedPurchasingCells.clear();
+      poOverrides = {};
+      localStorage.removeItem('fabric_po_overrides');
+
+      // 1. 清空 localStorage 的全部补充数据
+      localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify({}));
+
+      // 2. 清空当前查询结果的补充字段并重新渲染
+      queryResults.forEach(item => {
+        if (!item._extra) item._extra = {};
+        item._extra.inTransitQty = '';
+        item._extra.deliveryDate = '';
+        item._extra.factorySpotQty = '';
+        item._extra.orderableQty = '';
+        item._extra.leadTimeDays = '';
+      });
+      renderResults(queryResults);
+
+      // 3. 调用后端清空 Supabase 中所有款式的补充字段
+      try {
+        const res = await authFetch('/api/fabric-data/clear-supplementary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert('清空失败：' + (j.error || res.status));
+        } else {
+          alert('已清空所有款式的补充信息和翻单计划' + (j.count != null ? `（${j.count} 条记录）` : ''));
+          // 等 API 返回后强制刷新翻单页面（不用缓存）
+          setTimeout(() => { location.replace('/fabric/sales.html?t=' + Date.now()); }, 100);
+        }
+      } catch (err) {
+        console.error('清空失败:', err);
+        alert('清空失败：' + (err.message || err));
+      }
+    }
+
+    function handleClear() {
+      document.getElementById('pdtCodes').value = '';
+      document.getElementById('fileName').textContent = '';  // 清除文件名
+      document.getElementById('fileInput').value = '';       // 重置file input
+      document.getElementById('resultSection').style.display = 'none';
+      document.getElementById('emptyState').style.display = 'block';
+      queryResults = [];
+    }
+
+    function handleDownload() {
+      if (queryResults.length === 0) {
+        alert('没有可导出的数据');
+        return;
+      }
+
+      // BOM for UTF-8
+      const BOM = '\uFEFF';
+      const headers = ['款式编码', 'SKC', '成衣颜色', '物料编码', '物料名称', '物料类型', '物料规格名称', '供应商', '物料颜色', '仓库', '用量(米)', '单价(元)', '库存(米)', '可生产数量', '在途(米)', '交期', '工厂现货(米)', '可订货(米)', '订货周期(天)', '最大件数'];
+      // 过滤掉"无此款"和错误信息的行
+      const validResults = sortQueryResults(queryResults.filter(item => item.mtCode !== '-'));
+
+      if (validResults.length === 0) {
+        alert('没有有效数据可导出（全部为查无此款）');
+        return;
+      }
+
+      const rows = validResults.map((item, index) => {
+        const rowNum = index + 2;  // Excel行号从2开始（第1行是表头）
+        const extra = item._extra || getRowExtra(item);
+        const priceVal = Number(item.mtPrice) > 0 ? Number(item.mtPrice).toFixed(2).replace(/\.?0+$/, '') : '-';
+        // 可生产公式：用量=11(K)、库存=13(M)（含"物料名称"列）
+        const canProduceFormula = `"=IF(K${rowNum}=0,0,FLOOR(M${rowNum}/K${rowNum},1))"`;
+        // 最大件数 = max(在仓, 在途, 工厂现货, 可订货) ÷ 用量 ÷ 1.05
+        const useAmt = Number(item.useAmt) || 0;
+        const st = Number(item.stock) || 0;
+        const tr = Number(extra.inTransitQty) || 0;
+        const sp = Number(extra.factorySpotQty) || 0;
+        const ob = Number(extra.orderableQty) || 0;
+        const maxPieces = useAmt > 0 ? Math.floor(Math.max(st, tr, sp, ob) / useAmt / 1.05) : 0;
+        return [
+          item.pdtCode,
+          item.skuCode || '-',
+          item.pdtColorName || '-',
+          item.mtCode,
+          item.mtName,
+          item.mtType || '-',
+          item.mtSpecName || '-',
+          item.supplierName || '-',
+          item.colorName || '-',
+          item.warehouse || '-',
+          item.useAmt.toFixed(2),
+          priceVal,
+          item.stock.toFixed(2),
+          canProduceFormula,
+          extra.inTransitQty || 0,
+          extra.deliveryDate || '',
+          extra.factorySpotQty || 0,
+          extra.orderableQty || 0,
+          extra.leadTimeDays || 0,
+          maxPieces
+        ];
+      });
+
+      const csvContent = BOM + [headers, ...rows].map(row => row.join(',')).join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}-${String(now.getSeconds()).padStart(2,'0')}`;
+      link.download = `面料查询结果_${timestamp}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    // 登出
+    async function handleLogout() {
+      if (!confirm('确定要退出登录吗？')) return;
+      // 清除后端cookie
+      await fetch('/api/auth/logout', { method: 'POST' });
+      // 清除Supabase session
+      if (supabaseClient?.auth) {
+        try { await supabaseClient.auth.signOut(); } catch (e) {}
+      }
+      window.location.reload();
+    }
+
+    // ========== 货盘文字生成 ==========
+
+    // 打开货盘文字模态框
+    function openHuopanModal() {
+      generateHuopanText();
+      document.getElementById('huopanModal').classList.add('show');
+    }
+
+    function closeHuopanModal() {
+      document.getElementById('huopanModal').classList.remove('show');
+    }
+
+    function copyHuopanText() {
+      const text = document.getElementById('huopanText').value;
+      if (!text.trim()) {
+        alert('没有可复制的内容');
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        const tip = document.getElementById('copyTip');
+        tip.textContent = '已复制到剪贴板';
+        tip.classList.add('show');
+        setTimeout(() => {
+          tip.classList.remove('show');
+          tip.textContent = '已复制到剪贴板';
+        }, 1500);
+      });
+    }
+
+    // ========== 主面料判定 ==========
+    // 里料识别：名称含 里布/里料/里衬，或物料种类(mtCategory，如 里布)匹配 —— 里料不算主面料
+    function isLiningFabric(item) {
+      const name = String(item.mtName || '');
+      const cat = String(item.mtCategory || '');
+      if (/里布|里料|里衬/.test(name)) return true;
+      if (/里布|里料|里衬/.test(cat)) return true;
+      // 丝/粘胶/涤纶/锦纶类典型里料（无明显主料用途词时按里料处理）
+      if (/人丝|人造丝|粘胶|粘纤|涤纶|锦纶|涤丝/.test(name) && !/外|面|套|大衣|主/.test(name)) return true;
+      return false;
+    }
+    // 排序分 = 用量 × 单价（单价缺失/为0时退化为按用量）
+    function fabricScore(item) {
+      const amt = Number(item.useAmt) || 0;
+      const price = Number(item.mtPrice) || 0;
+      return amt * (price > 0 ? price : 1);
+    }
+    // 在一个 SKC 的一组物料里选出主面料：排除里料后，按 用量×单价 最大
+    function pickMainFabric(items) {
+      if (!items || items.length === 0) return null;
+      const candidates = items.filter(it => !isLiningFabric4Query(it));
+      const pool = candidates.length > 0 ? candidates : items;
+      let best = pool[0];
+      pool.forEach(it => { if (fabricScore(it) > fabricScore(best)) best = it; });
+      return best;
+    }
+    // 单价显示：保留2位小数但去掉末尾多余的0，补"元"，如 146.00→146元、62.50→62.5元
+    function formatPrice(p) {
+      const v = Number(p);
+      if (!(v > 0)) return '-';
+      return `${v.toFixed(2).replace(/\.?0+$/, '')}元`;
+    }
+
+    // 生成货盘表文字 - 按 SKC 分组，每个 SKC 只用主面料生成一行
+    function generateHuopanText() {
+      const textarea = document.getElementById('huopanText');
+      if (!textarea) {
+        alert('找不到文本框');
+        return;
+      }
+
+      if (queryResults.length === 0) {
+        textarea.value = '';
+        return;
+      }
+
+      // 调试：输出每条记录的关键信息
+      console.log('[generateHuopanText] queryResults:', queryResults.length, '条');
+      queryResults.forEach((item, i) => {
+        console.log(`  [${i}] sku=${item.skuCode}, mtCode=${item.mtCode}, stock=${item.stock}, mtName=${item.mtName}, warehouse=${item.warehouse}`);
+      });
+
+      // 按 SKC 分组（排除恒隆仓、工厂物料仓库、查无此款）
+      const skcGroups = {};
+      queryResults.forEach(item => {
+        const isNotFound = item.mtName === '无此款' || item.mtName === '查无此款' || item.mtName === '未找到物料' || item.mtCode === '-';
+        if (isNotFound) return;
+        const w = (item.warehouse || '');
+        if (w.includes('恒隆') || w.includes('工厂物料')) return;
+        const skc = item.skuCode || '-';
+        if (!skcGroups[skc]) skcGroups[skc] = [];
+        skcGroups[skc].push(item);
+      });
+
+      const lines = [];
+      // 共用面料联动下，同一面料被多个款共用时会产生相同文案行；相同行只显示一次
+      const seenLines = new Set();
+      Object.keys(skcGroups).sort().forEach(skc => {
+        let items = skcGroups[skc];
+        // 同 SKC 内按「用量 × 单价」分数剔除明显里料：分数 < max × 0.3 视为里料，不进 warehouseGroups 与非主料评分
+        // （不依赖「里布/里料/里衬」关键字，归类错误的 mtCategory 也能识别）
+        const scores = items.map(it => fabricScore(it)).filter(s => s > 0);
+        if (scores.length >= 2) {
+          const maxScore = Math.max(...scores);
+          const threshold = maxScore * 0.3;
+          const before = items.length;
+          items = items.filter((_, i) => {
+            const s = fabricScore(items[i]);
+            return s === 0 || s >= threshold;
+          });
+          if (items.length < before) {
+            console.log(`[SKC=${skc}] 剔除${before - items.length}条里料（用量×单价分数 < max × 0.3）`);
+          }
+        }
+        // 货盘文字选料：有库存的每条都显示（不同仓库分开显示）
+        const nonLiningItems = items.filter(it => !isLiningFabric4Query(it) && (it.stock || 0) > 0);
+        // 按仓库分组，每组取库存最多的一条
+        const warehouseGroups = {};
+        nonLiningItems.forEach(it => {
+          const wh = it.warehouse || '-';
+          if (!warehouseGroups[wh] || (it.stock || 0) > (warehouseGroups[wh].stock || 0)) {
+            warehouseGroups[wh] = it;
+          }
+        });
+        // 每组生成一行文字
+        Object.values(warehouseGroups).forEach(main => {
+          console.log(`[SKC=${skc}] 选中主面料: mtCode=${main?.mtCode}, stock=${main?.stock}, mtName=${main?.mtName}, warehouse=${main?.warehouse}`);
+          const mainLine = buildFabricInfoLine(main);
+          console.log(`[SKC=${skc}] 生成文字: "${mainLine}"`);
+          if (mainLine && !seenLines.has(mainLine)) {
+            lines.push(mainLine);
+            seenLines.add(mainLine);
+          }
+        });
+        // 无库存的 SKC：按用量×单价选一条（保留原逻辑）
+        if (Object.keys(warehouseGroups).length === 0) {
+          const main = pickMainFabric(items);
+          console.log(`[SKC=${skc}] 选中主面料: mtCode=${main?.mtCode}, stock=${main?.stock}, mtName=${main?.mtName}`);
+          const mainLine = buildFabricInfoLine(main);
+          console.log(`[SKC=${skc}] 生成文字: "${mainLine}"`);
+          if (mainLine && !seenLines.has(mainLine)) {
+            lines.push(mainLine);
+            seenLines.add(mainLine);
+          }
+        }
+      });
+
+      textarea.value = lines.join('\n');
+    }
+
+    // 里布（名称含里布/里料/里衬，或物料种类为里布）的库存/在途是系统数据，不属于业务员要补充的信息，
+    // 面料信息文字里不计入里布的在途/交期，只计入工厂现货/可订货/订货周期等手动填写项。
+    function isLiningFabric4Query(item) {
+      const name = String(item.mtName || '');
+      const cat = String(item.mtCategory || '');
+      if (/里布|里料|里衬/.test(name)) return true;
+      if (/里布|里料|里衬/.test(cat)) return true;
+      // 丝/粘胶/涤纶/锦纶类典型里料
+      if (/人丝|人造丝|粘胶|粘纤|涤纶|锦纶|涤丝/.test(name)) return true;
+      return false;
+    }
+
+    // 用一条面料记录生成文字：颜色 + 库存/在途/可订货
+    // 注意：里布的库存/在途不计入；主面料/非主面料统一处理，里布只显示工厂现货/可订货/订货周期
+    function buildFabricInfoLine(item) {
+      if (!item) return '';
+      const extra = item._extra || getRowExtra(item);
+      const skc = item.skuCode || '-';
+      // 仓库名偶尔从上游带进来括号（如 "(面料仓)" / "面料仓)"），直接拼进文案会出现多余右括号
+      const warehouse = String(item.warehouse || '').trim().replace(/[()（）]/g, '');
+      const isLining = isLiningFabric4Query(item);
+      const key = buildRowKey(item);
+
+      // 调试信息
+      console.log(`[buildFabricInfoLine] mtCode=${item.mtCode}, stock=${item.stock}, warehouse=${warehouse}, isLining=${isLining}, hasPO=${!!(item.purchaseOrders?.length)}`);
+
+      // 颜色：优先物料颜色，空则从 mtSpecName 提取，再空用 SKC
+      let colorDesc = (item.colorName || '').trim();
+      if (!colorDesc && item.mtSpecName) {
+        const match = item.mtSpecName.match(/\]([^;]+?)(?:-[0-9#]+)?;?$/);
+        if (match) colorDesc = match[1].trim();
+      }
+      if (!colorDesc) colorDesc = skc;
+
+      const stock = Number(item.stock) || 0;
+      const factorySpot = Number(extra.factorySpotQty) || 0;   // 工厂现货面料（补充信息）
+      const orderableQty = Number(extra.orderableQty) || 0;
+      const leadTimeDays = Number(extra.leadTimeDays) || 0;
+
+      console.log(`  stock=${stock}, factorySpot=${factorySpot}, orderable=${orderableQty}`);
+
+      // 里布：purchaseOrders 有值也跳过
+      if (isLining) {
+        // 里布不在面料信息文字里展示任何在途/交期
+        // 但仍展示库存、工厂现货、可订货
+        let line = colorDesc;
+        if (stock > 0) {
+          line += `${Math.round(stock)}米${warehouse}`;
+        }
+        const spotName = (item.supplierName || '').trim();
+        const spotStr = factorySpot > 0 ? (spotName ? ` ${spotName}现货${Math.round(factorySpot)}米` : ` ${Math.round(factorySpot)}米工厂现货`) : '';
+        if (orderableQty > 0) {
+          line += spotStr ? ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天` : `${Math.round(orderableQty)}米${leadTimeDays}天`;
+        } else if (spotStr) {
+          line += spotStr;
+        } else {
+          return '';
+        }
+        return line;
+      }
+
+      // 主面料：根据是否有 PO 明细决定生成方式
+      if (item.purchaseOrders && item.purchaseOrders.length > 0) {
+        // 拆分展示每张采购单
+        let parts = [];
+        item.purchaseOrders.forEach(po => {
+          const ov = poOverrides[key + '__' + po.poCode] || {};
+          const qty = ov.qty !== undefined ? ov.qty : po.remaining;
+          if (qty <= 0) return;
+          const date = (ov.date || po.deliverDate || '').toString().trim();
+        // 规范化为 YYYY-MM-DD，否则 Chrome date input 报 out of range
+        let cleanDate = '';
+        if (date && date !== 'undefined') {
+          const m = String(date).match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
+          cleanDate = m ? `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}` : '';
+        }
+          let part = `${colorDesc}${Math.round(qty)}米`;
+          if (date) {
+            const d = new Date(date);
+            part += ` ${d.getMonth()+1}/${d.getDate()}到仓`;
+          }
+          parts.push(part);
+        });
+        if (parts.length === 0) return '';
+
+        let line = parts.join('；');
+        if (stock > 0) {
+          line = colorDesc + `${Math.round(stock)}米${warehouse}` + '；' + line;
+        }
+        const spotName = (item.supplierName || '').trim();
+        const spotStr = factorySpot > 0 ? (spotName ? ` ${spotName}现货${Math.round(factorySpot)}米` : ` ${Math.round(factorySpot)}米工厂现货`) : '';
+        if (orderableQty > 0) {
+          line += spotStr + ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天`;
+        } else if (spotStr) {
+          line += spotStr;
+        }
+        return line;
+      } else {
+        // 无 PO 明细时走原有逻辑（兼容旧数据）
+        const inTransit = Number(extra.inTransitQty) || 0;
+        const deliveryDate = extra.deliveryDate || '';
+        let deliveryStr = '';
+        if (deliveryDate) {
+          const date = new Date(deliveryDate);
+          deliveryStr = `${date.getMonth() + 1}/${date.getDate()}到仓`;
+        }
+        const spotName = (item.supplierName || '').trim();
+        const spotStr = factorySpot > 0 ? (spotName ? ` ${spotName}现货${Math.round(factorySpot)}米` : ` ${Math.round(factorySpot)}米工厂现货`) : '';
+
+        let line = colorDesc;
+        if (stock > 0) {
+          line += `${Math.round(stock)}米${warehouse}`;
+          if (inTransit > 0) {
+            line += ` 在途${Math.round(inTransit)}米${deliveryStr}`;
+          }
+          line += spotStr;
+          if (orderableQty > 0) {
+            line += ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天`;
+          }
+        } else if (deliveryDate) {
+          const qty = (orderableQty > 0 ? orderableQty : inTransit) || 0;
+          line += `${Math.round(qty)}米${deliveryStr}`;
+          line += spotStr;
+          if (orderableQty > 0) {
+            line += ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天`;
+          }
+        } else if (inTransit > 0) {
+          line += `${Math.round(inTransit)}米在途${deliveryStr}`;
+          line += spotStr;
+          if (orderableQty > 0) {
+            line += ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天`;
+          }
+        } else if (orderableQty > 0 || leadTimeDays > 0) {
+          line += spotName ? `${spotName}${Math.round(orderableQty)}米${leadTimeDays}天` : `${Math.round(orderableQty)}米${leadTimeDays}天`;
+          line += spotStr;
+        } else if (factorySpot > 0) {
+          line += spotStr;
+        } else {
+          console.log(`  [buildFabricInfoLine] 返回空: stock=0, 无deliveryDate, inTransit=0, orderable=0, factorySpot=0`);
+          return '';
+        }
+        console.log(`  [buildFabricInfoLine] 生成文字: "${line}"`);
+        return line;
+      }
+    }
+
+    // 生成提交到 Supabase 的记录：每个 SKC 只给主面料（排除里料后按 用量×单价 最大）生成 fabric_info
+    function buildItemsToSave(validItems) {
+      // 计算每个 SKC 的主面料（与货盘文字同一规则）
+      const skuGroupsNow = {};
+      validItems.forEach(it => {
+        const k = it.skuCode || '';
+        if (!skuGroupsNow[k]) skuGroupsNow[k] = [];
+        skuGroupsNow[k].push(it);
+      });
+      const mainFabricBySku = new Map();
+      Object.keys(skuGroupsNow).forEach(k => {
+        const m = pickMainFabric(skuGroupsNow[k]);
+        if (m) mainFabricBySku.set(k, m);
+      });
+
+      return validItems.map(item => {
+        const extra = item._extra || getRowExtra(item);
+
+        // 从 mtSpecName 提取物料颜色
+        const rawColor = item.colorName || '';
+        let colorDesc = rawColor.trim();
+        if (!colorDesc && item.mtSpecName) {
+          const match = item.mtSpecName.match(/\]([^;]+?)(?:-[0-9#]+)?;?$/);
+          if (match) {
+            colorDesc = match[1].trim();
+          }
+        }
+        if (!colorDesc) {
+          colorDesc = item.skuCode || '';
+        }
+
+        const isMain = mainFabricBySku.get(item.skuCode || '') === item;
+        const isLining = isLiningFabric4Query(item);
+
+        // 生成面料信息文字（与货盘文字同一规则）：主面料直接生成；
+        // 非主面料若填写了补充信息（工厂现货/可订货/交期/订货周期，非里布的在途）也生成
+        // 注意：里布的库存/在途是系统数据，不计入补充信息判断
+        let fabricInfo = '';
+        const hasSupplement = (!isLining && (Number(extra.inTransitQty) || 0) > 0) ||
+          (Number(extra.factorySpotQty) || 0) > 0 ||
+          (Number(extra.orderableQty) || 0) > 0 ||
+          (Number(extra.leadTimeDays) || 0) > 0 || (extra.deliveryDate || '');
+        if (isMain) {
+          fabricInfo = buildFabricInfoLine(item) || '';
+        } else if (hasSupplement || (!isLining && (Number(item.stock) || 0) > 0)) {
+          const line = buildFabricInfoLine(item);
+          if (line) {
+            fabricInfo = `${item.mtName || item.mtCode || ''} ${line}`;
+          }
+        }
+
+        return {
+          pdtCode: item.pdtCode,
+          pdtColorName: item.pdtColorName,
+          colorName: colorDesc,
+          mtCode: item.mtCode,
+          mtName: item.mtName,
+          mtSpecName: item.mtSpecName,
+          warehouse: item.warehouse,
+          supplierName: item.supplierName,
+          useAmt: item.useAmt,
+          stock: item.stock,
+          skuCode: item.skuCode || '',
+          inTransitQty: extra.inTransitQty || 0,
+          deliveryDate: extra.deliveryDate || null,
+          factorySpotQty: extra.factorySpotQty || 0,
+          orderableQty: extra.orderableQty || 0,
+          leadTimeDays: extra.leadTimeDays || 0,
+          mtPrice: item.mtPrice || 0,
+          mtCategory: item.mtCategory || null,
+          fabricInfo: fabricInfo
+        };
+      });
+    }
+
+    // 自动保存查询结果到 Supabase
+    async function autoSaveToSupabase() {
+      if (queryResults.length === 0) return;
+
+      // 过滤：排除无此款、无skuCode的记录（工艺库可能返回无skuCode的共用面料）
+      const validItems = queryResults.filter(item => {
+        const isNotFound = item.mtName === '无此款' || item.mtName === '查无此款' || item.mtName === '未找到物料' || item.mtCode === '-';
+        const noSkuCode = !item.skuCode || item.skuCode.trim() === '';
+        return !isNotFound && !noSkuCode;
+      });
+
+      if (validItems.length === 0) return;
+
+      const itemsToSave = buildItemsToSave(validItems);
+
+      try {
+        const res = await authFetch('/api/fabric-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: itemsToSave })
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          console.error('保存到Supabase失败:', j.error || res.status);
+        }
+      } catch (err) {
+        console.error('保存到Supabase失败:', err);
+      }
+    }
+
+    // 同步补充字段变化到 Supabase
+    function saveExtraToSupabase() {
+      if (queryResults.length === 0) return;
+
+      const validItems = queryResults.filter(item => {
+        const isNotFound = item.mtName === '无此款' || item.mtName === '查无此款' || item.mtName === '未找到物料' || item.mtCode === '-';
+        return !isNotFound;
+      });
+
+      const itemsToSave = buildItemsToSave(validItems);
+
+      // 全部行都是「无此款」占位（如只勾选了无面料不翻单、没填补充信息）时没有可保存的数据，
+      // 跳过保存而不是发空数组让服务端报「无效的数据」
+      if (itemsToSave.length === 0) return;
+
+      authFetch('/api/fabric-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: itemsToSave })
+      }).then(async res => {
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          const msg = j.error || res.status;
+          console.error('同步失败:', msg);
+          alert('面料补充信息保存失败：' + msg + '\n填写的现货/在途等信息不会带到翻单计划页，请检查服务配置。');
+          return;
+        }
+        // 视觉反馈：按钮短暂提示已保存
+        const btn = document.getElementById('genFabricBtn') || document.getElementById('confirmSyncBtn');
+        if (btn && !btn.disabled) {
+          const old = btn.textContent;
+          btn.textContent = '✓ 补充信息已保存';
+          setTimeout(() => { btn.textContent = old; }, 1500);
+        }
+      }).catch(err => {
+        console.error('同步失败:', err);
+        alert('面料补充信息保存失败：' + (err.message || err));
+      });
+    }
+
+    // ── iframe 嵌入模式：检测 + 「📤 发送到货盘」按钮 ──
+    // 当 fabric_Q 被货盘系统以 iframe 嵌入时，window.self !== window.top；
+    // 此时显示「发送到货盘」按钮，把生成的面料信息文字通过 postMessage 发给父页面。
+    function detectIframeMode() {
+      try {
+        const inIframe = window.self !== window.top;
+        if (inIframe) document.body.classList.add('iframe-mode');
+        return inIframe;
+      } catch (e) {
+        // 跨域限制也可能让我们访问 top 抛错 → 视为嵌入模式
+        document.body.classList.add('iframe-mode');
+        return true;
+      }
+    }
+    // 立即执行模式识别，确保初次渲染即应用样式
+    detectIframeMode();
+
+    function toggleMobileLeftPanel() {
+      const panel = document.querySelector('.left-panel');
+      if (!panel) return;
+      panel.classList.toggle('show-panel');
+      if (panel.classList.contains('show-panel')) {
+        panel.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    // 显示/隐藏「发送到货盘」按钮
+    // iframe 嵌入模式：合并为单个「确认并同步面料信息到货盘」按钮（genFabricBtn 藏起）；
+    // 独立打开模式：保持「确认并生成面料信息」。
+    function refreshSendToTraysBtn() {
+      const sendBtn = document.getElementById('sendToTraysBtn');
+      const genBtn = document.getElementById('genFabricBtn');
+      const syncBtn = document.getElementById('confirmSyncBtn');
+      const inIframe = detectIframeMode();
+      const has = queryResults.length > 0;
+      if (sendBtn) sendBtn.style.display = 'none'; // 已被合并按钮替代
+      if (genBtn) genBtn.style.display = inIframe ? 'none' : '';
+      if (syncBtn) syncBtn.style.display = (inIframe && has) ? '' : 'none';
+    }
+
+    // 合并按钮：确认（存补充信息）+ 生成文案 + 一步同步回货盘（iframe 嵌入模式专用）
+    function confirmAndSyncToTray() {
+      if (!detectIframeMode()) {
+        alert('当前不是嵌入模式，请用「确认并生成面料信息」');
+        return;
+      }
+      if (!queryResults || queryResults.length === 0) {
+        alert('请先查询面料数据');
+        return;
+      }
+      if (queryResults.length > 0) saveExtraToSupabase();
+      generateHuopanText();
+      const text = (document.getElementById('huopanText') || {}).value || '';
+      if (!text.trim()) {
+        // 面料文案为空但勾选了「无面料不翻单」：走 fabric-selected-empty 通道让货盘关弹窗并提示
+        // （noRestock 标记已通过 fabric-no-restock / 快照同步写入货盘）
+        const hasNoRestockChecked = Array.isArray(lastRenderedRows) && lastRenderedRows.some((item) => {
+          const key = (item.mtCode && item.mtSpecName)
+            ? (item.mtCode + '||' + item.mtSpecName)
+            : ((item.mtCode || '') + '__' + (item.mtSpecName || '') + '__' + (item.skuCode || ''));
+          return noRestockKeys.has(key);
+        });
+        if (hasNoRestockChecked) {
+          try {
+            window.parent.postMessage({ type: 'fabric-selected-empty', source: 'fabric-query', payload: {} }, '*');
+            const btn2 = document.getElementById('confirmSyncBtn');
+            if (btn2) {
+              const old2 = btn2.textContent;
+              btn2.textContent = '✓ 已同步无面料不翻单';
+              btn2.disabled = true;
+              setTimeout(() => { btn2.textContent = old2; btn2.disabled = false; }, 1500);
+            }
+          } catch (e) {
+            console.error('同步失败:', e);
+            alert('同步失败：' + (e.message || e));
+          }
+          return;
+        }
+        // 面料文案为空且未勾选「无面料不翻单」：允许关闭弹窗（noRestock 取消状态已通过 fabric-no-restock 实时同步）
+        try {
+          window.parent.postMessage({ type: 'fabric-selected-empty', source: 'fabric-query', payload: { noRestock: false } }, '*');
+          const btn2 = document.getElementById('confirmSyncBtn');
+          if (btn2) {
+            const old2 = btn2.textContent;
+            btn2.textContent = '✓ 已关闭';
+            btn2.disabled = true;
+            setTimeout(() => { btn2.textContent = old2; btn2.disabled = false; }, 1500);
+          }
+        } catch (e) {
+          console.error('同步失败:', e);
+          alert('同步失败：' + (e.message || e));
+        }
+        return;
+      }
+      try {
+        window.parent.postMessage({
+          type: 'fabric-selected',
+          source: 'fabric-query',
+          payload: { text }
+        }, '*');
+        const btn = document.getElementById('confirmSyncBtn');
+        if (btn) {
+          const old = btn.textContent;
+          btn.textContent = '✓ 已同步到货盘';
+          btn.disabled = true;
+          setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 1500);
+        }
+      } catch (e) {
+        console.error('同步失败:', e);
+        alert('同步失败：' + (e.message || e));
+      }
+    }
+
+    // 把生成的面料信息文字发回父页面（货盘）
+    function sendToTraysApp() {
+      if (!detectIframeMode()) {
+        alert('当前不是嵌入模式，无法发送到货盘');
+        return;
+      }
+      if (!queryResults || queryResults.length === 0) {
+        alert('请先查询面料数据');
+        return;
+      }
+      // 复用现有逻辑：生成 huopan 文字到 textarea，然后读取
+      generateHuopanText();
+      const text = (document.getElementById('huopanText') || {}).value || '';
+      if (!text.trim()) {
+        alert('面料信息为空，无法发送');
+        return;
+      }
+      try {
+        window.parent.postMessage({
+          type: 'fabric-selected',
+          source: 'fabric-query',
+          payload: { text }
+        }, '*');
+        // 视觉反馈
+        const orig = document.getElementById('sendToTraysBtn');
+        if (orig) {
+          const old = orig.textContent;
+          orig.textContent = '✓ 已发送';
+          orig.disabled = true;
+          setTimeout(() => { orig.textContent = old; orig.disabled = false; }, 1500);
+        }
+      } catch (e) {
+        console.error('发送失败:', e);
+        alert('发送失败：' + (e.message || e));
+      }
+    }
+
+    // 在 queryResults 变化后刷新按钮显隐
+    const _orig_renderResults = renderResults;
+    renderResults = function(results) {
+      _orig_renderResults(results);
+      refreshSendToTraysBtn();
+    };
+
+    // 提交并生成面料信息
+    function handleGenerateAndSubmit() {
+      // 先提交到 Supabase
+      if (queryResults.length > 0) {
+        saveExtraToSupabase();
+      }
+      // 再打开模态框生成文字
+      openHuopanModal();
+    }
+
+// 全量快照：把当前已勾选组合键一次性发给父窗口（货盘）
+    // 初始勾选态来自 localStorage、不会触发 onchange，所以必须主动同步
+    let lastNoRestockSnapshotSig = '';
+    function postNoRestockSnapshot(rows) {
+      const pids = [];
+      const seenPid = new Set();
+      const seenSkc = new Set();
+      const items = [];
+      (rows || []).forEach((item) => {
+        const pid = (item.pdtCode || '').trim();
+        if (!pid || seenPid.has(pid)) return;
+        // 把当前查询里的所有 pid 都推入 pids（不管有没有勾选）—— TraysPage 用 snapPids 判定「这些款号走 incoming 替换」，
+        // 取消勾选后若只把 item 从 items 移除、pid 也不在 pids，TraysPage 那边会被 keep 路径留住旧 item
+        seenPid.add(pid);
+        pids.push(pid);
+        // 组合键用于查询 noRestockKeys（联动勾选用 mtCode+mtSpecName；同 SKC 兜底）
+        const comboKey = (item.mtCode && item.mtSpecName)
+          ? ((item.mtCode || '') + '||' + (item.mtSpecName || ''))
+          : ((item.mtCode || '') + '__' + (item.mtSpecName || '') + '__' + (item.skuCode || ''));
+        if (!comboKey || comboKey === '||' || comboKey === '__' || comboKey === '____' || !noRestockKeys.has(comboKey)) return;
+        const skc = (item.skuCode || '').trim();
+        if (!skc || seenSkc.has(skc)) return; // 按 SKC 去重（之前按组合键去重会让共用主面料的多 SKC 漏报）
+        seenSkc.add(skc);
+        items.push({ skc, pid, color: item.pdtColorName || '', fabric: item.mtName || '', mtCode: item.mtCode || '', mtSpecName: item.mtSpecName || '' });
+      });
+      const sig = JSON.stringify({ pids, items });
+      if (sig === lastNoRestockSnapshotSig) return;
+      lastNoRestockSnapshotSig = sig;
+      try { window.parent.postMessage({ type: 'fabric-no-restock-snapshot', pids, items }, '*'); } catch (e) { /* ignore */ }
+    }
+  </script>
+  <script src="/fabric/prefill-listener.js" defer></script>
+</body>
+</html>

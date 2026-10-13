@@ -9,6 +9,7 @@ import productsRouter from './routes/products.js';
 import samplesRouter from './routes/samples.js';
 import traysRouter from './routes/trays.js';
 import profilesRouter from './routes/profiles.js';
+import fabricRouter from './routes/fabric.js';
 import { router as uploadRouter, UPLOAD_DIR } from './uploads.js';
 import { hasCredentials, clearProductsCache } from './vscm-client.js';
 import { clearBiCache, clearBiSkcCache } from './bi-client.js';
@@ -43,6 +44,12 @@ app.use('/api', ssoAuth.requireSession);
 // 用户自传图静态托管（GET /uploads/<uuid>.<ext>）
 app.use('/uploads', ssoAuth.requireSession, express.static(UPLOAD_DIR, {
   setHeaders: (res) => res.setHeader('Cache-Control', 'private, no-store'),
+}));
+
+// 面料与翻单页面静态托管（GET /fabric/sales.html, /fabric/index.html 等）
+const FABRIC_DIR = path.join(__dirname, 'fabric-public');
+app.use('/fabric', express.static(FABRIC_DIR, {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
 }));
 
 // 图片代理：转发 OSS / 淘宝 CDN 等第三方图片（解决浏览器 CORS 限制）
@@ -112,6 +119,9 @@ app.use('/api/trays', traysRouter);
 
 // 销量：直播当天 + 累计总销量（数据源 e106807e，宽表关联后数据源）
 app.use('/api/sales', salesRouter);
+
+// 面料与翻单相关 API（/api/fabric-data, /api/query 等）
+app.use('/api', fabricRouter);
 
 // 排品角色判定规则（配置后台读写；商品映射时实时生效）
 app.get('/api/config/role-rules', (_req, res) => {

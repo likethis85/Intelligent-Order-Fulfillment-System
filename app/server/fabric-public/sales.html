@@ -1,0 +1,2850 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>翻单计划管理</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .left-panel {
+      width: 400px;
+      background: white;
+      border-right: 1px solid #e0e0e0;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .logout-section {
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .user-email {
+      font-size: 13px;
+      color: #666;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
+    .logout-btn {
+      padding: 10px 20px;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      color: #666;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .logout-btn:hover { background: #e0e0e0; }
+    .right-panel {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      height: 100vh;
+      box-sizing: border-box;
+    }
+    h1 { font-size: 20px; color: #333; margin-bottom: 6px; }
+    .subtitle { color: #888; font-size: 13px; margin-bottom: 20px; }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #666;
+      margin: 20px 0 10px;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-primary { background: #333; color: white; }
+    .btn-primary:hover { background: #555; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-secondary { background: #eee; color: #333; }
+    .btn-secondary:hover { background: #ddd; }
+
+    /* 面料列表 */
+    .fabric-list { display: flex; flex-direction: column; gap: 8px; }
+
+    /* 面料区域分组标题 */
+    .fabric-section {
+      background: #f9f9f9;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .fabric-section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .fabric-section-header:hover { background: #f0f0f0; }
+    .fabric-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .fabric-section-title .count {
+      background: #ddd;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: normal;
+      color: #666;
+    }
+    .fabric-section-title.filled .count { background: #10b981; color: white; }
+    .fabric-section-title.unfilled .count { background: #f59e0b; color: white; }
+    .fabric-section-toggle {
+      font-size: 12px;
+      color: #999;
+      transition: transform 0.2s;
+    }
+    .fabric-section.collapsed .fabric-section-toggle { transform: rotate(-90deg); }
+    .fabric-section.collapsed .fabric-group-list { display: none; }
+
+    /* 款号分组 */
+    .fabric-group {
+      border-radius: 6px;
+      margin: 0 8px 4px 8px;
+      background: white;
+      border: 1px solid #eee;
+    }
+    .fabric-group:hover { border-color: #ccc; }
+    .fabric-group.selected { border-color: #10b981; background: #f0fdf4; }
+    .fabric-group-title {
+      font-weight: 500;
+      color: #333;
+      font-size: 13px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .fabric-group-title .pdt-code { flex: 1; }
+    .fabric-group-title .status-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: normal;
+    }
+    .fabric-group-title .status-badge.filled { background: #10b981; color: white; }
+    .fabric-group-title .status-badge.partial { background: #f59e0b; color: white; }
+    .fabric-group-title .status-badge.unfilled { background: #e0e0e0; color: #666; }
+    .fabric-group-title .status-badge.refill { background: #ef4444; color: white; }
+    .fabric-group-title .status-badge .filled-count { color: #10b981; font-weight: 600; }
+    .fabric-group-title input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #10b981; }
+
+    /* 编辑区 */
+    .editor-card {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .editor-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    /* 面料编辑行 */
+    .fabric-edit-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+    .fabric-edit-row .color-name {
+      flex: 1;
+      font-size: 14px;
+      color: #333;
+    }
+    .fabric-edit-row .input-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .fabric-edit-row input {
+      width: 60px;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      text-align: center;
+    }
+    .fabric-edit-row .unit { font-size: 13px; color: #666; }
+
+    /* 文字生成结果 */
+    .huopan-text-result {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 14px;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      min-height: 100px;
+    }
+
+    /* 翻单文字编辑框（业务员可修改后复制） */
+    .huopan-textarea {
+      margin-top: 16px;
+      width: 100%;
+      min-height: 120px;
+      padding: 12px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 14px;
+      line-height: 1.8;
+      color: #333;
+      background: #fff;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .huopan-textarea:focus { outline: none; border-color: #333; }
+
+    .copy-tip {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .copy-tip.show { opacity: 1; }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: #999;
+    }
+    .empty-state h2 { font-size: 16px; color: #666; margin-bottom: 8px; }
+
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 60px;
+      color: #666;
+    }
+    .loading.show { display: block; }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #eee;
+      border-top-color: #333;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .search-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .search-input:focus { outline: none; border-color: #333; }
+
+    .actions-row { display: flex; gap: 10px; margin-top: 16px; }
+
+    /* 按款号分块的编辑区 */
+    .pdt-editor-block {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .pdt-editor-block-header {
+      background: #f5f5f5;
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+    }
+    .pdt-editor-block-header .block-title { display: flex; align-items: center; gap: 8px; }
+    .pdt-editor-block-header .badge {
+      background: #ddd;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: normal;
+      color: #666;
+    }
+    .pdt-editor-block .fabric-edit-row:first-of-type { border-top: none; }
+
+    /* SKC 分组区域（款号下按SKC分组） */
+    .skc-edit-group {
+      padding: 4px 0;
+    }
+    .skc-edit-group + .skc-edit-group {
+      border-top: 1px dashed #e0e0e0;
+    }
+    .skc-group-title {
+      padding: 10px 16px 2px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+    }
+    .skc-group-title .skc-code { color: #10b981; font-weight: 600; }
+    .skc-group-title .pdt-color { color: #666; font-weight: normal; margin-left: 6px; }
+
+    /* 每个 SKC 的编辑块（两个交期：第1批/第2批） */
+    .sku-edit-block {
+      margin: 0 16px 10px;
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-radius: 6px;
+    }
+    .sku-edit-block .skc-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .sku-edit-block .skc-color { font-weight: 600; font-size: 14px; color: #333; }
+    .sku-edit-block .pdt-color { color: #666; font-weight: normal; margin-left: 6px; }
+    .sku-edit-block .sku-info {
+      font-size: 13px;
+      color: #10b981;
+      margin-bottom: 10px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+    .sku-edit-block .batch-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .sku-edit-block .batch-row:last-child { margin-bottom: 0; }
+    .sku-edit-block .batch-label {
+      width: 40px;
+      font-size: 13px;
+      color: #666;
+      flex-shrink: 0;
+    }
+    .sku-edit-block .input-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sku-edit-block input[type="number"] {
+      width: 70px;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      text-align: center;
+    }
+    .sku-edit-block select {
+      width: 90px;
+      padding: 6px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .sku-edit-block .unit { font-size: 12px; color: #666; }
+
+    /* 可生产件数提示（米数÷用量÷1.05，三种来源分开写） */
+    .sku-edit-block .sku-producible {
+      font-size: 12px;
+      color: #047857;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 4px;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+    /* "可生产(米数÷用量÷1.05)用量X：" 标签统一浅色字体 */
+    .sku-edit-block .sku-producible .sku-producible-label {
+      color: #9ca3af;
+    }
+
+    /* 面料信息已更新警告 */
+    .sku-edit-block .sku-warning {
+      font-size: 12px;
+      color: #b45309;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 4px;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+
+    /* 共享面料标记行 */
+    .sku-edit-block .shared-tag {
+      font-size: 12px;
+      color: #1f2937;
+      background: #fff7ed;
+      border: 1px dashed #fed7aa;
+      border-radius: 4px;
+      padding: 6px 10px;
+      margin-bottom: 8px;
+      line-height: 1.6;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .shared-tag .shared-icon { color: #ea580c; font-weight: 700; }
+    .shared-tag .shared-badge {
+      display: inline-flex;
+      align-items: center;
+      background: #fff3e0;
+      color: #e65100;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .shared-tag .shared-badge .sub { font-weight: 400; color: #666; }
+    .shared-tag .max-num { color: #2563eb; font-weight: 700; }
+    .shared-tag .split-num { color: #059669; font-weight: 700; }
+    .shared-tag .hint { color: #6b7280; font-size: 11px; }
+
+    /* 无共用面料时的灰字提示 */
+    .sku-edit-block .no-shared {
+      font-size: 12px;
+      color: #9ca3af;
+      background: #fafafa;
+      padding: 4px 10px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+    }
+
+    /* 弹窗样式 */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+    .modal-overlay.show { opacity: 1; visibility: visible; }
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 480px;
+      width: 90%;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .modal-content h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #333;
+    }
+    .modal-content p { font-size: 14px; color: #666; margin-bottom: 12px; }
+    .modal-content ul {
+      max-height: 200px;
+      overflow-y: auto;
+      padding-left: 20px;
+      margin-bottom: 16px;
+    }
+    .modal-content li { font-size: 13px; color: #666; margin-bottom: 4px; }
+    .modal-content .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .modal-content .modal-actions button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .modal-content .modal-actions .btn-recommended {
+      background: #10b981;
+      color: white;
+    }
+    .modal-content .modal-actions .btn-recommended:hover { background: #059669; }
+    .modal-content .modal-actions .btn-secondary-action {
+      background: #6b7280;
+      color: white;
+    }
+    .modal-content .modal-actions .btn-secondary-action:hover { background: #4b5563; }
+    .modal-content .modal-actions .btn-cancel {
+      background: #eee;
+      color: #666;
+    }
+    .modal-content .modal-actions .btn-cancel:hover { background: #ddd; }
+
+    /* ===== 手机端适配：双栏改纵向堆叠 ===== */
+    @media (max-width: 768px) {
+      .layout {
+        flex-direction: column;
+        min-height: auto;
+      }
+      .left-panel {
+        width: 100%;
+        max-height: 50vh;
+        border-right: none;
+        border-bottom: 1px solid #e0e0e0;
+        overflow-y: auto;
+      }
+      .right-panel {
+        height: auto;
+        flex: none;
+        padding: 16px;
+      }
+      .editor-card {
+        padding: 16px;
+      }
+      .fabric-edit-row {
+        flex-wrap: wrap;
+        row-gap: 6px;
+      }
+      .fabric-edit-row .color-name {
+        flex-basis: 100%;
+      }
+      .actions-row {
+        flex-wrap: wrap;
+      }
+      .actions-row button {
+        flex: 1;
+        min-width: 0;
+      }
+      /* 未填置顶、已填折叠下沉，优先展示未填 */
+      .fabric-list {
+        display: flex;
+        flex-direction: column;
+      }
+      #section-unfilled { order: -1; }
+      #section-filled { order: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="copy-tip" id="copyTip">已复制到剪贴板</div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>加载中...</p>
+  </div>
+
+  <div class="layout" id="mainLayout" style="display: none;">
+    <div class="left-panel">
+      <div class="header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <h1>翻单计划</h1>
+        <a href="/fabric/index.html" style="font-size: 13px; color: #333; text-decoration: underline;">← 面料查询</a>
+      </div>
+      <p class="subtitle">填写翻单计划信息</p>
+
+      <div class="section-title">已填翻单信息</div>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input type="text" class="search-input" id="fabricSearch" placeholder="搜索款号..."
+          style="flex: 1;" oninput="onSearchInput(this.value)" onkeydown="onSearchKeydown(event)">
+        <button type="button" class="btn-secondary" style="padding: 6px 12px; font-size: 12px;"
+          onclick="showForceAddModal()" title="强制添加款号">+</button>
+      </div>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <button type="button" class="btn-secondary" style="flex: 1; font-size: 12px; padding: 8px;"
+          onclick="switchSearchMode('filled')" id="btnFilledOnly">只看已填/未填</button>
+        <button type="button" class="btn-secondary" style="flex: 1; font-size: 12px; padding: 8px;"
+          onclick="switchSearchMode('all')" id="btnAllPdts">搜索全部款</button>
+      </div>
+      <div id="forceAddHint" style="display: none; margin-bottom: 12px; text-align: center;">
+        <span style="color: #666; font-size: 12px;">未找到 "<span id="forceAddPdtCode"></span>"</span>
+        <button type="button" class="btn-outline" style="margin-left: 8px; font-size: 11px; padding: 4px 8px;"
+          onclick="forceAddPdt()">强制添加此款号</button>
+      </div>
+      <div class="fabric-list" id="fabricList">
+        <div class="empty-state" style="padding: 40px 0;">
+          <p>暂无面料数据</p>
+          <p style="font-size: 12px; margin-top: 8px;">请在面料查询页面查询并保存</p>
+        </div>
+      </div>
+
+      <!-- 导出按钮放在已填写区域底部 -->
+      <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee;">
+        <button type="button" class="btn-success" style="width: 100%;" onclick="exportAllFilledData()">导出已填写翻单</button>
+      </div>
+
+      <div class="logout-section">
+        <span class="user-email" id="userEmail"></span>
+        <button type="button" class="logout-btn" onclick="handleLogout()">退出登录</button>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <div class="empty-state" id="emptyEditor">
+        <h2>勾选面料开始编辑</h2>
+        <p>在左侧勾选面料后，在此填写 x天 x件</p>
+      </div>
+
+      <div class="editor-card" id="editorCard" style="display: none;">
+        <div class="editor-title">填写翻单计划</div>
+
+        <div id="fabricEditRows">
+          <!-- 动态生成 -->
+        </div>
+
+        <div class="actions-row">
+          <button type="button" class="btn-primary" onclick="generateText()">确认翻单信息并同步至货盘</button>
+          <button type="button" class="btn-success" onclick="copyText()">确认并复制翻单文字</button>
+        </div>
+
+        <textarea class="huopan-textarea" id="textResult" placeholder="生成的翻单文字将显示在此，可手动修改后再复制" oninput="onTextManualEdit()"></textarea>
+      </div>
+    </div>
+
+    <!-- 共用面料弹窗 -->
+    <div class="modal-overlay" id="sharedFabricModal">
+      <div class="modal-content">
+        <h3>⚠️ 检测到共用面料</h3>
+        <p>以下面料被多个款号共用，建议参考分摊量填写翻单计划：</p>
+        <ul id="sharedFabricList"></ul>
+        <div class="modal-actions">
+          <button class="btn-secondary-action" onclick="handleSharedFabric('cancel')">取消勾选</button>
+          <button class="btn-primary" onclick="handleSharedFabric('ok')">知道了，继续勾选</button>
+        </div>
+      </div>
+    </div>
+
+  <script src="/fabric/vendor/supabase.min.js"></script>
+  <script>
+    let supabaseClient = null;
+    let currentUser = null;
+    let accessToken = null;
+    let fabricData = [];
+    let selectedFabrics = {}; // { fabricId: fabricObject }
+    let searchMode = 'filled'; // 'filled' | 'all' - 搜索模式
+    let allPdtCodes = []; // 所有款号列表（用于全部款搜索）
+    let _lastSelKey = '';          // 上次自动生成文字时选中的款组合 key
+    let _manualEdited = false;     // 用户是否手动编辑过 textarea（同一组合内不覆盖）
+    let forceAddedPdts = new Set(); // 强制添加的款号（无面料信息）
+    // 区域折叠状态（手机端默认折叠"已填"区，优先展示"未填"）
+    let sectionCollapsed = { filled: window.innerWidth <= 768, unfilled: false };
+
+    // 带认证的fetch函数（已移除登录检查，直接请求）
+    async function authFetch(url, options = {}) {
+      return fetch(url, options);
+    }
+
+    // 页面初始化
+    (async function init() {
+      // 强制立刻显示主界面、关闭 loading
+      document.getElementById('mainLayout').style.display = 'flex';
+      document.getElementById('loading').classList.remove('show');
+      try {
+        await loadFabrics();
+      } catch (err) {
+        console.error('loadFabrics 失败:', err);
+      }
+      // 默认切到「搜索全部款」模式
+      switchSearchMode('all');
+      // URL ?pids=ME15FF039,ME15FF068 接收批量款号：填搜索框 + 自动勾选
+      const urlParams = new URLSearchParams(window.location.search);
+      const pidsParam = urlParams.get('pids');
+      if (pidsParam) {
+        const codes = pidsParam.split(/[,，、\s;；\n]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+        const searchInput = document.getElementById('fabricSearch');
+        if (searchInput) searchInput.value = codes.join(',');
+        switchSearchMode('all');
+
+        // 异步处理：先 forceAddPdtCode（如果需要），等完成后再 toggleGroup
+        (async () => {
+          await new Promise(r => setTimeout(r, 600));
+          for (const code of codes) {
+            // 1) 没记录就强制添加
+            if (!allPdtCodes.includes(code) && !forceAddedPdts.has(code)) {
+              await forceAddPdtCode(code);
+              await new Promise(r => setTimeout(r, 400));
+            }
+            // 2) 等列表重新渲染后，查找 DOM
+            let el = document.querySelector(`.fabric-group[data-pdt="${code}"]`);
+            if (!el) {
+              await new Promise(r => setTimeout(r, 400));
+              el = document.querySelector(`.fabric-group[data-pdt="${code}"]`);
+            }
+            // 3) 勾选（这时 selectedFabrics 没这个款号，toggleGroup 会走 addGroupToSelection 路径）
+            if (el) {
+              const cb = el.querySelector('input[type="checkbox"]');
+              if (cb && !cb.checked) {
+                toggleGroup(code, true);
+              }
+            }
+          }
+        })();
+      }
+    })();
+
+    // 加载面料数据
+    async function loadFabrics() {
+      try {
+        const res = await authFetch('/api/fabric-data');
+        const result = await res.json();
+        if (result.success) {
+          // 排除 恒隆仓 / 工厂物料仓库 的记录（不在翻单计划页展示）
+          fabricData = (result.data || []).filter(r => {
+            const w = (r.warehouse || '');
+            return !(w.includes('恒隆') || w.includes('工厂物料'));
+          });
+          // 收集所有款号（用于全部款搜索）
+          allPdtCodes = [...new Set(fabricData.map(r => r.pdt_code))].filter(Boolean).sort();
+          // 过滤掉旧占位记录（sku_code=pdt_code 且 mt_code='_forced_'）
+          fabricData = fabricData.filter(r => {
+            const isOldPlaceholder = (r.mt_code === '_forced_') && (r.sku_code === r.pdt_code);
+            return !isOldPlaceholder;
+          });
+          // 标 _source='craft'（工艺库），下面 merge 样衣 BOM 时用 _source 区分
+          fabricData = fabricData.map(r => ({ ...r, _source: 'craft' }));
+          renderFabricList();
+          // 补全缺失 SKC：调 fill-skcs 批量补充 getproducts 返回但数据库没有的 SKC
+          // 暂时注释掉：fabric_Q 后端 fill-skcs 端点 500 会触发 React unhandled rejection，把后续 sample BOM merge 的 fetch 也打断
+          // fillMissingSkcs();
+          // 样衣 BOM 按需合并（不再对全部款号拉取——全量会触发领猫限流，被限的款号拿不到驼色等样衣色）：
+          // 只在 URL pids 指定 / 用户手动勾选 时才调主仓 /api/samples/materials
+          const urlParamsEarly = new URLSearchParams(window.location.search);
+          const pidsParamEarly = urlParamsEarly.get('pids');
+          if (pidsParamEarly) {
+            const earlyCodes = pidsParamEarly.split(/[,，、\s;；\n]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+            await mergeSampleBomForCodes(earlyCodes);
+          }
+          // URL 参数 pids：自动勾选对应款号
+          const urlParams = new URLSearchParams(window.location.search);
+          const pidsParam = urlParams.get('pids');
+          if (pidsParam) {
+            const codes = pidsParam.split(/[,，、\s;；\n]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+            setTimeout(() => {
+              codes.forEach((code) => {
+                const group = document.querySelector(`.fabric-group[data-pdt="${code}"]`);
+                if (group) {
+                  const cb = group.querySelector('input[type="checkbox"]');
+                  if (cb && !cb.checked) toggleGroup(code, true);
+                } else if (!allPdtCodes.includes(code) && !forceAddedPdts.has(code)) {
+                  forceAddPdtCode(code);
+                }
+              });
+            }, 500);
+          }
+        }
+      } catch (err) {
+        console.error('加载面料数据失败:', err);
+      }
+    }
+
+    // 批量补充缺失 SKC（对已有面料数据的款，补全 getproducts 返回的所有 SKC）
+    async function fillMissingSkcs() {
+      if (allPdtCodes.length === 0) return;
+      console.log('[fillMissingSkcs] 开始补全 SKC，款数:', allPdtCodes.length);
+      try {
+        const res = await authFetch('/api/fabric-data/fill-skcs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdt_codes: allPdtCodes })
+        });
+        const result = await res.json();
+        if (result.success && result.inserted > 0) {
+          console.log('[fillMissingSkcs] 补充了', result.inserted, '条 SKC');
+          // 重新加载面料数据
+          const res2 = await authFetch('/api/fabric-data');
+          const result2 = await res2.json();
+          if (result2.success) {
+            fabricData = (result2.data || []).filter(r => {
+              const w = (r.warehouse || '');
+              return !(w.includes('恒隆') || w.includes('工厂物料'));
+            });
+            // 过滤旧占位
+            fabricData = fabricData.filter(r => {
+              const isOldPlaceholder = (r.mt_code === '_forced_') && (r.sku_code === r.pdt_code);
+              return !isOldPlaceholder;
+            });
+            allPdtCodes = [...new Set(fabricData.map(r => r.pdt_code))].filter(Boolean).sort();
+            renderFabricList();
+          }
+        } else {
+          console.log('[fillMissingSkcs] 无需补充');
+        }
+      } catch (err) {
+        console.error('[fillMissingSkcs] 失败:', err);
+      }
+    }
+
+    // 切换搜索模式
+    function switchSearchMode(mode) {
+      searchMode = mode;
+      const btnFilled = document.getElementById('btnFilledOnly');
+      const btnAll = document.getElementById('btnAllPdts');
+      if (mode === 'filled') {
+        btnFilled.className = 'btn-secondary btn-active';
+        btnAll.className = 'btn-secondary';
+      } else {
+        btnFilled.className = 'btn-secondary';
+        btnAll.className = 'btn-secondary btn-active';
+      }
+      renderFabricList();
+    }
+
+    // 搜索框输入处理
+    // 从搜索框解析出多个搜索词（批量搜索）：逗号/顿号/空格/换行/分号分隔，过滤空项并转小写
+    function getSearchTerms() {
+      const v = document.getElementById('fabricSearch').value.trim().toLowerCase();
+      if (!v) return [];
+      // 分隔符：英文逗号, 中文逗号，顿号、 任意空白\s 分号;； 换行\n
+      return v.split(/[,，、\s;；\n]+/).map(s => s.trim()).filter(Boolean);
+    }
+
+    function onSearchInput(value) {
+      // 全部款模式需要重新渲染（数据过滤），已填/未填模式只需过滤DOM
+      if (searchMode === 'all') {
+        renderFabricList();
+      } else {
+        filterFabrics();
+      }
+    }
+
+    // 搜索框回车处理
+    function onSearchKeydown(event) {
+      if (event.key === 'Enter') {
+        // 批量搜索：不在这里弹"款不存在/强制添加"提示——"搜索全部款"模式会把搜索词里
+        // 无记录的款作为占位显示，勾选即自动强制添加；这里仅确保列表按当前搜索渲染。
+        // 若当前是"已填/未填"模式，切到"搜索全部款"以显示搜索到的款
+        if (searchMode !== 'all') {
+          switchSearchMode('all');
+        } else {
+          renderFabricList();
+        }
+        document.getElementById('forceAddHint').style.display = 'none';
+      }
+    }
+
+    // 显示强制添加弹窗（输入款号）
+    function showForceAddModal() {
+      const code = prompt('请输入要添加的款号（如 ME21DF011）：');
+      if (code && code.trim()) {
+        forceAddPdtCode(code.trim().toUpperCase());
+      }
+    }
+
+    // 强制添加款号（用于无面料信息的情况）
+    async function forceAddPdtCode(code) {
+      if (!code) return;
+      code = code.toUpperCase().trim();
+
+      console.log('[forceAddPdtCode] starting for:', code);
+
+      // 检查是否已存在：仅当该款已有【真实面料数据】（非 _forced_ 占位）时拦截；
+      // 若只是旧版占位记录（mt_code='_forced_'），仍需调用 API 重建正确的 SKC
+      if (allPdtCodes.includes(code)) {
+        const existingRows = fabricData.filter(r => r.pdt_code === code);
+        const hasReal = existingRows.some(r => (r.mt_code || '') !== '_forced_');
+        if (hasReal) {
+          alert('此款号已存在');
+          return;
+        }
+        // 全是占位记录 → 继续走 API 重建
+        console.log('[forceAddPdtCode] 该款只有占位记录，重建 SKC');
+      }
+
+      try {
+        console.log('[forceAddPdtCode] calling API...');
+        // 调用后端 API：查 SKU → 按 SKC 建记录（自动清旧占位）
+        const res = await authFetch('/api/fabric-data/force-add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdt_code: code })
+        });
+        console.log('[forceAddPdtCode] response status:', res.status);
+        const result = await res.json();
+        console.log('[forceAddPdtCode] result:', result);
+
+        if (!result.success) {
+          alert(result.error || '添加失败');
+          return;
+        }
+
+        // 重建成功：先从本地数据移除该款旧占位记录，再并入新的（按 SKC）
+        fabricData = fabricData.filter(r => r.pdt_code !== code);
+        if (result.data) {
+          const newRows = Array.isArray(result.data) ? result.data : [result.data];
+          fabricData.push(...newRows);
+        }
+        if (!allPdtCodes.includes(code)) {
+          allPdtCodes.push(code);
+        }
+        allPdtCodes.sort();
+
+        forceAddedPdts.add(code);
+        document.getElementById('forceAddHint').style.display = 'none';
+        document.getElementById('fabricSearch').value = code;
+        console.log('[forceAddPdtCode] success, fabricData now has:', fabricData.length, 'items');
+        renderFabricList();
+      } catch (err) {
+        console.error('强制添加款号失败:', err);
+        alert('添加失败: ' + err.message);
+      }
+    }
+
+    // 搜索提示中点击"强制添加"
+    function forceAddPdt() {
+      const code = document.getElementById('forceAddPdtCode').textContent;
+      forceAddPdtCode(code);
+    }
+
+    // 按款号分组
+    function groupByPdtCode(items) {
+      const groups = {};
+      items.forEach(item => {
+        const pdtCode = item.pdt_code || '未分类';
+        if (!groups[pdtCode]) groups[pdtCode] = [];
+        groups[pdtCode].push(item);
+      });
+      return groups;
+    }
+
+    // 提取颜色名称
+    function extractColorName(specName) {
+      let colorName = specName || '';
+      const match = colorName.match(/\]?([^\];\-]+)/);
+      if (match) colorName = match[1].trim();
+      return colorName;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // ========== 已填/未填分离显示的渲染面料列表 ==========
+
+    // 判断款号是否已填写翻单信息（第1批或动态批次有值即算已填）
+    function isGroupFilled(items) {
+      return items.some(item => {
+        if (item.sales_pieces > 0 || item.sales_delivery_days > 0) return true;
+        const batches = Array.isArray(item.sales_batches) ? item.sales_batches : [];
+        return batches.some(b => (b.pieces > 0 || b.days > 0));
+      });
+    }
+
+    // 统计款号填写情况（按 SKC 去重：一个颜色下的多条仓库记录只算一个）
+    function getGroupFillStats(items) {
+      const skcMap = new Map(); // skc -> 是否已填
+      items.forEach(item => {
+        const skc = item.sku_code || item.skuCode || item.mt_code || '';
+        let filled = item.sales_pieces > 0 || item.sales_delivery_days > 0;
+        if (!filled) {
+          const batches = Array.isArray(item.sales_batches) ? item.sales_batches : [];
+          filled = batches.some(b => (b.pieces > 0 || b.days > 0));
+        }
+        if (!skcMap.has(skc)) {
+          skcMap.set(skc, filled);
+        } else if (!skcMap.get(skc) && filled) {
+          skcMap.set(skc, true);
+        }
+      });
+      const filled = Array.from(skcMap.values()).filter(v => v).length;
+      return { filled, total: skcMap.size };
+    }
+
+    // 一个款号是否已被勾选到编辑区（该款下任一记录在 selectedFabrics 中即算已勾选）
+    function isGroupSelected(items) {
+      return items.some(item => {
+        const itemId = item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
+        return !!selectedFabrics[itemId];
+      });
+    }
+
+    // 判断一条面料记录是否有价值显示在翻单计划页
+    // 面料信息文字 / 补充信息（在途、可订货、交期、订货周期）/ 翻单计划（件数、交期、批次）全为空时
+    // 说明该款的面料补充信息和翻单计划都已被清空，没有可规划的内容，应隐藏不显示
+    // 但 fill-skcs 补充的占位记录（mt_code='_forced_' 且有 pdt_color_name）也要显示
+    function isFabricRelevant(item) {
+      // fill-skcs 补充的占位记录：有颜色名但无面料信息，也应显示
+      if ((item.mt_code || '') === '_forced_' && (item.pdt_color_name || '').trim()) return true;
+      const fi = (item.fabric_info || '').trim();
+      if (fi) return true;
+      if (Number(item.in_transit_qty) > 0 || Number(item.orderable_qty) > 0 || Number(item.lead_time_days) > 0 || item.delivery_date) return true;
+      if (Number(item.sales_pieces) > 0 || Number(item.sales_delivery_days) > 0) return true;
+      const batches = Array.isArray(item.sales_batches) ? item.sales_batches : [];
+      if (batches.some(b => (Number(b.pieces) || 0) > 0 || (Number(b.days) || 0) > 0)) return true;
+      // 有库存（非里布）的仓库记录也保留，供分仓库逐行展示
+      if (Number(item.stock) > 0 && !isLiningFabric(item)) return true;
+      return false;
+    }
+
+    // 渲染面料列表（已填/未填分离）
+    function renderFabricList() {
+      const container = document.getElementById('fabricList');
+      const search = document.getElementById('fabricSearch').value.trim().toLowerCase();
+
+      // 全部款模式：直接显示所有款号，不过滤
+      if (searchMode === 'all') {
+        // 批量搜索：解析出多个搜索词（逗号/空格/换行/分号分隔），款号匹配任一词即显示（并集）
+        const terms = getSearchTerms();
+        const matchTerms = (code) => terms.length === 0 || terms.some(t => code.includes(t));
+        // SKC 匹配收款号：任一词命中该款某 SKC 也显示
+        const matchSkc = (code) => terms.some(t =>
+          fabricData.some(r => r.pdt_code === code && (r.sku_code || '').toLowerCase().includes(t))
+        );
+
+        // 搜索过滤：匹配款号（任一词） OR 匹配 SKC（任一词命中某 SKC → 该款号也显示）
+        const filteredPdts = allPdtCodes.filter(code => matchTerms(code.toLowerCase()) || matchSkc(code));
+
+        // 强制添加的款号也要显示（同样按批量词过滤）
+        const filteredForced = [...forceAddedPdts].filter(code =>
+          matchTerms(code.toLowerCase()) || matchSkc(code)
+        );
+
+        // 搜索词中「在系统没有记录、也未被强制添加」的款号：作为待强制添加的占位显示，一起搜时也呈现
+        const pendingAdds = [];
+        (getSearchTerms() || []).forEach(t => {
+          const upper = t.toUpperCase();
+          if (allPdtCodes.includes(upper) || forceAddedPdts.has(upper)) return; // 已有记录或已强制添加
+          const hasSkc = fabricData.some(r => (r.sku_code || '').toUpperCase() === upper);
+          if (!hasSkc) pendingAdds.push(upper); // 完全无记录 → 待强制添加占位
+        });
+
+        if (filteredPdts.length === 0 && filteredForced.length === 0 && pendingAdds.length === 0) {
+          container.innerHTML = '<div class="empty-state" style="padding: 40px 0;"><p>暂无匹配款号</p></div>';
+          return;
+        }
+
+        const groups = {};
+        filteredPdts.forEach(pdtCode => {
+          // 过滤掉旧占位记录（sku_code=pdt_code 且 mt_code='_forced_' 的假数据）
+          const items = fabricData.filter(r => {
+            if (r.pdt_code !== pdtCode) return false;
+            const isOldPlaceholder = (r.mt_code === '_forced_') && (r.sku_code === pdtCode);
+            return !isOldPlaceholder;
+          });
+          if (items.length > 0) groups[pdtCode] = items;
+        });
+
+        // 强制添加的款号：创建空白条目用于显示
+        filteredForced.forEach(pdtCode => {
+          groups[pdtCode] = [{ pdt_code: pdtCode, _forced: true, fabric_info: '', sales_pieces: 0 }];
+        });
+
+        // 待强制添加的搜索款号：同样以空白占位显示（方便一起搜时都能看到、可勾选后强制添加）
+        pendingAdds.forEach(pdtCode => {
+          groups[pdtCode] = [{ pdt_code: pdtCode, _forced: true, fabric_info: '', sales_pieces: 0 }];
+        });
+
+        container.innerHTML = renderGroupList(groups, 'all');
+        return;
+      }
+
+      // 已填/未填模式（原有逻辑）
+      // 有面料信息 才显示（清空后面料信息消失，款不再出现）；有翻单计划/在途/采购单也保留显示
+      // 有翻单价值的款才显示：面料信息/在途/可订货/交期/翻单计划，或强制添加/fill-skcs 的占位记录
+      // （强制添加的占位款也显示在"未填"区，便于继续填写翻单计划）
+      const relevantData = fabricData.filter(item => isFabricRelevant(item));
+      if (relevantData.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding: 40px 0;"><p>暂无需要填写翻单计划的款</p><p style="font-size: 12px; margin-top: 8px;">请在面料查询页面查询并生成面料信息后，再来此填写翻单计划</p></div>';
+        return;
+      }
+
+      const groups = groupByPdtCode(relevantData);
+      const filledGroups = {};
+      const unfilledGroups = {};
+
+      // 分离已填/未填
+      Object.keys(groups).sort().forEach(pdtCode => {
+        const items = groups[pdtCode];
+        if (isGroupFilled(items)) {
+          filledGroups[pdtCode] = items;
+        } else {
+          unfilledGroups[pdtCode] = items;
+        }
+      });
+
+      let html = '';
+
+      // 已填区域
+      if (Object.keys(filledGroups).length > 0) {
+        html += `
+          <div class="fabric-section ${sectionCollapsed.filled ? 'collapsed' : ''}" id="section-filled">
+            <div class="fabric-section-header" onclick="toggleSection('filled')">
+              <div class="fabric-section-title filled">
+                ✓ 已填翻单信息 <span class="count">${Object.keys(filledGroups).length}</span>
+              </div>
+              <span class="fabric-section-toggle">▼</span>
+            </div>
+            <div class="fabric-group-list">
+              ${renderGroupList(filledGroups, 'filled')}
+            </div>
+          </div>
+        `;
+      }
+
+      // 未填区域
+      if (Object.keys(unfilledGroups).length > 0) {
+        html += `
+          <div class="fabric-section ${sectionCollapsed.unfilled ? 'collapsed' : ''}" id="section-unfilled">
+            <div class="fabric-section-header" onclick="toggleSection('unfilled')">
+              <div class="fabric-section-title unfilled">
+                ○ 未填翻单信息 <span class="count">${Object.keys(unfilledGroups).length}</span>
+              </div>
+              <span class="fabric-section-toggle">▼</span>
+            </div>
+            <div class="fabric-group-list">
+              ${renderGroupList(unfilledGroups, 'unfilled')}
+            </div>
+          </div>
+        `;
+      }
+
+      container.innerHTML = html;
+    }
+
+    // 渲染款号列表（复用）
+    function renderGroupList(groups, type) {
+      return Object.keys(groups).sort().map(pdtCode => {
+        const items = groups[pdtCode];
+        const escapedPdt = escapeHtml(pdtCode);
+        const groupId = 'group-' + escapedPdt.replace(/[^a-zA-Z0-9]/g, '_');
+        const stats = getGroupFillStats(items);
+
+        // 状态徽章
+        let statusBadge = '';
+        if (type === 'filled') {
+          if (stats.filled === stats.total) {
+            statusBadge = '<span class="status-badge filled">✓ 全部已填</span>';
+          } else {
+            statusBadge = `<span class="status-badge partial"><span class="filled-count">${stats.filled}</span>/${stats.total}</span>`;
+          }
+        }
+        // 需重填徽章：该款下有 SKC 的面料信息比保存计划时已变化，需按新面料信息重填
+        const refillBadge = items.some(it => snapshotDiffers(it))
+          ? '<span class="status-badge refill">⚠ 需重填</span>'
+          : '';
+
+        return `
+          <div class="fabric-group" data-pdt="${escapedPdt}">
+            <div class="fabric-group-title">
+              <input type="checkbox" id="${groupId}" data-pdt="${escapedPdt}"
+                ${isGroupSelected(items) ? 'checked' : ''}
+                onchange="toggleGroup('${escapedPdt}', this.checked)">
+              <span class="pdt-code">${escapeHtml(pdtCode)}</span>
+              ${statusBadge}
+              ${refillBadge}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 折叠/展开区域
+    function toggleSection(sectionId) {
+      const section = document.getElementById('section-' + sectionId);
+      if (section) {
+        sectionCollapsed[sectionId] = !sectionCollapsed[sectionId];
+        section.classList.toggle('collapsed', sectionCollapsed[sectionId]);
+      }
+    }
+
+    // 过滤面料（支持新结构，批量搜索多个款号：命中任一词即显示）
+    function filterFabrics() {
+      const terms = getSearchTerms(); // 解析多个搜索词
+      const groups = document.querySelectorAll('.fabric-group');
+      groups.forEach(group => {
+        const pdt = group.dataset.pdt.toLowerCase();
+        const match = terms.length === 0 || terms.some(t => pdt.includes(t));
+        group.style.display = match ? 'block' : 'none';
+      });
+
+      // 更新区域显示
+      ['filled', 'unfilled'].forEach(type => {
+        const section = document.getElementById('section-' + type);
+        if (section) {
+          const visibleGroups = section.querySelectorAll('.fabric-group:not([style*="display: none"])');
+          const groupList = section.querySelector('.fabric-group-list');
+          if (groupList) {
+            groupList.style.display = visibleGroups.length > 0 ? 'block' : 'none';
+          }
+        }
+      });
+    }
+
+    // ========== 编辑区：按款号→SKC 分组，每SKC一行 ==========
+
+    // 主面料判定（与面料页同一规则）
+    // 里料识别：名称(mt_name)含 里布/里料/里衬，或物料种类(mt_category，如 里布)匹配 —— 里料不算主面料
+    function isLiningFabric(f) {
+      const name = String(f.mt_name || f.mtName || '');
+      const cat = String(f.mt_category || '');
+      if (/里布|里料|里衬/.test(name)) return true;
+      if (/里布|里料|里衬/.test(cat)) return true;
+      return false;
+    }
+    // 排序分 = 用量(use_amt) × 单价(mt_price)（单价缺失/为0时退化为按用量）
+    function fabricScoreF(f) {
+      const amt = Number(f.use_amt) || 0;
+      const price = Number(f.mt_price) || 0;
+      return amt * (price > 0 ? price : 1);
+    }
+    // 在一个SKC的一组物料记录（[{itemId, fabric}]）中选出主面料
+    function pickMainFabricF(items) {
+      if (!items || items.length === 0) return null;
+      // 排除里料 + _forced_ 占位记录（占位不是真实面料，不作为主面料；仅当SKC全是占位时才回退用占位）
+      const real = items.filter(it => !isLiningFabric(it.fabric) && (it.fabric.mt_code || it.fabric.mtCode || '') !== '_forced_');
+      const candidates = real.length > 0 ? real : items.filter(it => !isLiningFabric(it.fabric));
+      const pool = candidates.length > 0 ? candidates : items;
+      return pool.reduce((best, cur) => fabricScoreF(cur.fabric) > fabricScoreF(best.fabric) ? cur : best, pool[0]);
+    }
+
+    // 为一个SKC的一组物料记录，选出主面料（排除里料后按 用量×单价 最大）并生成其显示信息
+    // 每个SKC只显示一条：主面料的 fabric_info + 用量（如"绿色315米面料仓 在途100米9/23到仓 用量1.65"）
+    // 返回 { displayInfo: "...", main: 主面料记录 }
+    function getSkuInfoSegments(items) {
+      if (!items || items.length === 0) return { displayInfo: '-', main: null };
+      // 主面料：排除里料后，按 用量×单价 选最大（单价缺失时按用量）
+      //（如 里布0.84 即使用量较大也不算主面料；F228153 绿色 1.65×132 > 里料 0.84×16.8）
+      const main = pickMainFabricF(items);
+      const useAmt = Number(main.fabric.use_amt) || 0;
+      const isForced = (main.fabric.mt_code || main.fabric.mtCode || '') === '_forced_';
+
+      // 第1行：主面料信息 + 用量（优先用面料页生成并存库的 fabric_info，保持一致）
+      const mainStored = (main.fabric.fabric_info || '').trim();
+      const mainInfo = mainStored || buildFabricInfo(main.fabric);
+      const lines = [];
+      let firstLine = mainInfo || '-';
+      // 无真实面料的占位记录（BOM 未填/暂时没查到）：提示"暂无面料信息"。
+      // 不能写"无面料不翻单"——那是用户在面料页显式勾选的决定，不是"没查到"的默认结论。
+      if (isForced && firstLine === '-') {
+        firstLine = '暂无面料信息';
+      }
+      if (mainInfo && useAmt > 0) firstLine += ` 用量${useAmt}`;
+      lines.push(firstLine);
+
+      // 追加行：其它面料若有在途/工厂现货/可订货/交期等补充信息也显示
+      //（优先用面料页生成并存库的 fabric_info；没有存储值则现拼，物料名称放最前）
+      items.forEach(item => {
+        const fab = item.fabric;
+        if (fab === main.fabric) return;
+        // 里布的库存/在途是系统数据，不算"有补充"；工厂现货/可订货/订货周期/手动填的交期才算
+        const isLining = isLiningFabric(fab);
+        const hasStock = !isLining && Number(fab.stock) > 0; // 非里布的其余仓库纯库存，也单独展示
+        const hasSupplement = (!isLining && Number(fab.in_transit_qty) > 0) ||
+          Number(fab.factory_spot_qty) > 0 ||
+          Number(fab.orderable_qty) > 0 ||
+          Number(fab.lead_time_days) > 0 || !!fab.delivery_date;
+        if (hasStock || hasSupplement) {
+          const stored = (fab.fabric_info || '').trim();
+          let extra = stored;
+          if (!extra) {
+            const built = buildFabricInfo(fab);
+            if (built) {
+              const colorLab = (fab.color_name || fab.pdt_color_name || '').trim();
+              extra = colorLab ? `${colorLab}${built}` : built;
+            }
+          }
+          if (extra) lines.push(extra);
+        }
+      });
+
+      return { displayInfo: lines.join('<br>'), main };
+    }
+
+    // ========== 共用面料检测 ==========
+    // 基于 fabricData（全部已加载面料）检测共用，跨所有已勾选款
+    // 返回: Map<key, { mtCode, mtSpec, siblings: [{pdt, skc}], uMap:{skc:用量}, M }>
+    function findSharedFabricMap(items) {
+      // items = 当前已勾选的面料行（来自 selectedFabrics）
+      // 检测共用时需看 fabricData 中所有已勾选款（pdt_code）的面料
+      const selectedPdts = new Set();
+      items.forEach(({ fabric }) => selectedPdts.add(fabric.pdt_code || ''));
+
+      // 收集所有已勾选款的面料行（用于检测跨款共用）。跳过 _forced_ 占位记录（无真实面料，不参与共用检测）
+      const allItems = [];
+      fabricData.forEach(fabric => {
+        if (selectedPdts.has(fabric.pdt_code || '')) {
+          // 占位记录（mt_code='_forced_'）不是真实面料，不参与共用检测，避免误报共用
+          if ((fabric.mt_code || fabric.mtCode || '') === '_forced_') return;
+          // 为每行补上 itemId（从 selectedFabrics 中找，找不到则用 fabric.id）
+          const itemId = Object.keys(selectedFabrics).find(id => {
+            const sf = selectedFabrics[id];
+            return sf && sf.pdt_code === fabric.pdt_code &&
+              (sf.sku_code || sf.skuCode || '') === (fabric.sku_code || fabric.skuCode || '') &&
+              sf.mt_code === fabric.mt_code &&
+              (sf.mt_spec_name || '') === (fabric.mt_spec_name || '');
+          }) || (fabric.id || '');
+          allItems.push({ itemId, fabric });
+        }
+      });
+
+      const keyMap = {}; // key -> { mtCode, mtSpec, pdts: Set, skcs: [], uMap, rows[] }
+      allItems.forEach(({ fabric }) => {
+        const mtCode = fabric.mt_code || '';
+        const mtSpec = fabric.mt_spec_name || '';
+        if (!mtCode) return;
+        const key = mtCode + '||' + mtSpec;
+        if (!keyMap[key]) {
+          keyMap[key] = { mtCode, mtSpec, pdts: new Set(), skcs: [], uMap: {}, rows: [] };
+        }
+        const g = keyMap[key];
+        const pdt = fabric.pdt_code || '';
+        const skc = fabric.sku_code || fabric.skuCode || '';
+        g.pdts.add(pdt);
+        if (skc && !g.skcs.includes(skc)) {
+          g.skcs.push(skc);
+          g.uMap[skc] = Number(fabric.use_amt) || 0;
+        }
+        g.rows.push(fabric);
+      });
+
+      // 只保留 ≥2 个不同款共用的面料
+      const result = new Map();
+      Object.entries(keyMap).forEach(([key, g]) => {
+        if (g.pdts.size < 2) return;
+        // 过滤掉里料行（计算只用面料，不用里料）
+        const mainRows = g.rows.filter(f => !isLiningFabric(f));
+        if (mainRows.length === 0) return;
+        // M = 在仓+在途+可订货+工厂现货（同一卷面料不区分 PO 物料/大货现货，全加；按仓库去重取最大再相加）
+        const byWarehouse = {};
+        mainRows.forEach(f => {
+          const w = f.warehouse || '';
+          const v = (Number(f.stock) || 0) + (Number(f.in_transit_qty) || 0) + (Number(f.orderable_qty) || 0) + (Number(f.factory_spot_qty) || 0);
+          if (!byWarehouse[w] || v > byWarehouse[w]) byWarehouse[w] = v;
+        });
+        const M = Object.values(byWarehouse).reduce((a, b) => a + b, 0);
+        // Σ用量（每个SKC只算一次，取 max，过滤里料）
+        const uniqueUMap = {};
+        mainRows.forEach(f => {
+          const skc = f.sku_code || f.skuCode || '';
+          if (skc) {
+            const u = Number(f.use_amt) || 0;
+            if (!uniqueUMap[skc] || u > uniqueUMap[skc]) uniqueUMap[skc] = u;
+          }
+        });
+        const totalU = Object.values(uniqueUMap).reduce((a, b) => a + b, 0);
+        // 分摊量（等分件数）
+        const splitPieces = totalU > 0 ? Math.floor(M / (1.05 * totalU)) : 0;
+        // 最大单量（每个SKC单独算）
+        const maxMap = {};
+        Object.entries(uniqueUMap).forEach(([skc, u]) => {
+          maxMap[skc] = u > 0 ? Math.floor(M / u / 1.05) : 0;
+        });
+        // 互相共用的 SKC 列表（不含自己）
+        const siblings = g.skcs.map(s => ({ skc: s, others: g.skcs.filter(x => x !== s) }));
+        result.set(key, { mtCode: g.mtCode, mtSpec: g.mtSpec, M, totalU, splitPieces, maxMap, uMap: uniqueUMap, siblings });
+      });
+      // [DEBUG] 调试
+      // console.log('[DEBUG] sharedMap 结果:', result.size, '个共享面料');
+      // for (const [k, v] of result) {
+      //   console.log(`[DEBUG] 共享: ${k} | M=${v.M} | 分摊=${v.splitPieces}件 | SKCs: ${v.skcs}`);
+      // }
+      return result;
+    }
+
+    // 交货天数下拉（动态渲染用，直接设 data- 属性）
+    function makeDaySelect(value, itemId, idx) {
+      return `<select onchange="updateFabricBatch(this)" data-itemid="${itemId}" data-batchidx="${idx}" data-field="days">
+        <option value="0">请选择</option>
+        <option value="15" ${value === 15 ? 'selected' : ''}>15</option>
+        <option value="25" ${value === 25 ? 'selected' : ''}>25</option>
+        <option value="35" ${value === 35 ? 'selected' : ''}>35</option>
+      </select>`;
+    }
+
+    // 第1批交货天数下拉：保存到 sales_delivery_days
+    // 治本：与 sales_batches[0].days 共享同一份数据（updateFabric 双向同步）
+    function makeFirstDaySelect(value, itemId) {
+      return `<select onchange="updateFabric('${itemId}', 'sales_delivery_days', this.value)" data-itemid="${itemId}" data-field="days">
+        <option value="0">请选择</option>
+        <option value="15" ${value === 15 ? 'selected' : ''}>15</option>
+        <option value="25" ${value === 25 ? 'selected' : ''}>25</option>
+        <option value="35" ${value === 35 ? 'selected' : ''}>35</option>
+      </select>`;
+    }
+
+    // 面料更新快照：保存计划时记录当时的在仓/在途/交期/可订货/订货周期/面料信息
+    // 用于后续检测"面料信息是否被重新填写"，从而提示根据新的面料信息重新填计划
+    // 该SKC没有任何翻单值（件数/天数/批次）时快照为 null，清空计划即消除提醒
+    function buildBaseSnapshot(fabric) {
+      const hasPlan = Number(fabric.sales_pieces) > 0 || Number(fabric.sales_delivery_days) > 0 ||
+        (Array.isArray(fabric.sales_batches) && fabric.sales_batches.some(b => (Number(b.pieces) || 0) > 0 || (Number(b.days) || 0) > 0));
+      if (!hasPlan) return null;
+      return {
+        stock: Number(fabric.stock) || 0,
+        in_transit_qty: Number(fabric.in_transit_qty) || 0,
+        delivery_date: fabric.delivery_date || null,
+        factory_spot_qty: Number(fabric.factory_spot_qty) || 0,
+        orderable_qty: Number(fabric.orderable_qty) || 0,
+        lead_time_days: Number(fabric.lead_time_days) || 0,
+        fabric_info: fabric.fabric_info || null
+      };
+    }
+
+    // 判断面料信息相对计划快照是否有变化（任一关键字段不同即视为已更新）
+    function snapshotDiffers(fabric) {
+      const snap = fabric.sales_base_snapshot;
+      if (!snap) return false;
+      const s = typeof snap === 'string' ? JSON.parse(snap) : snap;
+      if (!s) return false;
+      const num = (v) => Number(v) || 0;
+      const dt = (v) => v || null;
+      return num(s.stock) !== num(fabric.stock) ||
+        num(s.in_transit_qty) !== num(fabric.in_transit_qty) ||
+        dt(s.delivery_date) !== dt(fabric.delivery_date) ||
+        num(s.factory_spot_qty) !== num(fabric.factory_spot_qty) ||
+        num(s.orderable_qty) !== num(fabric.orderable_qty) ||
+        num(s.lead_time_days) !== num(fabric.lead_time_days) ||
+        ((s.fabric_info || null) !== (fabric.fabric_info || null));
+    }
+
+    // 渲染一个SKC的编辑块（SKC + 颜色 + 面料信息 + 动态批次）
+    // sharedMap: findSharedFabricMap() 返回的 Map，传入用于检测该 SKC 是否用到共享面料
+    // skcItems: 该 SKC 的所有面料行（用于检测主面料以外的共享面料）
+    function renderSkuEditRow(skc, pdtColorName, displayInfo, main, sharedMap, skcItems) {
+      const itemId = main.itemId;
+      const fabric = main.fabric;
+      const originalBatches = Array.isArray(fabric.sales_batches) ? fabric.sales_batches : [];
+      // 防御性去重：相邻且 pieces/days 完全相同的批次只保留一个（历史数据/旧 bug 可能产生重复）。
+      // 保留原始索引，确保删除/修改按钮能正确定位到原始 sales_batches 中的位置。
+      const displayBatchIndices = [];
+      for (let i = 0; i < originalBatches.length; i++) {
+        if (i === 0) { displayBatchIndices.push(i); continue; }
+        const b = originalBatches[i];
+        const prev = originalBatches[i - 1];
+        const same = ((b.pieces || 0) === (prev.pieces || 0)) && ((b.days || 0) === (prev.days || 0));
+        if (!same) displayBatchIndices.push(i);
+      }
+
+      // 可生产件数（米数÷用量÷1.05，三种来源分开写）
+      const useAmtPro = Number(fabric.use_amt) || 0;
+      const producibleSegs = [];
+      if (useAmtPro > 0) {
+        const st = Number(fabric.stock) || 0;          // 在仓米数
+        const tr = Number(fabric.in_transit_qty) || 0; // 在途米数
+        const sp = Number(fabric.factory_spot_qty) || 0; // 工厂现货米数
+        const ob = Number(fabric.orderable_qty) || 0;  // 可订货米数
+        // 在仓 + 工厂现货 合并计算（两种来源的料子都已在手，直接可产）
+        const stSpot = st + sp;
+        // "约N件" 加黑加粗显示
+        const cnt = (n) => `<strong style="font-weight:700;color:#111;">约${Math.floor(n / useAmtPro / 1.05)}件</strong>`;
+        if (stSpot > 0) producibleSegs.push(`在仓+工厂现货${Math.round(stSpot)}米→${cnt(stSpot)}`);
+        if (tr > 0) producibleSegs.push(`在途${Math.round(tr)}米→${cnt(tr)}`);
+        if (ob > 0) producibleSegs.push(`可订货${Math.round(ob)}米→${cnt(ob)}`);
+      }
+      const producibleHtml = producibleSegs.length > 0
+        ? `<div class="sku-producible"><span class="sku-producible-label">可生产(米数÷用量÷1.05)用量${useAmtPro}：</span>${producibleSegs.join('｜')}</div>`
+        : '';
+
+      // 面料信息更新提醒（快照对比）
+      const warningHtml = snapshotDiffers(fabric)
+        ? '<div class="sku-warning">⚠ 面料信息已更新（在仓/在途/可订货等有变动），请根据最新面料信息重新填写翻单计划</div>'
+        : '';
+
+      // ========== 共享面料标记行 ==========
+      // 检查该 SKC 的所有面料（不只是主面料），任意一件在共享 map 中就标记
+      let sharedInfo = null;
+      let sharedKey = null;
+      if (sharedMap && sharedMap.size > 0 && skcItems) {
+        for (const it of skcItems) {
+          const f = it.fabric;
+          const key = (f.mt_code || '') + '||' + (f.mt_spec_name || '');
+          if (sharedMap.has(key)) {
+            sharedInfo = sharedMap.get(key);
+            sharedKey = key;
+            break;
+          }
+        }
+      }
+      // [DEBUG]
+      // console.log(`[DEBUG] renderSkuEditRow skc=${skc} sharedInfo=${!!sharedInfo} sharedKey=${sharedKey}`);
+      let sharedTagHtml = '';
+      // 只要检测到共用面料(sharedInfo 存在)就显示共用标记——不再因分摊量为 0 而误显示"无其他款共用"
+      if (sharedInfo) {
+        // 找出互为共用的其他 SKC
+        const selfEntry = sharedInfo.siblings.find(s => s.skc === skc);
+        const others = selfEntry ? selfEntry.others : [];
+        const othersHtml = others.length > 0 ? ` 与[${others.join('][')}]` : '';
+        const maxNum = sharedInfo.maxMap[skc] || 0;
+        const splitNum = sharedInfo.splitPieces;
+        const splitHtml = splitNum > 0 ? `<span>｜分摊量 <b class="split-num">${splitNum}件</b></span><span class="hint">｜💡 建议参考分摊量填写</span>` : '';
+        sharedTagHtml = `
+          <div class="shared-tag">
+            <span class="shared-icon">🔗</span>
+            <span class="shared-badge">${escapeHtml(sharedInfo.mtCode)} <span class="sub">${escapeHtml(sharedInfo.mtSpec)}</span></span>
+            ${othersHtml ? `<span>${escapeHtml(othersHtml)}</span>` : ''}
+            <span>｜最大单量 <b class="max-num">${maxNum}件</b></span>
+            ${splitHtml}
+          </div>`;
+      } else {
+        sharedTagHtml = '';
+      }
+
+      // 件数初始值：治本——以去重后的第1批为权威源，旧数据（无 batches）回退到主行
+      const firstIdx = displayBatchIndices[0];
+      const firstBatch = firstIdx !== undefined ? originalBatches[firstIdx] : null;
+      const piecesVal = firstBatch ? (firstBatch.pieces || 0) : (fabric.sales_pieces || 0);
+      const daysVal = firstBatch ? (firstBatch.days || 0) : (fabric.sales_delivery_days || 0);
+
+      let batchRows = `
+        <div class="batch-row">
+          <span class="batch-label">第1批</span>
+          <div class="input-group">
+            <input type="number" value="${piecesVal}" placeholder="0"
+              onchange="updateFabric('${itemId}', 'sales_pieces', this.value)"
+              oninput="updateFabric('${itemId}', 'sales_pieces', this.value)">
+            <span class="unit">件</span>
+          </div>
+          <div class="input-group">
+            ${makeFirstDaySelect(daysVal, itemId)}
+            <span class="unit">天</span>
+          </div>
+        </div>`;
+
+      // 动态批次：从第2批开始渲染（第1批已单独渲染，避免重复；使用原始索引确保删除/修改正确）
+      displayBatchIndices.slice(1).forEach((originalIdx, i) => {
+        const batch = originalBatches[originalIdx];
+        batchRows += `
+        <div class="batch-row">
+          <span class="batch-label">第${i + 2}批</span>
+          <div class="input-group">
+            <input type="number" value="${batch.pieces || 0}" placeholder="0"
+              data-itemid="${itemId}" data-batchidx="${originalIdx}" data-field="pieces"
+              oninput="updateFabricBatchNum(this)">
+            <span class="unit">件</span>
+          </div>
+          <div class="input-group">
+            ${makeDaySelect(batch.days || 0, itemId, originalIdx)}
+            <span class="unit">天</span>
+          </div>
+          <button type="button" class="btn-secondary" style="padding: 4px 8px; font-size: 12px;"
+            onclick="removeBatch('${itemId}', ${originalIdx})">删除</button>
+        </div>`;
+      });
+
+      return `
+        <div class="sku-edit-block">
+          <div class="skc-head">
+            <span class="skc-color">${escapeHtml(skc)} <span class="pdt-color">${escapeHtml(pdtColorName)}</span></span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button type="button" class="btn-secondary" style="padding: 4px 8px; font-size: 12px;"
+                onclick="resetFabric('${itemId}')">重置</button>
+              <button type="button" class="btn-success" style="padding: 4px 8px; font-size: 12px;"
+                onclick="addBatch('${itemId}')">+ 批次</button>
+            </div>
+          </div>
+          ${warningHtml}
+          ${sharedTagHtml}
+          <div class="sku-info">${displayInfo ? displayInfo.split('<br>').map(escapeHtml).join('<br>') : '-'}</div>
+          ${producibleHtml}
+          ${batchRows}
+        </div>
+      `;
+    }
+
+    // 渲染编辑行
+    function renderEditRows() {
+      const container = document.getElementById('fabricEditRows');
+      const editorCard = document.getElementById('editorCard');
+      const emptyEditor = document.getElementById('emptyEditor');
+
+      const fabricIds = Object.keys(selectedFabrics);
+
+      if (fabricIds.length === 0) {
+        editorCard.style.display = 'none';
+        emptyEditor.style.display = 'block';
+        return;
+      }
+
+      editorCard.style.display = 'block';
+      emptyEditor.style.display = 'none';
+
+      // 手机端：勾选/更新后自动滚动到编辑区
+      if (window.innerWidth <= 768) {
+        editorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      // 先算共享面料 map（基于所有已选面料，跨款检测）
+      const allItems = fabricIds.map(id => ({ itemId: id, fabric: selectedFabrics[id] }));
+      const sharedMap = findSharedFabricMap(allItems);
+
+      // 第1层：按款号分组
+      const pdtGroups = {};
+      fabricIds.forEach(itemId => {
+        const fabric = selectedFabrics[itemId];
+        const pdtCode = fabric.pdt_code || '未分类';
+        if (!pdtGroups[pdtCode]) pdtGroups[pdtCode] = [];
+        pdtGroups[pdtCode].push({ itemId, fabric });
+      });
+
+      let html = '';
+      Object.keys(pdtGroups).sort().forEach(pdtCode => {
+        const pdtItems = pdtGroups[pdtCode];
+
+        // 第2层：按 SKC 去重分组（一个款下的多个SKC各显示一行）
+        // 数据混合了 SKC（短）和 SKU（长）：取该款下最短 sku_code 长度作为 SKC 长度
+        // 例：ME04FW00416(12) + ME04FW004161(13) → SKC 长度=12，slice 全部到 12 → 聚合为 ME04FW00416
+        const skcLength = pdtItems.reduce((min, { fabric }) => {
+          const s = fabric.sku_code || fabric.skuCode || fabric.mt_code || '';
+          return s && (min === 0 || s.length < min) ? s.length : min;
+        }, 0);
+        const skcGroups = {};
+        pdtItems.forEach(({ itemId, fabric }) => {
+          const rawSku = fabric.sku_code || fabric.skuCode || fabric.mt_code || '';
+          const skc = skcLength > 0 && rawSku.length >= skcLength ? rawSku.slice(0, skcLength) : rawSku;
+          if (!skcGroups[skc]) skcGroups[skc] = [];
+          skcGroups[skc].push({ itemId, fabric });
+        });
+
+        const skcList = Object.keys(skcGroups).sort();
+        const skcCount = skcList.length;
+
+        html += `
+          <div class="pdt-editor-block">
+            <div class="pdt-editor-block-header">
+              <div class="block-title">
+                <span>${escapeHtml(pdtCode)}</span>
+                <button type="button" style="margin-left:6px;padding:1px 8px;font-size:12px;color:#d32f2f;background:none;border:1px solid #f0c4c4;border-radius:4px;cursor:pointer;"
+                  onclick="closePdtInEditor('${escapeHtml(pdtCode)}')" title="关闭此款（从已选中移除）">✕ 关闭此款</button>
+                <span class="badge">${skcCount} 个SKC</span>
+              </div>
+            </div>
+            ${skcList.map(skc => {
+              const skcItems = skcGroups[skc];
+              const pdtColorName = skcItems[0].fabric.pdt_color_name || '';
+              const { displayInfo, main } = getSkuInfoSegments(skcItems);
+              return renderSkuEditRow(skc, pdtColorName, displayInfo, main, sharedMap, skcItems);
+            }).join('')}
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    // 生成物料面料信息文字（颜色 + 库存/在途/可订货，各段独立：填了就显示，不填不显示）
+    // 注意：里布的库存/在途是系统数据，不计入面料信息文字
+    function buildFabricInfo(fabric) {
+      const colorName = fabric.color_name || fabric.pdt_color_name || '';
+      const stock = Number(fabric.stock) || 0;
+      const isLining = isLiningFabric(fabric);
+      const factorySpot = Number(fabric.factory_spot_qty) || 0;
+      const orderableQty = Number(fabric.orderable_qty) || 0;
+      const leadTimeDays = Number(fabric.lead_time_days) || 0;
+      const warehouse = fabric.warehouse || '';
+      const parts = [];
+
+      // 里布不展示任何在途/交期
+      if (isLining) {
+        if (stock > 0) parts.push(`${Math.round(stock)}米${warehouse}`);
+        if (factorySpot > 0) { const spName = (fabric.supplier_name || '').trim(); parts.push(spName ? `${spName}现货${Math.round(factorySpot)}米` : `${Math.round(factorySpot)}米工厂现货`); }
+        if (orderableQty > 0) parts.push(`可订货${Math.round(orderableQty)}米${leadTimeDays > 0 ? leadTimeDays + '天' : ''}`);
+        if (parts.length === 0) return '';
+        return `${colorName}${parts.join(' ')}`;
+      }
+
+      // 主面料：在仓+在途+可订货
+      const inTransit = Number(fabric.in_transit_qty) || 0;
+      const deliveryDate = fabric.delivery_date || '';
+      if (inTransit > 0) {
+        if (deliveryDate) {
+          const date = new Date(deliveryDate);
+          parts.push(`在途${Math.round(inTransit)}米${date.getMonth()+1}/${date.getDate()}到仓`);
+        } else {
+          parts.push(`在途${Math.round(inTransit)}米`);
+        }
+      }
+      if (stock > 0) parts.push(`${Math.round(stock)}米${warehouse}`);
+
+      if (factorySpot > 0) { const spName = (fabric.supplier_name || '').trim(); parts.push(spName ? `${spName}现货${Math.round(factorySpot)}米` : `${Math.round(factorySpot)}米工厂现货`); }
+      if (orderableQty > 0) parts.push(`可订货${Math.round(orderableQty)}米${leadTimeDays > 0 ? leadTimeDays + '天' : ''}`);
+
+      if (parts.length === 0) return '';
+      return parts.join('；');
+    }
+
+    // 更新面料数据（保存到 Supabase）
+    let saveTimer = null;
+    // 件数/天数输入框变化后的文字自动更新防抖定时器
+    let textUpdateTimer = null;
+    // 待保存集合：防抖窗口内累积的 (fabricId, fabric)
+    const pendingSaves = new Map(); // fabricId -> fabric快照
+    let saveChain = Promise.resolve();
+
+    function scheduleSave(itemId, fabric) {
+      // 样衣 BOM 合并进来的虚拟行没有 Supabase 记录，翻单值只经 postMessage 同步给主仓，不落 fabric_data
+      if (fabric && fabric._source === 'sample') return;
+      // 记录最新快照（每次覆盖，最后统一保存，保证件数+天数合并）
+      pendingSaves.set(itemId, { ...fabric, _sales_pieces: fabric.sales_pieces, _sales_delivery_days: fabric.sales_delivery_days, _sales_batches: fabric.sales_batches });
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(flushPendingSaves, 500);
+    }
+
+    // 立即执行所有待保存（清timer + 串行保存），返回Promise供确认时 await
+    function flushPendingSaves() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      if (pendingSaves.size === 0) return Promise.resolve();
+      const jobs = Array.from(pendingSaves.entries());
+      pendingSaves.clear();
+      saveChain = saveChain.then(async () => {
+        for (const [fabricId, fab] of jobs) {
+          await saveToSupabase(fabricId, fab);
+        }
+      });
+      return saveChain;
+    }
+
+    function updateFabric(itemId, field, value) {
+      const fabric = selectedFabrics[itemId];
+      if (!fabric) return;
+
+      fabric[field] = parseInt(value) || 0;
+      // 治本：主行 sales_pieces / sales_delivery_days 与 sales_batches[0] 共享同一份数据
+      // 任何一边改都镜像到另一边，避免 generateText 重复 push
+      if (field === 'sales_pieces' || field === 'sales_delivery_days') {
+        if (!Array.isArray(fabric.sales_batches)) fabric.sales_batches = [];
+        if (fabric.sales_batches.length === 0) {
+          // 主行首次填值：自动建一个 batches[0]
+          fabric.sales_batches.push({ pieces: 0, days: 0 });
+        }
+        if (field === 'sales_pieces') fabric.sales_batches[0].pieces = parseInt(value) || 0;
+        if (field === 'sales_delivery_days') fabric.sales_batches[0].days = parseInt(value) || 0;
+        // 若主行 = 0，把多余的空 batches[0] 也清掉（避免空批次）
+        if (fabric.sales_batches.length === 1 && fabric.sales_batches[0].pieces === 0 && fabric.sales_batches[0].days === 0) {
+          fabric.sales_batches = [];
+          fabric.sales_pieces = 0;
+          fabric.sales_delivery_days = 0;
+        }
+      }
+      scheduleSave(itemId, fabric);
+      // 修改件数/天数时：若未手动改过文字，延迟自动更新文字里的件数/天数（以输入框为准）
+      if ((field === 'sales_pieces' || field === 'sales_delivery_days') && !_manualEdited) {
+        if (textUpdateTimer) clearTimeout(textUpdateTimer);
+        textUpdateTimer = setTimeout(() => {
+          // 仅当文字框里是程序生成的内容（数字应来自输入框）时刷新
+          if (!_manualEdited) {
+            const { perSkcText, skcPdt } = buildPerSkcTextMap();
+            const updated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+            const ta = document.getElementById('textResult');
+            if (ta) ta.value = updated;
+            window._lastPerSkcText = perSkcText;
+          }
+        }, 500);
+      }
+    }
+
+    async function saveToSupabase(fabricId, fabric) {
+      try {
+        const snapshot = fabric._sales_pieces !== undefined ? fabric : fabric;
+        // 治本：写盘前保证 sales_pieces/sales_delivery_days 与 sales_batches[0] 一致
+        // 规则：以 sales_batches 为权威源
+        let salesPieces = (snapshot._sales_pieces !== undefined ? snapshot._sales_pieces : snapshot.sales_pieces) || 0;
+        let salesDays = (snapshot._sales_delivery_days !== undefined ? snapshot._sales_delivery_days : snapshot.sales_delivery_days) || 0;
+        let batches = Array.isArray(snapshot._sales_batches || snapshot.sales_batches) ? (snapshot._sales_batches || snapshot.sales_batches) : [];
+        // 防御性去重：相邻相同批次合并，避免历史脏数据反复保存重复批次
+        batches = batches.filter((b, i, arr) => {
+          if (i === 0) return true;
+          const prev = arr[i - 1];
+          return !(((b.pieces || 0) === (prev.pieces || 0)) && ((b.days || 0) === (prev.days || 0)));
+        });
+        if (batches.length > 0) {
+          // 真实数据以 batches 为准，主行镜像到 batches[0]
+          salesPieces = Number(batches[0].pieces) || 0;
+          salesDays = Number(batches[0].days) || 0;
+        } else if (salesPieces > 0 || salesDays > 0) {
+          // 旧数据：主行有值但 batches 为空 → 把它迁到 batches[0]
+          batches = [{ pieces: salesPieces, days: salesDays }];
+        }
+        await authFetch(`/api/fabric-data/${fabricId}/sales`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sales_pieces: salesPieces,
+            sales_delivery_days: salesDays,
+            sales_batches: batches,
+            sales_base_snapshot: buildBaseSnapshot(fabric)
+          })
+        });
+      } catch (err) {
+        console.error('保存失败:', err);
+      }
+    }
+
+    // 重置面料数据（清空第1批和所有动态批次）
+    // 同一SKC下有多条物料/仓库记录，需全部清空，避免残留旧值导致"已填写"判断不准确
+    // 数据可能混合 SKC（短）和 SKU（长），用与渲染端一致的「最短 sku_code 长度」归一化 SKC
+    function resetFabric(itemId) {
+      console.log('[resetFabric] 点击 itemId=', JSON.stringify(itemId));
+      const fabric = selectedFabrics[itemId];
+      if (!fabric) { console.warn('[resetFabric] itemId 找不到:', itemId); return; }
+      const pdt = fabric.pdt_code;
+      // 计算该款号的 SKC 长度 = 该款下所有 sku_code 的最短长度
+      const pdtItems = Object.entries(selectedFabrics).filter(([, f]) => (f.pdt_code || '') === pdt);
+      const skcLength = pdtItems.reduce((min, [, f]) => {
+        const s = f.sku_code || f.skuCode || f.mt_code || '';
+        return s && (min === 0 || s.length < min) ? s.length : min;
+      }, 0);
+      const rawSku = fabric.sku_code || fabric.skuCode || fabric.mt_code || '';
+      const targetSkc = skcLength > 0 && rawSku.length >= skcLength ? rawSku.slice(0, skcLength) : rawSku;
+      const targets = pdtItems.filter(([, f]) => {
+        const s = f.sku_code || f.skuCode || f.mt_code || '';
+        const fSkc = skcLength > 0 && s.length >= skcLength ? s.slice(0, skcLength) : s;
+        return fSkc === targetSkc;
+      });
+      if (targets.length === 0) { console.warn('[resetFabric] 没找到同 SKC 条目:', pdt, targetSkc); return; }
+      targets.forEach(([id, f]) => {
+        f.sales_pieces = 0;
+        f.sales_delivery_days = 0;
+        f.sales_batches = [];
+        saveToSupabase(id, f);
+      });
+      // 立即在该 SKC 行的颜色后面加 "✓ 已重置" 提示，强制让点击可见
+      try {
+        const heads = document.querySelectorAll('.skc-color');
+        for (const h of heads) {
+          if (h.textContent && h.textContent.includes(targetSkc)) {
+            let tag = h.querySelector('.reset-flash');
+            if (!tag) {
+              tag = document.createElement('span');
+              tag.className = 'reset-flash';
+              tag.style.cssText = 'margin-left:8px;font-size:11px;color:#16a34a;font-weight:600;';
+              tag.textContent = '✓ 已重置';
+              h.appendChild(tag);
+              setTimeout(() => { try { tag.remove(); } catch {} }, 2000);
+            }
+          }
+        }
+      } catch (e) { console.warn('[resetFabric] flash 失败:', e); }
+      renderFabricList();
+      // 关键修复：重置后必须立刻刷新翻单文字——否则输入框已 0/请选择，文字区还显示旧的 200件25天 300件35天
+      // （重置不触发 updateFabric 的防抖刷新；同时手动改过文字时 _manualEdited=true 也会阻断防抖，必须强制刷新并清标记）
+      _manualEdited = false;
+      try {
+        const { perSkcText, skcPdt } = buildPerSkcTextMap();
+        const updated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+        const ta = document.getElementById('textResult');
+        if (ta) ta.value = updated;
+        window._lastPerSkcText = perSkcText;
+      } catch (e) {
+        console.warn('[resetFabric] 刷新文字失败:', e);
+      }
+    }
+
+    // 动态批次：新增第N批
+        function addBatch(itemId) {
+      const fabric = selectedFabrics[itemId];
+      if (!fabric) return;
+      if (!Array.isArray(fabric.sales_batches)) fabric.sales_batches = [];
+      // 治本：若主行已有值（且 batches[0] 没记录），先把主行迁移到 batches[0]
+      if (fabric.sales_batches.length === 0 && (fabric.sales_pieces > 0 || fabric.sales_delivery_days > 0)) {
+        fabric.sales_batches.push({ pieces: fabric.sales_pieces, days: fabric.sales_delivery_days });
+      }
+      // 若最后一个批次为空，直接复用，避免堆叠空批次
+      const last = fabric.sales_batches[fabric.sales_batches.length - 1];
+      if (!last || (last.pieces || 0) > 0 || (last.days || 0) > 0) {
+        fabric.sales_batches.push({ pieces: 0, days: 0 });
+      }
+      saveToSupabase(itemId, fabric);
+      renderEditRows();
+    }
+
+    // 动态批次：删除第i批（从0开始）
+    function removeBatch(itemId, idx) {
+      const fabric = selectedFabrics[itemId];
+      if (!fabric || !Array.isArray(fabric.sales_batches)) return;
+      fabric.sales_batches.splice(idx, 1);
+      // 治本：删 batches[0] → 把新 batches[0] 的值写回主行；删其他 → 主行保持
+      if (idx === 0) {
+        if (fabric.sales_batches.length > 0) {
+          fabric.sales_pieces = fabric.sales_batches[0].pieces || 0;
+          fabric.sales_delivery_days = fabric.sales_batches[0].days || 0;
+        } else {
+          fabric.sales_pieces = 0;
+          fabric.sales_delivery_days = 0;
+        }
+      }
+      saveToSupabase(itemId, fabric);
+      renderEditRows();
+    }
+
+    // 动态批次输入框实时保存（件数/交期下拉变化时）
+    function updateFabricBatch(el) {
+      const itemId = el.dataset.itemid;
+      const idx = parseInt(el.dataset.batchidx);
+      const field = el.dataset.field;
+      const value = parseInt(el.value) || 0;
+      const fabric = selectedFabrics[itemId];
+      if (!fabric || !Array.isArray(fabric.sales_batches)) return;
+      fabric.sales_batches[idx] = { ...fabric.sales_batches[idx], [field]: value };
+      // 治本：batches[0] 镜像回主行字段
+      if (idx === 0) {
+        if (field === 'pieces') fabric.sales_pieces = value;
+        if (field === 'days') fabric.sales_delivery_days = value;
+      }
+      scheduleSave(itemId, fabric);
+      // 批次变化时立即刷新文案（500ms防抖）
+      if (!_manualEdited) {
+        if (textUpdateTimer) clearTimeout(textUpdateTimer);
+        textUpdateTimer = setTimeout(() => {
+          if (!_manualEdited) {
+            const { perSkcText, skcPdt } = buildPerSkcTextMap();
+            const updated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+            const ta = document.getElementById('textResult');
+            if (ta) ta.value = updated;
+            window._lastPerSkcText = perSkcText;
+          }
+        }, 500);
+      }
+    }
+
+    // 动态批次数字输入实时保存
+    function updateFabricBatchNum(el) {
+      const itemId = el.dataset.itemid;
+      const idx = parseInt(el.dataset.batchidx);
+      const value = parseInt(el.value) || 0;
+      const fabric = selectedFabrics[itemId];
+      if (!fabric || !Array.isArray(fabric.sales_batches)) return;
+      fabric.sales_batches[idx] = { ...fabric.sales_batches[idx], pieces: value };
+      // 治本：batches[0].pieces 镜像回主行
+      if (idx === 0) fabric.sales_pieces = value;
+      scheduleSave(itemId, fabric);
+      // 批次件数变化时立即刷新文案（500ms防抖）
+      if (!_manualEdited) {
+        if (textUpdateTimer) clearTimeout(textUpdateTimer);
+        textUpdateTimer = setTimeout(() => {
+          if (!_manualEdited) {
+            const { perSkcText, skcPdt } = buildPerSkcTextMap();
+            const updated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+            const ta = document.getElementById('textResult');
+            if (ta) ta.value = updated;
+            window._lastPerSkcText = perSkcText;
+          }
+        }, 500);
+      }
+    }
+
+    // 用户手动编辑 textarea 时标记，同一款组合内自动生成不覆盖
+    function onTextManualEdit() {
+      _manualEdited = true;
+    }
+
+    // 勾选/取消勾选款号后调用：若选中的款组合变化，则自动生成"当前选中款"的翻单文字填入文本框，
+    // 并清掉上一个款的残留；若组合未变（同一批款）且用户手动改过，则保留用户修改不覆盖。
+    function refreshTextForSelection() {
+      const pdtSet = new Set(Object.values(selectedFabrics).map(f => (f && (f.pdt_code || f.pdtCode)) || '').filter(Boolean));
+      const key = [...pdtSet].sort().join('|');
+      const textarea = document.getElementById('textResult');
+      if (!textarea) return;
+
+      // 组合变了 -> 属于切换了不同的款，重新生成当前款文字（并取消手动编辑标记）
+      if (key !== _lastSelKey) {
+        _manualEdited = false;
+        _lastSelKey = key;
+        const { perSkcText, skcPdt } = buildPerSkcTextMap();
+        const generated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+        textarea.value = generated;
+        window._lastPerSkcText = perSkcText;
+        return;
+      }
+      // 组合未变且用户手动改过 -> 保留用户修改
+      if (_manualEdited) return;
+      // 组合未变且未手动改过：保持现状（不覆盖，避免打断）
+    }
+
+    // 根据当前已勾选面料(selectedFabrics)，计算每个 SKC 的单行翻单文字 + 未填完整的提示
+    // 供 generateText 和 copyText 共用，保证两处对当前款的计算一致（不依赖上一次生成残留）
+    function buildPerSkcTextMap() {
+      const fabricIds = Object.keys(selectedFabrics);
+      const sharedMap = findSharedFabricMap(fabricIds.map(id => ({ itemId: id, fabric: selectedFabrics[id] })));
+
+      // 分组：款号 → SKC → 物料列表
+      const pdtGroups = {};
+      fabricIds.forEach(itemId => {
+        const fabric = selectedFabrics[itemId];
+        const pdtCode = fabric.pdt_code || '未分类';
+        if (!pdtGroups[pdtCode]) pdtGroups[pdtCode] = [];
+        pdtGroups[pdtCode].push(fabric);
+      });
+
+      const incomplete = [];
+      const perSkcText = {}; // skc -> 该SKC的单行翻单文字（用于写钉钉I列）
+      const skcPdt = {};     // skc -> 所属款号（用于单位转换/跨款去重的后处理）
+      Object.keys(pdtGroups).sort().forEach(pdtCode => {
+        const items = pdtGroups[pdtCode];
+        const skcGroups = {};
+        items.forEach(fabric => {
+          const skc = fabric.sku_code || fabric.skuCode || fabric.mt_code || '';
+          if (!skcGroups[skc]) skcGroups[skc] = [];
+          skcGroups[skc].push(fabric);
+        });
+
+        Object.keys(skcGroups).sort().forEach(skc => {
+          const skcItems = skcGroups[skc];
+          const pdtColorName = skcItems[0].pdt_color_name || '';
+          const seg = getSkuInfoSegments(skcItems.map(f => ({ itemId: '', fabric: f })));
+          const main = seg.main ? seg.main.fabric : null;
+          if (!main || isLiningFabric(main)) return;   // 只有里料没有面料则不输出
+
+          let sharedInfo = null;
+          if (sharedMap && sharedMap.size > 0) {
+            const key = (main.mt_code || '') + '||' + (main.mt_spec_name || '');
+            if (sharedMap.has(key)) sharedInfo = sharedMap.get(key);
+          }
+          const maxNum = sharedInfo && sharedInfo.maxMap ? Math.floor((sharedInfo.maxMap[skc] || 0) / 10) * 10 : 0;
+          const splitFallback = (sharedInfo && sharedInfo.splitPieces > 0) ? Math.floor(sharedInfo.splitPieces / 10) * 10 : 0;
+
+          // 治本：只从 sales_batches 数组生成文字；旧数据若 batches 为空但主行有值，自动补一个
+          let batches = Array.isArray(main.sales_batches) ? main.sales_batches.slice() : [];
+          if (batches.length === 0 && (Number(main.sales_pieces) > 0 || Number(main.sales_delivery_days) > 0)) {
+            batches = [{ pieces: Number(main.sales_pieces) || 0, days: Number(main.sales_delivery_days) || 0 }];
+          }
+          // 防御性去重：相邻且 pieces/days 完全相同的批次只保留一个（历史数据/旧 bug 可能产生重复）
+          batches = batches.filter((b, i, arr) => {
+            if (i === 0) return true;
+            const prev = arr[i - 1];
+            return !(((b.pieces || 0) === (prev.pieces || 0)) && ((b.days || 0) === (prev.days || 0)));
+          });
+          // 用户是否已开始填写翻单（批次任一有值）
+          const userHasAnyPlan = batches.some(b => (Number(b.pieces) || 0) > 0 || (Number(b.days) || 0) > 0);
+          // 备注：不再用分摊量自动补件数（回归手动，不默认输入件数）；完全没填则不生成
+          if (!userHasAnyPlan) return;
+
+          // 格式：颜色 [各批次件数件天数] [最大单量X件]（不带SKC）
+          let line = `${pdtColorName}`;
+          batches.forEach((batch, i) => {
+            const p = batch.pieces || 0;
+            const d = batch.days || 0;
+            if (d === 0 && p > 0) incomplete.push(`${skc} ${pdtColorName} 第${i + 1}批：填了件数${p}件，未填天数`);
+            else if (p === 0 && d > 0) incomplete.push(`${skc} ${pdtColorName} 第${i + 1}批：填了天数${d}天，未填件数`);
+            if (p > 0 || d > 0) {
+              if (d > 0 && p > 0) line += ` ${p}件${d}天`;
+              else if (p > 0) line += ` ${p}件`;
+              else line += ` ${d}天`;
+            }
+          });
+          if (maxNum > 0) line += ` 最大单量${maxNum}件`;
+          // 样衣阶段翻单（驼色等未转大货色）加 "（样衣）" 后缀，主仓 cell 显示时能区分
+          const isSample = skcItems.some(it => it.fabric && it.fabric._source === 'sample');
+          if (isSample) line += '（样衣）';
+
+          perSkcText[skc] = line;
+          skcPdt[skc] = pdtCode;
+        });
+      });
+      return { perSkcText, incomplete, skcPdt };
+    }
+
+    // 生成翻单文字后处理：不再自动转换单位/跨款合并（回归手动）
+    // 程序默认生成「件」、各 SKC 独立成行；用户需要「套」/合并时在文本框手动修改，保存即用。
+    function applyPlanTextPostProcess(lines) {
+      return [...lines];
+    }
+
+    // 从一行翻单文字中提取「件数+天数」（兼容单位「件」和「套」，取第1个匹配；无匹配返回 null）
+    // 校验只看数值是否与输入框一致，不区分件/套单位
+    function extractPiecesDays(line) {
+      const m = String(line || '').match(/(\d+)\s*(件|套)(?:\s*(\d+)\s*天)?/);
+      if (!m) return null;
+      return { pieces: parseInt(m[1], 10) || 0, days: m[3] ? (parseInt(m[3], 10) || 0) : 0 };
+    }
+
+    // 校验文本框里每行的「件数/天数」是否与当前款每个 SKC 上部输入框(件数/天数)一致。
+    // 返回不一致的提示数组；为空表示全部一致。
+    // 注意：若当前选中的款涉及套款（件→套合并、行数与SKC不再逐行对应），跳过校验，避免误报。
+    function validatePlanPiecesDays() {
+      const errors = [];
+      // 是否含套款：含则套款合并导致行数/单位变化，逐行校验已不适用 → 跳过
+      const hasTaoPdt = Object.values(selectedFabrics).some(f =>
+        (f && PLAN_UNIT_TAO_PDTS.has(f.pdt_code || f.pdtCode || ''))
+      );
+      if (hasTaoPdt) return errors;
+
+      const { perSkcText } = buildPerSkcTextMap();
+      const textarea = document.getElementById('textResult');
+      const lines = ((textarea && textarea.value) || '').split('\n');
+      const skcKeys = Object.keys(perSkcText); // 有翻单计划、会生成行的 SKC（顺序与文字行一致）
+      lines.forEach((userLine, i) => {
+        const skc = skcKeys[i];
+        if (!skc) return;
+        const stdLine = perSkcText[skc]; // 该 SKC 应由输入框生成的正确行
+        const std = extractPiecesDays(stdLine);
+        const usr = extractPiecesDays(userLine);
+        // 只有正确行含件数/天数才需要校验（纯颜色行无意义）
+        if (std && std.pieces > 0) {
+          if (!usr || usr.pieces !== std.pieces || usr.days !== std.days) {
+            const want = (std.pieces > 0 && std.days > 0) ? `${std.pieces}件${std.days}天` : `${std.pieces}件`;
+            errors.push(`第${i + 1}行(${skc})：件数/天数与上方输入框不一致，应为「${want}」`);
+          }
+        }
+      });
+      return errors;
+    }
+
+    // 生成翻单文字并显示
+    async function generateText() {
+      console.log('[generateText] clicked, selectedFabrics keys:', Object.keys(selectedFabrics).length);
+      const fabricIds = Object.keys(selectedFabrics);
+      if (fabricIds.length === 0) {
+        alert('请先勾选面料');
+        return;
+      }
+
+      // 用当前已勾选款(selectedFabrics)实时计算每个SKC的单行翻单文字 + 未填完整提示
+      // （基于当前款，绝不使用上一次生成的残留）
+      const { perSkcText, incomplete, skcPdt } = buildPerSkcTextMap();
+      console.log('[generateText] perSkcText size:', Object.keys(perSkcText).length, 'incomplete:', incomplete);
+      // 后处理：指定款件→套、同色同数据去重
+      const lines = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt);
+      // 供"确认并复制翻单文字"写入钉钉I列使用（当前款的准确映射）
+      window._lastPerSkcText = perSkcText;
+
+      if (incomplete.length > 0) {
+        alert(`以下批次翻单信息不完整，无法生成翻单文字：\n\n${incomplete.join('\n')}\n\n请补全天数或件数后再提交。`);
+        // 已填/未填可能因本次编辑而变化，刷新左侧状态栏
+        renderFabricList();
+        return;
+      }
+
+      // 文字生成逻辑：
+      //   - 用户手动改过文本框架(_manualEdited) → 保留用户修改（如自己写的"套"、备注）
+      //   - 未手动改（文本框是程序上次生成或为空）→ 用最新 lines 重新生成（确保新增批次/改件数能体现在文字里）
+      const textareaEl = document.getElementById('textResult');
+      const text = (_manualEdited && textareaEl && textareaEl.value && textareaEl.value.trim())
+        ? textareaEl.value
+        : lines.join('\n');
+      // 注意：文字可以为空（重置清空翻单后，仍要走下面的同步，把钉钉里对应 SKC 行删掉/清空）
+      if (textareaEl) textareaEl.value = text;
+      // 把编辑区(selectedFabrics)的最新翻单值同步回 fabricData，确保左侧已填/未填状态立即刷新
+      Object.values(selectedFabrics).forEach(fab => {
+        const id = fab.id || `${fab.pdt_code}_${fab.sku_code || ''}_${fab.mt_code}_${fab.warehouse}`;
+        const target = fabricData.find(x => (x.id || `${x.pdt_code}_${x.sku_code || ''}_${x.mt_code}_${x.warehouse}`) === id);
+        if (target) {
+          if (Number(fab.sales_pieces)) target.sales_pieces = Number(fab.sales_pieces);
+          if (Number(fab.sales_delivery_days)) target.sales_delivery_days = Number(fab.sales_delivery_days);
+          if (Array.isArray(fab.sales_batches)) target.sales_batches = fab.sales_batches;
+        } else {
+          fabricData.push({ ...fab });
+        }
+      });
+      // 确认后刷新左侧"已填/未填"计数与分组
+      renderFabricList();
+      // 先确保所有防抖中的保存已完成，再同步，避免数据库竞态
+      await flushPendingSaves();
+      // 确认后自动同步翻单信息到钉钉（只同步本次勾选的款）
+      const touchedPdts = [...new Set(Object.values(selectedFabrics).map(f => (f && (f.pdt_code || f.pdtCode)) || '').filter(Boolean))];
+      console.log('[generateText] 勾选款号:', touchedPdts);
+      // 组装本次勾选 SKC 的最新翻单值（从 selectedFabrics 内存读，避免数据库保存竞态）
+      // 治本：只读 sales_batches，不再单独 push 主行（主行 = batches[0]，已同步）
+      const syncItems = [];
+      const allSkcs = []; // 本次款下所有 SKC（含无翻单的，用于后端判定是否删行）
+      Object.values(selectedFabrics).forEach(fab => {
+        if (!fab) return;
+        const skc = fab.sku_code || fab.skuCode || '';
+        const pdt = fab.pdt_code || fab.pdtCode || '';
+        if (!skc || !pdt) { console.log('[sync] 跳过记录(缺skc/pdt):', JSON.stringify({id:(fab.id||'').slice(0,8), skc, pdt, sp:fab.sales_pieces, dd:fab.sales_delivery_days})); return; }
+        const color = fab.pdt_color_name || fab.colorName || '';
+        if (!allSkcs.includes(skc)) allSkcs.push(skc);
+        // 统一从 sales_batches 数组取所有批次；旧数据若 batches 为空但主行有值，自动补一个
+        let batches = Array.isArray(fab.sales_batches) ? fab.sales_batches.slice() : [];
+        if (batches.length === 0 && (Number(fab.sales_pieces) > 0 || Number(fab.sales_delivery_days) > 0)) {
+          batches = [{ pieces: Number(fab.sales_pieces) || 0, days: Number(fab.sales_delivery_days) || 0 }];
+        }
+        batches.forEach(b => {
+          const p = Number(b.pieces) || 0;
+          const d = Number(b.days) || 0;
+          if (p > 0 || d > 0) syncItems.push({ pdt, skc, color, pieces: p, days: d, _source: fab._source || 'craft' });
+        });
+      });
+      console.log('[generateText] syncItems:', syncItems.length, 'allSkcs:', allSkcs);
+      console.log('[generateText] 即将同步到钉钉 touchedPdts=', JSON.stringify(touchedPdts), 'syncItems=', JSON.stringify(syncItems));
+      // 同步并带上翻单文字（完整整段 + 每SKC单行），供写入钉钉 I/J 列
+      let syncOk = false;
+      try {
+        const syncResult = await syncToDingtalk(touchedPdts, syncItems, allSkcs, text, perSkcText);
+        console.log('[generateText] 同步调用完成', syncResult);
+        syncOk = syncResult && syncResult.ok;
+      } catch (e) {
+        console.error('[generateText] 同步调用异常:', e && e.message, e);
+      }
+      // 同步成功 → 清空文案 + 短暂提示 + 重置手动编辑标记（让下次编辑能正常刷新）
+      if (syncOk) {
+        const ta = document.getElementById('textResult');
+        if (ta) ta.value = '';
+        _manualEdited = false;
+        // 在按钮上方插一个"✓ 已同步"提示，3秒后消失
+        try {
+          const actionsRow = document.querySelector('.actions-row');
+          if (actionsRow) {
+            let tip = document.getElementById('syncOkTip');
+            if (!tip) {
+              tip = document.createElement('div');
+              tip.id = 'syncOkTip';
+              tip.style.cssText = 'margin-bottom:8px;padding:6px 12px;background:#dcfce7;color:#16a34a;border-radius:4px;font-size:12px;font-weight:600;';
+              actionsRow.parentNode.insertBefore(tip, actionsRow);
+            }
+            tip.textContent = '✓ 已同步到钉钉 + 货盘，文案已清空';
+            clearTimeout(window._syncOkTipTimer);
+            window._syncOkTipTimer = setTimeout(() => { try { tip.remove(); } catch {} }, 3000);
+          }
+        } catch (e) { console.warn('[generateText] 显示同步提示失败:', e); }
+      } else {
+        try {
+          alert('同步到钉钉失败，请重试或检查网络');
+        } catch {}
+      }
+      // 同步至货盘（postMessage 给 opener / parent：TraysPage 会写入 tray.restockOverrides + tray.plannedRestockBySkc）
+      try {
+        const _touchedPdts = [...new Set(Object.values(selectedFabrics).map((f) => (f && (f.pdt_code || f.pdtCode)) || '').filter(Boolean))];
+        // 按 pdt_code 分组生成各自的翻单文案（西装 vs 裤的色卡不能混在一起——TraysPage 显示时会按 pid 加产品短名前缀）
+        // 用 skcPdt 把 perSkcText 反向映射到 pdt，再做同色同数据去重
+        const textByPdt = {};
+        const pdtSkcLists = {};
+        for (const skc of Object.keys(perSkcText)) {
+          const pdt = skcPdt[skc] || '';
+          if (!pdt) continue;
+          if (!pdtSkcLists[pdt]) pdtSkcLists[pdt] = [];
+          pdtSkcLists[pdt].push(skc);
+        }
+        for (const pdt of Object.keys(pdtSkcLists)) {
+          const skcsForPdt = pdtSkcLists[pdt];
+          const linesForPdt = skcsForPdt.map(skc => perSkcText[skc]).filter(Boolean);
+          const processed = applyPlanTextPostProcess(linesForPdt, skcPdt);
+          textByPdt[pdt] = processed.join('\n');
+        }
+        // DEBUG: 看 pdt 分组为什么空
+        console.log('[generateText DEBUG] perSkcText size:', Object.keys(perSkcText).length, 'skcPdt size:', Object.keys(skcPdt).length);
+        console.log('[generateText DEBUG] perSkcText sample:', JSON.stringify(Object.entries(perSkcText).slice(0, 2)));
+        console.log('[generateText DEBUG] skcPdt:', JSON.stringify(skcPdt));
+        console.log('[generateText DEBUG] pdtSkcLists:', JSON.stringify(pdtSkcLists));
+        const _payload = {
+          type: 'restock-selected',
+          source: 'sales-page',
+          pids: _touchedPdts,
+          // 结构化数据：[{ pdt, skc, color, pieces, days }, ...] —— TraysPage 写入 plannedRestockBySkc，导出 Excel 用
+          items: syncItems,
+          all_skcs: allSkcs,
+          // 按款号分组的翻单文案：TraysPage 写 restockOverrides[pid] 时用它，坑位里西装/裤就不会共用同一段文字
+          text_by_pdt: textByPdt,
+          payload: { text, timestamp: Date.now() },
+        };
+        console.log('[generateText] 发送 postMessage: pids=', _touchedPdts, 'text_by_pdt keys=', Object.keys(textByPdt), 'full text lines=', text ? text.split('\n').length : 0);
+        console.log('[generateText] text_by_pdt=', JSON.stringify(textByPdt, null, 2));
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(_payload, '*');
+        }
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(_payload, '*');
+        }
+      } catch (e) {
+        console.warn('[generateText] postMessage 给货盘失败:', e);
+      }
+    }
+
+    // 同步翻单信息到钉钉"计划翻单量"表（后端代理调 dws）
+    // pdtCodes: 本次勾选款号; items: 各SKC最新翻单值(件数/天数/颜色); allSkcs: 本次款下所有SKC(含清零的)
+    // fullText: 完整翻单文字（业务员改后的整段，写钉钉J列）; perSkcText: skc->单行文字(写钉钉I列)
+    async function syncToDingtalk(pdtCodes, items, allSkcs, fullText, perSkcText) {
+      const maxRetries = 3;
+      let lastError;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[syncToDingtalk] 第${attempt}次尝试, 款:`, pdtCodes || [], 'item数:', (items || []).length);
+          const res = await authFetch('/api/dingtalk-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pdt_codes: pdtCodes || [],
+              items: items || [],
+              all_skcs: allSkcs || [],
+              full_text: fullText || '',
+              per_skc_text: perSkcText || {}
+            })
+          });
+          const result = await res.json();
+          if (result.success) {
+            console.log(`[syncToDingtalk] 第${attempt}次尝试成功: 更新${result.updatedCount}, 追加${result.appendedCount}, 清空${result.clearedCount}`);
+            console.log('[syncToDingtalk] 已同步到钉钉"计划翻单量"表');
+            return { ok: true, updated: result.updatedCount || 0, appended: result.appendedCount || 0, cleared: result.clearedCount || 0 };
+          } else {
+            console.error(`[syncToDingtalk] 第${attempt}次尝试失败:`, result.error);
+            lastError = result.error;
+          }
+        } catch (err) {
+          console.error(`[syncToDingtalk] 第${attempt}次尝试异常:`, err.message);
+          lastError = err;
+        }
+        // 失败则等待后重试
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, attempt * 1000));
+        }
+      }
+      console.error('[syncToDingtalk] 重试3次均失败:', lastError);
+      return { ok: false, error: lastError };
+    }
+
+    // 复制文字（读取业务员可编辑的 textarea 内容，修改后也能复制）
+    // 点击"确认并复制翻单文字"时，同时把完整翻单文字（业务员改后的）同步写入钉钉 J 列、每SKC单行写 I 列
+    async function copyText() {
+      // 实时计算当前已勾选款的每SKC单行文字（绝不使用上次生成/其他款的残留）
+      const { perSkcText: curPerSkcText, skcPdt: _curSkcPdt } = buildPerSkcTextMap();
+
+      const textarea = document.getElementById('textResult');
+      let text = (textarea && textarea.value) ? textarea.value : '';
+      // 若还未生成文字（比如直接打开已填翻单信息、没先点"确认翻单信息"），
+      // 自动用当前款生成并填入，使"确认并复制"等同"先确认再复制"
+      if (!text.trim()) {
+        text = applyPlanTextPostProcess(Object.values(curPerSkcText), _curSkcPdt || {}).join('\n');
+        if (textarea) textarea.value = text;
+      }
+      if (!text.trim()) {
+        alert('请先确认翻单信息');
+        return;
+      }
+
+      // 复制到剪贴板（兼容 navigator.clipboard 不可用的情况，用 textarea+execCommand 兜底）
+      const showTip = () => {
+        const tip = document.getElementById('copyTip');
+        tip.textContent = '已复制到剪贴板';
+        tip.classList.add('show');
+        setTimeout(() => tip.classList.remove('show'), 1500);
+      };
+      const fallbackCopy = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch {}
+        document.body.removeChild(ta);
+        showTip();
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try { await navigator.clipboard.writeText(text); showTip(); }
+        catch { fallbackCopy(); }
+      } else {
+        fallbackCopy();
+      }
+
+      // 同步到钉钉：完整文字写 J 列，每 SKC 单行写 I 列
+      try {
+        const touchedPdts = [...new Set(Object.values(selectedFabrics).map(f => (f && (f.pdt_code || f.pdtCode)) || '').filter(Boolean))];
+        const syncItems = [];
+        const allSkcs = [];
+        Object.values(selectedFabrics).forEach(fab => {
+          if (!fab) return;
+          const skc = fab.sku_code || fab.skuCode || '';
+          const pdt = fab.pdt_code || fab.pdtCode || '';
+          if (!skc || !pdt) return;
+          if (!allSkcs.includes(skc)) allSkcs.push(skc);
+          // 统一只从 sales_batches 取；旧数据若 batches 为空但主行有值，自动补一个
+          let batches = Array.isArray(fab.sales_batches) ? fab.sales_batches.slice() : [];
+          if (batches.length === 0 && (Number(fab.sales_pieces) > 0 || Number(fab.sales_delivery_days) > 0)) {
+            batches = [{ pieces: Number(fab.sales_pieces) || 0, days: Number(fab.sales_delivery_days) || 0 }];
+          }
+          // 防御性去重：相邻且 pieces/days 完全相同的批次只保留一个
+          batches = batches.filter((b, i, arr) => {
+            if (i === 0) return true;
+            const prev = arr[i - 1];
+            return !(((b.pieces || 0) === (prev.pieces || 0)) && ((b.days || 0) === (prev.days || 0)));
+          });
+          batches.forEach(b => {
+            const p = Number(b.pieces) || 0;
+            const d = Number(b.days) || 0;
+            if (p > 0 || d > 0) syncItems.push({ pdt, skc, color: fab.pdt_color_name || fab.colorName || '', pieces: p, days: d, _source: fab._source || 'craft' });
+          });
+        });
+        // 用当前款实时计算的每SKC单行文字（写I列），不用 _lastPerSkcText 避免读到其他款残留
+        await syncToDingtalk(touchedPdts, syncItems, allSkcs, text, curPerSkcText);
+      } catch (err) {
+        console.error('[copyText] 同步到钉钉失败:', err.message);
+      }
+    }
+
+    // 登出
+    async function handleLogout() {
+      if (!confirm('确定要退出登录吗？')) return;
+      await fetch('/api/auth/logout', { method: 'POST' });
+      if (supabaseClient?.auth) {
+        try { await supabaseClient.auth.signOut(); } catch (e) {}
+      }
+      window.location.reload();
+    }
+
+    // ========== 新功能：共用面料检测 ==========
+
+    let pendingToggle = null; // 待处理的勾选操作
+    let sharedFabricMode = 'independent'; // 'independent' | 'shared'
+
+    // 选择/取消整组（检测共用面料）
+    // 样衣 BOM 按需合并：只对指定款号调主仓 /api/samples/materials（全量拉会触发领猫限流）
+    // 驼色等未转大货 SKC 以 _source='sample' 行并入 fabricData
+    const sampleBomMergedCodes = new Set();
+    async function mergeSampleBomForCodes(codes) {
+      const todo = (codes || []).map(c => String(c || '').trim().toUpperCase()).filter(c => c && !sampleBomMergedCodes.has(c));
+      if (todo.length === 0) return false;
+      todo.forEach(c => sampleBomMergedCodes.add(c)); // 先占位防重入；失败时移除允许重试
+      try {
+        const sampleUrl = '/api/samples/materials?codes=' + encodeURIComponent(todo.join(','));
+        const sResp = await fetch(sampleUrl);
+        const sJson = await sResp.json();
+        const sampleItems = (sJson && sJson.items) || [];
+        const sampleRows = [];
+        for (const r of sampleItems) {
+          if (r.fabricMt) sampleRows.push({
+            pdt_code: r.smCode,
+            sku_code: r.skc,
+            color_name: r.colorName,
+            pdt_color_name: r.colorName,
+            mt_name: r.fabricMt,
+            mt_type: '面料',
+            mt_code: '__sample_fabric__',
+            mt_spec_name: r.mtSpecName,
+            use_amt: r.useAmt,
+            supplier_name: r.supplierShort,
+            warehouse: '-',
+            stock: 0, in_transit_qty: 0, factory_spot_qty: 0, orderable_qty: 0, lead_time_days: 0,
+            _source: 'sample',
+          });
+          if (r.liningMt) sampleRows.push({
+            pdt_code: r.smCode,
+            sku_code: r.skc,
+            color_name: r.colorName,
+            pdt_color_name: r.colorName,
+            mt_name: r.liningMt,
+            mt_type: '里料',
+            mt_code: '__sample_lining__',
+            mt_spec_name: r.mtSpecName,
+            use_amt: r.useAmt,
+            supplier_name: r.supplierShort,
+            warehouse: '-',
+            stock: 0, in_transit_qty: 0, factory_spot_qty: 0, orderable_qty: 0, lead_time_days: 0,
+            _source: 'sample',
+          });
+        }
+        if (sampleRows.length > 0) {
+          fabricData = fabricData.concat(sampleRows);
+          allPdtCodes = [...new Set(fabricData.map(r => r.pdt_code))].filter(Boolean).sort();
+          renderFabricList();
+          console.log('[mergeSampleBom] 合并样衣 BOM:', todo.join(','), sampleRows.length, '条');
+          return true;
+        }
+        return false;
+      } catch (e) {
+        todo.forEach(c => sampleBomMergedCodes.delete(c));
+        console.warn('[mergeSampleBom] 失败（非阻断）:', e.message);
+        return false;
+      }
+    }
+
+    function toggleGroup(pdtCode, checked) {
+      const pdtItems = fabricData.filter(f => f.pdt_code === pdtCode);
+
+      // 更新 checkbox 状态
+      const group = document.querySelector(`.fabric-group[data-pdt="${pdtCode}"]`);
+      if (group) {
+        const cb = group.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = checked;
+      }
+
+      if (checked) {
+        // 懒合并样衣 BOM：首次勾选该款时把驼色等未转大货 SKC 从主仓拉进来，合并后重走勾选流程
+        if (!sampleBomMergedCodes.has(pdtCode)) {
+          mergeSampleBomForCodes([pdtCode]).then((added) => {
+            if (added) toggleGroup(pdtCode, true);
+          });
+        }
+        // 若是该款没有任何面料记录（批量搜出来的待强制添加占位）→ 自动强制添加创建真实记录
+        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) {
+          forceAddPdtCode(pdtCode);
+          return;
+        }
+        // 收集所有已选中的面料数据
+        const selectedItems = Object.values(selectedFabrics);
+
+        // 检测已选中款号和正要勾选的款号之间是否有共用面料
+        const sharedFabrics = detectSharedFabrics(selectedItems, pdtItems);
+        if (sharedFabrics.length > 0) {
+          // 保存待处理的操作，显示弹窗
+          pendingToggle = { pdtCode, checked: true, items: pdtItems };
+          showSharedFabricModal(sharedFabrics);
+          return;
+        }
+        // 没有共用面料，直接勾选
+        addGroupToSelection(pdtCode, pdtItems);
+      } else {
+        removeGroupFromSelection(pdtCode, pdtItems);
+      }
+      renderEditRows();
+      // 勾选/取消勾选后：若选中款组合变化，自动生成当前款文字并清掉旧款残留
+      refreshTextForSelection();
+    }
+
+    // 检测共用面料（比较两组面料，找出不同款号之间共用的面料）
+    // 判定标准：(mt_code, mt_spec_name) 相同 = 同一面料
+    function detectSharedFabrics(existingItems, newItems) {
+      // 合并已选中和新增的面料
+      const allItems = [...existingItems, ...newItems];
+      // console.log('[DEBUG] detectSharedFabrics: existing=', existingItems.length, 'new=', newItems.length, 'pdtCodes:', [...new Set(allItems.map(i => i.pdt_code))]);
+
+      // 里布过滤掉（里布共用不算，只提示面料）；_forced_ 占位记录(无面料)不算共用
+      const nonLiningItems = allItems.filter(item => !isLiningFabric(item) && (item.mt_code || item.mtCode || '') !== '_forced_');
+
+      const mtKeyMap = new Map(); // key=mtCode+'||'+mtSpec -> [{item, skc, pdtCode}]
+      nonLiningItems.forEach(item => {
+        const mtCode = item.mt_code || item.mtCode || '';
+        const mtSpec = item.mt_spec_name || item.mtSpecName || '';
+        const skc = item.sku_code || item.skuCode || '';
+        const pdtCode = item.pdt_code || '未分类';
+        const key = mtCode + '||' + mtSpec;
+        if (!mtKeyMap.has(key)) mtKeyMap.set(key, []);
+        mtKeyMap.get(key).push({ item, skc, pdtCode, mtCode, mtSpec });
+      });
+
+      // 找出被多个不同款号使用的面料
+      const sharedFabrics = [];
+      mtKeyMap.forEach((items, key) => {
+        const uniquePdtCodes = new Set(items.map(i => i.pdtCode));
+        // 只有当被多个不同款号使用时才算共用
+        if (uniquePdtCodes.size > 1) {
+          const byPdtCode = {};
+          items.forEach(i => {
+            if (!byPdtCode[i.pdtCode]) byPdtCode[i.pdtCode] = [];
+            if (i.skc && !byPdtCode[i.pdtCode].includes(i.skc)) {
+              byPdtCode[i.pdtCode].push(i.skc);
+            }
+          });
+          sharedFabrics.push({
+            mtCode: items[0].mtCode,
+            mtSpec: items[0].mtSpec,
+            mtName: items[0].item.mt_name || items[0].item.mtName || items[0].mtCode,
+            pdtCodes: byPdtCode
+          });
+        }
+      });
+
+      // console.log('[DEBUG] detectSharedFabrics 结果:', sharedFabrics);
+      return sharedFabrics;
+    }
+
+    // 显示共用面料弹窗
+    function showSharedFabricModal(sharedFabrics) {
+      const modal = document.getElementById('sharedFabricModal');
+      const list = document.getElementById('sharedFabricList');
+
+      list.innerHTML = sharedFabrics.map(f => {
+        const pdtLines = Object.entries(f.pdtCodes).map(([pdt, skcs]) =>
+          `  • ${pdt}: ${skcs.join(', ')}`
+        ).join('<br>');
+        return `<li><strong>${escapeHtml(f.mtCode)}</strong> ${escapeHtml(f.mtSpec)}<br>被 ${Object.keys(f.pdtCodes).length} 个款号共用:<br>${pdtLines}</li>`;
+      }).join('');
+
+      modal.classList.add('show');
+      // console.log('[DEBUG] showSharedFabricModal called, pendingToggle:', pendingToggle);
+    }
+
+    // 处理共用面料弹窗选择
+    function handleSharedFabric(action) {
+      // console.log('[DEBUG] handleSharedFabric called, action:', action, 'pendingToggle:', pendingToggle);
+      const modal = document.getElementById('sharedFabricModal');
+      modal.classList.remove('show');
+
+      if (!pendingToggle) return;
+
+      const { pdtCode, items } = pendingToggle;
+      pendingToggle = null;
+
+      if (action === 'cancel') {
+        // 取消勾选
+        const group = document.querySelector(`.fabric-group[data-pdt="${pdtCode}"]`);
+        if (group) {
+          const cb = group.querySelector('input[type="checkbox"]');
+          if (cb) cb.checked = false;
+        }
+        return;
+      }
+
+      // 知道了，继续勾选（只是提示，不影响实际填写逻辑）
+      // 确保 checkbox 勾上
+      const group = document.querySelector(`.fabric-group[data-pdt="${pdtCode}"]`);
+      // console.log('[DEBUG] handleSharedFabric group found:', !!group);
+      if (group) {
+        const cb = group.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = true;
+      }
+      addGroupToSelection(pdtCode, items);
+      renderEditRows();
+      refreshTextForSelection();
+    }
+
+    // 添加组到选区
+    // 主仓货盘回传的已保存翻单批次（样衣行不落 Supabase，重开弹窗时靠它回填）
+    // 消息可能在样衣 BOM 合并完成前到达，所以先存 map，addGroupToSelection 时才应用
+    const restockPrefillBySkc = new Map(); // skc(大写) → [{pieces, days}, ...]
+    window.addEventListener('message', (ev) => {
+      const d = ev.data;
+      if (!d || d.type !== 'restock-prefill' || !Array.isArray(d.items)) return;
+      for (const it of d.items) {
+        const skc = String(it.skc || '').toUpperCase();
+        if (!skc) continue;
+        if (!restockPrefillBySkc.has(skc)) restockPrefillBySkc.set(skc, []);
+        restockPrefillBySkc.get(skc).push({ pieces: Number(it.pieces) || 0, days: Number(it.days) || 0 });
+      }
+      // 消息可能晚于勾选到达：已选中的样衣行立即回填并重渲染
+      applyRestockPrefillToRows(Object.values(selectedFabrics));
+      renderEditRows();
+    });
+    function applyRestockPrefillToRows(items) {
+      items.forEach(item => {
+        if (item._source !== 'sample') return;
+        const skc = String(item.sku_code || '').toUpperCase();
+        const batches = restockPrefillBySkc.get(skc);
+        if (!batches || batches.length === 0) return;
+        if (Array.isArray(item.sales_batches) && item.sales_batches.length > 0) return; // 已有值不覆盖
+        item.sales_batches = batches.map(b => ({ ...b }));
+        item.sales_pieces = batches[0].pieces;
+        item.sales_delivery_days = batches[0].days;
+      });
+    }
+
+    function addGroupToSelection(pdtCode, items) {
+      applyRestockPrefillToRows(items);
+      items.forEach(item => {
+        const itemId = item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
+        selectedFabrics[itemId] = item;
+      });
+    }
+
+    // 从选区移除组
+    function removeGroupFromSelection(pdtCode, items) {
+      items.forEach(item => {
+        const itemId = item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
+        delete selectedFabrics[itemId];
+      });
+    }
+
+    // 右侧编辑区关闭某款：把该款从已选中移除（等同取消勾选），并刷新编辑区/文字/左侧勾选态
+    function closePdtInEditor(pdtCode) {
+      // 1. 从 selectedFabrics 移除该款所有行的选中
+      Object.keys(selectedFabrics).forEach(itemId => {
+        const f = selectedFabrics[itemId];
+        if (f && (f.pdt_code || f.pdtCode) === pdtCode) {
+          delete selectedFabrics[itemId];
+        }
+      });
+
+      // 2. 清除左侧该款的勾选状态
+      const group = document.querySelector(`.fabric-group[data-pdt="${pdtCode}"]`);
+      if (group) {
+        const cb = group.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = false;
+      }
+
+      // 3. 重渲染右侧编辑区（若已无选中的款会隐藏编辑区并显示空状态）
+      renderEditRows();
+      // 4. 刷新翻单文字（组合变化→自动生成剩余款文字或清空；保留手动/校验机制）
+      refreshTextForSelection();
+    }
+
+    // ========== 新功能：导出所有已填写数据 ==========
+
+    // 把用户输入的日期格式化成 YYYY/M/D（去前导零：2026/09/06 -> 2026/9/6）
+    function formatLiveDate(input) {
+      const s = String(input || '').trim();
+      const m = s.match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?$/);
+      if (m) return `${m[1]}/${Number(m[2])}/${Number(m[3])}`;
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+      return s;
+    }
+
+    let pendingExportData = null;
+
+    function exportAllFilledData() {
+      // 筛选已填写的面料
+      const filledData = fabricData.filter(item => {
+        if (item.sales_pieces > 0 || item.sales_delivery_days > 0) return true;
+        const batches = Array.isArray(item.sales_batches) ? item.sales_batches : [];
+        return batches.some(b => (b.pieces > 0 || b.days > 0));
+      });
+
+      if (filledData.length === 0) {
+        alert('暂无已填写的翻单信息');
+        return;
+      }
+
+      // 弹出直播日期选择器，不输入不导出
+      pendingExportData = filledData;
+      document.getElementById('liveDateInput').value = '';
+      document.getElementById('liveDateModal').classList.add('show');
+    }
+
+    function cancelLiveDate() {
+      document.getElementById('liveDateModal').classList.remove('show');
+      pendingExportData = null;
+    }
+
+    function confirmLiveDate() {
+      const input = document.getElementById('liveDateInput').value; // 形如 "2026-09-06"
+      if (!input) {
+        alert('请先选择直播日期');
+        return;
+      }
+      const liveDate = formatLiveDate(input);
+      performExport(liveDate);
+      cancelLiveDate();
+    }
+
+    // 真正生成并下载 CSV（每个批次一行）
+    function performExport(liveDate) {
+      const filledData = pendingExportData || [];
+
+      // 计算共享面料 map（基于所有已填面料，跨款检测共用关系）
+      const allItems = filledData.map(fabric => {
+        const itemId = Object.keys(selectedFabrics).find(id => {
+          const sf = selectedFabrics[id];
+          return sf && sf.pdt_code === fabric.pdt_code &&
+            (sf.sku_code || sf.skuCode || '') === (fabric.sku_code || fabric.skuCode || '') &&
+            sf.mt_code === fabric.mt_code &&
+            (sf.mt_spec_name || '') === (fabric.mt_spec_name || '');
+        }) || (fabric.id || '');
+        return { itemId, fabric };
+      });
+      const sharedMap = findSharedFabricMap(allItems);
+
+      // 按款号分组
+      const pdtGroups = {};
+      filledData.forEach(item => {
+        const pdtCode = item.pdt_code || '未分类';
+        if (!pdtGroups[pdtCode]) pdtGroups[pdtCode] = [];
+        pdtGroups[pdtCode].push(item);
+      });
+
+      // Excel 列：款号 | SKC | 计划翻单量 | 翻单周期 | 最大单量 | 直播日期 | 成衣颜色；每个批次一行
+      const headers = ['款号', 'SKC', '计划翻单量', '翻单周期', '最大单量', '直播日期', '成衣颜色'];
+      const rows = [];
+
+      Object.keys(pdtGroups).sort().forEach(pdtCode => {
+        const items = pdtGroups[pdtCode];
+
+        // 按 SKC 分组
+        const skcGroups = {};
+        items.forEach(fabric => {
+          const skc = fabric.sku_code || fabric.skuCode || '';
+          if (!skcGroups[skc]) skcGroups[skc] = [];
+          skcGroups[skc].push(fabric);
+        });
+
+        Object.keys(skcGroups).sort().forEach(skc => {
+          const skcItems = skcGroups[skc];
+          const pdtColorName = skcItems[0].pdt_color_name || '';
+          const { main } = getSkuInfoSegments(skcItems.map(f => ({ itemId: '', fabric: f })));
+          const m = main ? main.fabric : skcItems[0];
+
+          // 最大单量（仅共享面料）
+          let sharedInfo = null;
+          if (sharedMap && sharedMap.size > 0) {
+            const key = (m.mt_code || '') + '||' + (m.mt_spec_name || '');
+            if (sharedMap.has(key)) sharedInfo = sharedMap.get(key);
+          }
+          const maxNum = sharedInfo && sharedInfo.maxMap ? sharedInfo.maxMap[skc] || 0 : 0;
+          const splitFallback = (sharedInfo && sharedInfo.splitPieces > 0) ? sharedInfo.splitPieces : 0;
+
+          const batchRows = (p, d) => {
+            if (p > 0 || d > 0) {
+              rows.push([pdtCode, skc, p || '', d > 0 ? `${d}天之内` : '', maxNum || '', liveDate, pdtColorName]);
+            }
+          };
+
+          // 统一只从 sales_batches 取；旧数据若 batches 为空但主行有值，自动补一个
+          let batches = Array.isArray(m.sales_batches) ? m.sales_batches.slice() : [];
+          if (batches.length === 0 && ((m.sales_pieces || 0) > 0 || (m.sales_delivery_days || 0) > 0)) {
+            batches = [{ pieces: m.sales_pieces || 0, days: m.sales_delivery_days || 0 }];
+          }
+          // 防御性去重：相邻且 pieces/days 完全相同的批次只保留一个
+          batches = batches.filter((b, i, arr) => {
+            if (i === 0) return true;
+            const prev = arr[i - 1];
+            return !(((b.pieces || 0) === (prev.pieces || 0)) && ((b.days || 0) === (prev.days || 0)));
+          });
+
+          // 每个批次一行；第1批件数为0且有分摊量兜底时用分摊量
+          batches.forEach((b, i) => {
+            let p = b.pieces || 0;
+            const d = b.days || 0;
+            if (i === 0 && p === 0 && splitFallback > 0) p = splitFallback;
+            batchRows(p, d);
+          });
+        });
+      });
+
+      const BOM = '﻿';
+      const csvContent = BOM + [headers, ...rows].map(row => row.join(',')).join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `翻单信息汇总_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+
+  <!-- 直播日期选择弹窗 -->
+  <div class="modal-overlay" id="liveDateModal">
+    <div class="modal-content">
+      <h3>请输入直播日期</h3>
+      <p>选择导出后要填入「直播日期」列的日期</p>
+      <input type="date" id="liveDateInput"
+        style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; margin-bottom:16px; box-sizing:border-box;">
+      <div class="modal-actions">
+        <button type="button" class="btn-recommended" onclick="confirmLiveDate()">确定并导出</button>
+        <button type="button" class="btn-cancel" onclick="cancelLiveDate()">取消</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
