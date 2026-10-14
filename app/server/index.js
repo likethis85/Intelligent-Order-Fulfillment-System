@@ -252,10 +252,10 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
-// POST /api/sync/hengji — 运行 scripts/kdocs-sync-cost.mjs，从 WPS 核价表拉取成本 + 销售价
+// POST /api/sync/hengji — 运行 scripts/dingtalk-sync-cost.mjs，从钉钉核价表拉取成本 + 销售价
 // 同步流程：打开非 headless Chrome → 复制核价表 → 解析 → 写入 server/data/hengji-cost.json
-// 注意：脚本会用 pbpaste 读剪贴板、会在屏幕上弹出 Chrome 窗口（确保 ~/.kdocs-auth-profile 已登录）
-const HENGJI_SCRIPT = path.join(__dirname, '..', 'scripts', 'kdocs-sync-cost.mjs');
+// 注意：脚本支持跨平台剪贴板读取（确保 ~/.dingtalk-auth-profile 或 storageState 已登录）
+const HENGJI_SCRIPT = process.env.COST_SYNC_SCRIPT || path.join(__dirname, '..', 'scripts', 'dingtalk-sync-cost.mjs');
 app.post('/api/sync/hengji', async (_req, res) => {
   const startedAt = Date.now();
   const child = spawn('node', [HENGJI_SCRIPT], {
@@ -286,7 +286,7 @@ app.post('/api/sync/hengji', async (_req, res) => {
         ok: true,
         kind: '成本及价格',
         syncedAt: new Date().toISOString(),
-        message: `已同步核价表：${costCount} 个款号成本，${salesCount} 个款号销售价（${elapsed}s）`,
+        message: `已同步钉钉核价表：${costCount} 个款号成本，${salesCount} 个款号销售价（${elapsed}s）`,
         count: { cost: costCount, sales: salesCount },
       });
     }
@@ -302,10 +302,10 @@ app.post('/api/sync/hengji', async (_req, res) => {
   });
 });
 
-// GET /api/sync/hengji/status — 快速检查金山文档登录态（headless，约 6-10s）
-// 不复制表格，只验证能打开 + 看到工作表 tab。登录态失效时让前端提前提示用户
+// GET /api/sync/hengji/status — 快速检查钉钉文档登录态（headless，约 6-10s）
+// 不复制表格，只验证能打开。登录态失效时让前端提前提示用户
 // 而不是等 30-60s 同步脚本跑完才发现
-const HENGJI_STATUS_SCRIPT = path.join(__dirname, '..', 'scripts', 'kdocs-check-status.mjs');
+const HENGJI_STATUS_SCRIPT = process.env.COST_STATUS_SCRIPT || path.join(__dirname, '..', 'scripts', 'dingtalk-check-status.mjs');
 app.get('/api/sync/hengji/status', (_req, res) => {
   const child = spawn('node', [HENGJI_STATUS_SCRIPT], {
     cwd: path.join(__dirname, '..'),

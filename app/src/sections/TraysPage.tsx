@@ -3593,16 +3593,16 @@ export default function TraysPage({
             disabled={syncing !== null}
             className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge disabled:opacity-60 disabled:cursor-not-allowed"
             title={hengjiStatus && !hengjiStatus.loggedIn
-              ? `WPS 登录态失效（${hengjiStatus.reason || hengjiStatus.error || '未知'}），请在本地跑 npm run kdocs:export 重新导出后 scp 到服务器`
-              : '从 WPS 核价表同步款号的总成本和销售价（会打开浏览器并占用剪贴板约 30-60s）'}
+              ? `钉钉文档登录态失效（${hengjiStatus.reason || hengjiStatus.error || '未知'}），请在本地跑 npm run dingtalk:auth 登录后重新导出`
+              : '从钉钉核价表同步款号的总成本和销售价（会打开浏览器并同步数据约 30-60s）'}
           >
             <RefreshCw size={13} className={syncing === '成本及价格' ? 'animate-spin' : ''} />
             {syncing === '成本及价格' ? '同步中…' : '同步成本及价格'}
             {hengjiStatus?.loggedIn === true && (
-              <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" title="WPS 登录态正常" />
+              <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" title="钉钉文档登录态正常" />
             )}
             {hengjiStatus?.loggedIn === false && (
-              <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" title={`WPS 登录态失效：${hengjiStatus.reason || hengjiStatus.error || '未知'}`} />
+              <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" title={`钉钉文档登录态失效：${hengjiStatus.reason || hengjiStatus.error || '未知'}`} />
             )}
           </button>
           <div className="relative">

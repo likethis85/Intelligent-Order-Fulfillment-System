@@ -61,9 +61,9 @@ function enrichWithBi(product, biRow, productMasterRow) {
     product.price = String(product.retailPrice);
     product.priceNum = product.retailPrice;
   }
-  // 5) WPS 核价表销售价兜底：BI/领猫都没有维护销售价时补价
+  // 5) 钉钉核价表销售价兜底：BI/领猫都没有维护销售价时补价
   applyHengjiSalesPriceFallback(product);
-  // 5b) WPS 核价表总成本兜底：领猫 SKC 成本 / BI bom商品成本 都没有时补（样衣阶段只走这条）
+  // 5b) 钉钉核价表总成本兜底：领猫 SKC 成本 / BI bom商品成本 都没有时补（样衣阶段只走这条）
   applyHengjiCostFallback(product);
   // 6) 由 BI 打标/指标推导直播角色（引流/利润/库存），供排品策略分桶
   product.roles = deriveRoles(product);
@@ -109,7 +109,7 @@ async function loadAllProducts() {
   productOnlyItems.sort((a, b) => a.id.localeCompare(b.id));
   // 4) union：领猫在前，BI-only 在后（按款号排序）
   const all = [...vscmItems, ...biOnlyItems, ...productOnlyItems];
-  // BI 独有款没走 enrichWithBi，这里补 WPS 核价表兜底（销售价 + 总成本）
+  // BI 独有款没走 enrichWithBi，这里补钉钉核价表兜底（销售价 + 总成本）
   for (const p of [...biOnlyItems, ...productOnlyItems]) {
     applyHengjiSalesPriceFallback(p);
     applyHengjiCostFallback(p);

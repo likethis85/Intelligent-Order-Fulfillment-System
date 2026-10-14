@@ -1,4 +1,4 @@
-// 读取 WPS 核价表同步结果（server/data/hengji-cost.json）
+// 读取钉钉核价表同步结果（server/data/hengji-cost.json）
 // 提供款号 → 总成本 / 核价表销售价 的查询接口
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

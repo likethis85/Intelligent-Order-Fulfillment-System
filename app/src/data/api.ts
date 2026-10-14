@@ -228,17 +228,17 @@ export function syncProducts(kind: '商品' | '库存' = '商品'): Promise<Sync
   }, 180_000);
 }
 
-// POST /api/sync/hengji → 运行 scripts/kdocs-sync-cost.mjs，同步 WPS 核价表（成本 + 销售价）
-// 同步过程：非 headless Chrome 打开核价表 + pbpaste 读剪贴板，约 30-60s，给 180s 超时
+// POST /api/sync/hengji → 运行 scripts/dingtalk-sync-cost.mjs，同步钉钉核价表（成本 + 销售价）
+// 同步过程：非 headless Chrome 打开核价表 + 读剪贴板，约 30-60s，给 180s 超时
 export function syncHengjiCost(): Promise<SyncResult> {
   return jsonFetch<SyncResult>('/sync/hengji', { method: 'POST' }, 180_000);
 }
 
-// GET /api/sync/hengji/status → 检查金山文档登录态是否还有效（headless，约 6-10s）
+// GET /api/sync/hengji/status → 检查钉钉文档登录态是否还有效（headless，约 6-10s）
 export interface HengjiStatus {
   ok: boolean;
   loggedIn?: boolean;
-  reason?: 'no_credentials' | 'redirected_to_login' | 'sheets_not_found';
+  reason?: 'no_credentials' | 'redirected_to_login' | 'sheets_not_found' | string;
   finalUrl?: string;
   sheets?: number;
   error?: string;
