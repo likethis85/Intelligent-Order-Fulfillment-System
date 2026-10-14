@@ -67,25 +67,34 @@ if (!hasStorage && !hasProfile) {
   process.exit(1);
 }
 
+const isLinux = process.platform === 'linux';
+const isHeadless = isLinux || process.env.HEADLESS === 'true';
+const launchArgs = [
+  '--disable-blink-features=AutomationControlled',
+  ...(isLinux ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : []),
+];
+
 let browser = null;
 let ctx;
 if (hasStorage) {
-  console.log('使用 storageState 登录:', STORAGE_STATE);
+  console.log('使用 storageState 登录:', STORAGE_STATE, `(headless: ${isHeadless})`);
   browser = await chromium.launch({
     channel: 'chrome',
-    headless: false,
-    viewport: null,
+    headless: isHeadless,
+    args: launchArgs,
   });
   ctx = await browser.newContext({
     storageState: STORAGE_STATE,
+    viewport: isHeadless ? { width: 1440, height: 900 } : null,
     permissions: ['clipboard-read', 'clipboard-write'],
   });
 } else {
-  console.log('使用 persistent profile 登录:', PROFILE);
+  console.log('使用 persistent profile 登录:', PROFILE, `(headless: ${isHeadless})`);
   ctx = await chromium.launchPersistentContext(PROFILE, {
     channel: 'chrome',
-    headless: false,
-    viewport: null,
+    headless: isHeadless,
+    args: launchArgs,
+    viewport: isHeadless ? { width: 1440, height: 900 } : null,
     permissions: ['clipboard-read', 'clipboard-write'],
   });
 }

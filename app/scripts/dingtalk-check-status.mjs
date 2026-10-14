@@ -31,14 +31,20 @@ if (!hasStorage && !hasProfile) {
   process.exit(0);
 }
 
+const isLinux = process.platform === 'linux';
+const launchArgs = [
+  '--disable-blink-features=AutomationControlled',
+  ...(isLinux ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : []),
+];
+
 let browser = null;
 let ctx = null;
 try {
   if (hasStorage) {
-    browser = await chromium.launch({ channel: 'chrome', headless: true });
+    browser = await chromium.launch({ channel: 'chrome', headless: true, args: launchArgs });
     ctx = await browser.newContext({ storageState: STORAGE_STATE });
   } else {
-    ctx = await chromium.launchPersistentContext(PROFILE, { channel: 'chrome', headless: true });
+    ctx = await chromium.launchPersistentContext(PROFILE, { channel: 'chrome', headless: true, args: launchArgs });
   }
 
   const page = ctx.pages()[0] || await ctx.newPage();
