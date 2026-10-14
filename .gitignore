@@ -12,3 +12,10 @@ app/server/data/sample-bom-cache.json
 
 # 参考项目（不纳入版本控制）
 reference/
+
+# 部署脚本与配置（不纳入版本控制）
+/deploy/
+deploy.mjs
+deploy.ps1
+deploy.sh
+deploy.tar.gz

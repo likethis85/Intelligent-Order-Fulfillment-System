@@ -212,9 +212,10 @@ function SampleMaterialsPanel({
 // 翻单最大单量面板：拉 fabric_Q 面料表，按 (mtCode+mtSpecName) 聚合米数，算 maxPcs = floor(M / 用量 / 1.05)
 // 「同一卷面料一视同仁」：在仓+在途+工厂现货+可订货 全加进 M，不区分 PO 物料 / 大货现货
 //   同一卷面料被多个 SKC 引用时，按 (mtCode+mtSpecName+warehouse) 取 max 避免累加
-// 默认展开，橙色样式紧贴 fabric_Q iframe 上方，跟 iframe 内的「面料信息已更新」警告视觉一致
+// 默认收起（open: false），避免在移动端/小屏弹窗中占据大量垂直空间遮挡下方的翻单表单；
+// 顶部提示条保留核心信息（卷数、SKC数），需要对照面料库存/最大单量时可点「▼ 展开」
 function RestockStockPanel({ pids }: { pids: string[] }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [items, setItems] = useState<RestockStockFabric[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -239,20 +240,20 @@ function RestockStockPanel({ pids }: { pids: string[] }) {
     <div className="border-b border-orange-300 bg-orange-50">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-5 py-2 text-left hover:bg-orange-100"
+        className="flex w-full items-center justify-between gap-2 px-3 sm:px-5 py-2 text-left hover:bg-orange-100"
         title={open ? '折叠最大单量' : '展开最大单量'}
       >
-        <span className="flex items-center gap-1.5 text-[12px] font-semibold text-orange-900">
-          <CircleAlert size={13} className="text-orange-600" />
-          面料信息已更新（在仓/在途/工厂现货/可订货 已重算最大单量）
+        <span className="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-orange-900">
+          <CircleAlert size={13} className="text-orange-600 flex-shrink-0" />
+          <span>面料信息已更新（在仓/在途/工厂现货/可订货 已重算最大单量）</span>
           {!loading && (fabCount > 0 || error) && (
-            <span className="ml-1 text-[11px] font-normal text-orange-700">
+            <span className="text-[11px] font-normal text-orange-700 whitespace-nowrap">
               {error ? `查询失败：${error}` : `${fabCount} 卷面料 · ${skcSet.size} 个 SKC`}
             </span>
           )}
-          {loading && <span className="ml-1 text-[11px] font-normal text-orange-700">查询中…</span>}
+          {loading && <span className="text-[11px] font-normal text-orange-700">查询中…</span>}
         </span>
-        <span className="text-[11px] text-orange-700">{open ? '▲ 收起' : '▼ 展开'}</span>
+        <span className="text-[11px] text-orange-700 whitespace-nowrap flex-shrink-0">{open ? '▲ 收起' : '▼ 展开'}</span>
       </button>
       {open && (
         <div className="max-h-[220px] overflow-auto bg-surface-card px-5 pb-3">

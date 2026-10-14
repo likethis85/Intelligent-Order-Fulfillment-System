@@ -430,8 +430,8 @@
     thead th.freeze-col { z-index: 4; background: #f9f9f9; }
     td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; user-select: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
     td .col-input { height: 26px; padding: 2px 6px; }
-    tbody tr { cursor: pointer; height: 32px; }
     tbody tr:hover { background: #d0e8ff !important; }
+    tbody tr:hover td.freeze-col { background: #d0e8ff !important; }
     tr:last-child td { border-bottom: none; }
     .copy-tip {
       position: fixed;
@@ -683,14 +683,33 @@
       table {
         min-width: 1100px;
       }
-      /* 移动端只冻结第1列款式编码，其余列取消强制sticky并减小min-width以防遮挡 */
+      /* 移动端固定前 3 列：款式编码、SKC、成衣颜色；第 4 列（物料编码）及后续列横向自由滑动 */
       th.freeze-col, td.freeze-col {
-        min-width: 75px;
+        min-width: 56px;
+        padding: 6px 6px;
       }
-      th.freeze-col:nth-of-type(n+2), td.freeze-col:nth-of-type(n+2) {
+      /* 款式编码列宽 */
+      th.freeze-col:nth-of-type(1), td.freeze-col:nth-of-type(1) {
+        min-width: 76px;
+        max-width: 86px;
+      }
+      /* SKC 列宽 */
+      th.freeze-col:nth-of-type(2), td.freeze-col:nth-of-type(2) {
+        min-width: 90px;
+        max-width: 102px;
+      }
+      /* 成衣颜色列宽 */
+      th.freeze-col:nth-of-type(3), td.freeze-col:nth-of-type(3) {
+        min-width: 54px;
+        max-width: 66px;
+      }
+      /* 第 4 列及之后（物料编码等）在移动端取消强制 sticky，随表格平滑横向滚动 */
+      th.freeze-col:nth-of-type(n+4), td.freeze-col:nth-of-type(n+4) {
         position: static !important;
         left: auto !important;
         box-shadow: none !important;
+        min-width: 80px;
+        padding: 6px 10px;
       }
       .mobile-panel-toggle {
         display: inline-flex !important;
@@ -1860,8 +1879,9 @@
       lastRenderedRows = uniqueData;
       postNoRestockSnapshot(uniqueData);
 
-      // 设置前 9 列（款式编码 → 物料颜色）的 sticky.left，横向冻结
+      // 设置前 9 列（款式编码 → 物料颜色）或移动端前 3 列的 sticky.left，横向冻结
       applyFreezeCols();
+      requestAnimationFrame(applyFreezeCols);
 
       document.getElementById('resultCount').textContent = data.length;
       document.getElementById('emptyState').style.display = 'none';
@@ -1869,16 +1889,16 @@
     }
 
     // 横向冻结：把前 9 列（款式编码 → 物料颜色）的 sticky.left 累加 offsetWidth 后写到 th/td 上
-    // 移动端视口窄，只冻结第 1 列（款式编码），避免多列 sticky 覆盖整个小屏视口导致无法横向滚动
+    // 移动端视口窄，冻结前 3 列（款式编码、SKC、成衣颜色），右侧物料/规格/库存/翻单自由横向滑动
     const FREEZE_COL_COUNT = 9;
     function applyFreezeCols() {
       const table = document.querySelector('.table-container table');
       if (!table) return;
       const firstRow = table.querySelector('tbody tr');
-      if (!firstRow) return;
-      const cells = firstRow.cells;
+      const sampleCells = firstRow ? firstRow.cells : table.querySelectorAll('thead th');
+      if (!sampleCells || sampleCells.length === 0) return;
       const isMobile = window.innerWidth <= 768;
-      const freezeCount = isMobile ? 1 : Math.min(FREEZE_COL_COUNT, cells.length);
+      const freezeCount = isMobile ? 3 : Math.min(FREEZE_COL_COUNT, sampleCells.length);
 
       // 先清除可能残留的 sticky / left / shadow 样式
       table.querySelectorAll('th.freeze-col, td.freeze-col').forEach(function (c) {
@@ -1889,7 +1909,7 @@
 
       let cumulative = 0;
       for (let i = 0; i < freezeCount; i++) {
-        const width = cells[i].offsetWidth || 0;
+        const width = sampleCells[i].offsetWidth || 0;
         const selector = `th.freeze-col:nth-of-type(${i + 1}), td.freeze-col:nth-of-type(${i + 1})`;
         table.querySelectorAll(selector).forEach(function (c) {
           c.style.position = 'sticky';
@@ -1903,8 +1923,7 @@
     }
     // 窗口尺寸变化时重算（列宽可能变化）
     window.addEventListener('resize', function () {
-      const table = document.querySelector('.table-container table');
-      if (table && table.querySelector('tbody tr')) applyFreezeCols();
+      applyFreezeCols();
     });
 
     // 共用面料明细 key：物料编码 + 物料规格 + 仓库（判断不同款是否用同一面料）
