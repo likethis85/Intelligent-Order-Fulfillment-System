@@ -71,4 +71,7 @@ test('fabric-public index.html includes mobile responsiveness and iframe-mode op
   assert.ok(indexHtml.includes('<th style="text-align: center; min-width: 68px;">翻单</th>'), 'index.html table header must include 翻单 column');
   assert.ok(indexHtml.includes('th.freeze-col:nth-of-type(n+4)'), 'index.html must allow columns after col 3 to scroll freely on mobile');
   assert.ok(indexHtml.includes('isMobile ? 3 :'), 'index.html must freeze 3 columns (款式编码, SKC, 成衣颜色) on mobile');
+  assert.ok(indexHtml.includes('FREEZE_COL_COUNT = 7;'), 'index.html must freeze up to col 7 (物料规格名称) on desktop');
+  assert.ok(indexHtml.includes('<th>供应商</th>'), '供应商 header must not have freeze-col');
+  assert.ok(indexHtml.includes('<th>物料颜色</th>'), '物料颜色 header must not have freeze-col');
 });

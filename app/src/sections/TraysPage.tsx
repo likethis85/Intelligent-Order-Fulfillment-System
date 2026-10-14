@@ -2438,21 +2438,28 @@ const FIELDS: FieldRow[] = [
       });
       const hasAnyContent = visibleRows.length > 0;
       return (
-        <div className="group relative w-full text-center">
-          <div className={`${RED} leading-5`}>
+        <div
+          className={`group relative w-full min-h-[28px] flex items-center justify-center text-center ${!hasAnyContent ? 'cursor-pointer' : ''}`}
+          onClick={!hasAnyContent ? () => ctx.onPickRestock?.(ctx.lookId) : undefined}
+          title={!hasAnyContent ? `查询翻单（${pids.map((p) => p.toUpperCase()).join('、')}）` : undefined}
+        >
+          <div className={`${RED} leading-5 w-full`}>
             {hasAnyContent ? visibleRows.map(({ pid, text }) => (
               <div key={pid} className="text-[14px] font-bold mb-0.5 last:mb-0 whitespace-pre-line">{text}</div>
             )) : (
-              <div className="text-[11px] leading-5 whitespace-pre-line text-ink-faint" />
+              <div className="text-[11px] leading-5 whitespace-pre-line text-ink-faint min-h-[20px]" />
             )}
           </div>
-          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
             <button
-              onClick={() => ctx.onPickRestock?.(ctx.lookId)}
-              className="rounded p-1 text-ink-faint hover:bg-surface-subtle hover:text-ink-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.onPickRestock?.(ctx.lookId);
+              }}
+              className="rounded-md p-1.5 text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
               title={hasAnyContent ? `编辑翻单（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询翻单（${pids.map((p) => p.toUpperCase()).join('、')}）`}
             >
-              {hasAnyContent ? <Pencil size={11} /> : <Search size={11} />}
+              {hasAnyContent ? <Pencil size={12} /> : <Search size={12} />}
             </button>
           </div>
         </div>
@@ -2599,13 +2606,13 @@ const FIELDS: FieldRow[] = [
             )) : (
               <div className={`${BLUE} w-full leading-4 whitespace-pre-line`} />)}
           </div>
-          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
             <button
               onClick={() => ctx.onPickFabric?.(ctx.pid)}
-              className="rounded p-1 text-ink-faint hover:bg-surface-subtle hover:text-ink-primary"
+              className="rounded-md p-1.5 text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
               title={hasAnyContent ? `编辑面料（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询面料（${pids.map((p) => p.toUpperCase()).join('、')}）`}
             >
-              {hasAnyContent ? <Pencil size={11} /> : <Search size={11} />}
+              {hasAnyContent ? <Pencil size={12} /> : <Search size={12} />}
             </button>
           </div>
         </div>
@@ -3484,7 +3491,7 @@ export default function TraysPage({
 
   // ── 编辑模式：Excel 版式 ──
   const pickerSection = picker ? tray.sections.find((s) => s.id === picker.sectionId) : null;
-  const cell = 'border border-ink-disabled px-2 py-2 align-middle text-center';
+  const cell = 'border border-ink-disabled px-2 py-2 align-middle text-center relative group/cell';
   const labelCell = `${cell} w-[74px] text-[10px] font-semibold leading-3 text-ink-primary`;
 
   return (

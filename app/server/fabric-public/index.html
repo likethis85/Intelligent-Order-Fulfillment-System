@@ -418,8 +418,8 @@
       box-shadow: 0 2px 4px rgba(0,0,0,0.06);
       white-space: nowrap;
     }
-    /* 横向冻结的前 9 列（款式编码 → 物料颜色）—— left 由 renderResults 后 JS 动态赋值 */
-    /* min-width 强制列宽，避免被 100% 容器压扁；sticky.left 才有"可滚动的距离" */
+    /* 横向冻结的前 7 列（款式编码 → 物料规格名称）—— left 由 renderResults 后 JS 动态赋值 */
+    /* 供应商、物料颜色及后续列横向自由滚动 */
     th.freeze-col, td.freeze-col {
       position: sticky;
       background: #fff;
@@ -878,8 +878,8 @@
                 <th class="freeze-col">物料名称</th>
                 <th class="freeze-col">物料类型</th>
                 <th class="freeze-col">物料规格名称</th>
-                <th class="freeze-col">供应商</th>
-                <th class="freeze-col">物料颜色</th>
+                <th>供应商</th>
+                <th>物料颜色</th>
                 <th>仓库</th>
                 <th>用量(米)</th>
                 <th>单价(元)</th>
@@ -1775,8 +1775,8 @@
           <td class="freeze-col">${showDash ? '-' : (item.mtName || '-')}</td>
           <td class="freeze-col">${showDash ? '-' : (item.mtType || '-')}</td>
           <td class="freeze-col">${showDash ? '-' : (item.mtSpecName || '-')}</td>
-          <td class="freeze-col">${showDash ? '-' : (item.supplierName || '-')}</td>
-          <td class="freeze-col">${showDash ? '-' : (item.colorName || '-')}</td>
+          <td>${showDash ? '-' : (item.supplierName || '-')}</td>
+          <td>${showDash ? '-' : (item.colorName || '-')}</td>
           <td>${showDash ? '-' : (item.warehouse || '-')}</td>
           <td>${showDash ? '-' : item.useAmt.toFixed(2)}</td>
           <td>${showDash ? '-' : formatPrice(item.mtPrice)}</td>
@@ -1888,9 +1888,9 @@
       document.getElementById('resultSection').style.display = 'block';
     }
 
-    // 横向冻结：把前 9 列（款式编码 → 物料颜色）的 sticky.left 累加 offsetWidth 后写到 th/td 上
+    // 横向冻结：大屏冻结前 7 列（款式编码 → 物料规格名称，供应商和物料颜色不冻结，跟随横向滑动）
     // 移动端视口窄，冻结前 3 列（款式编码、SKC、成衣颜色），右侧物料/规格/库存/翻单自由横向滑动
-    const FREEZE_COL_COUNT = 9;
+    const FREEZE_COL_COUNT = 7;
     function applyFreezeCols() {
       const table = document.querySelector('.table-container table');
       if (!table) return;
