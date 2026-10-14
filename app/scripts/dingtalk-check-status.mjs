@@ -5,6 +5,7 @@
 //   { ok: true, loggedIn: false, reason: 'no_credentials' | 'redirected_to_login', finalUrl }
 //   { ok: false, error: '...' }
 import { chromium } from 'playwright-core';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -22,6 +23,16 @@ const DEFAULT_URL = 'https://alidocs.dingtalk.com/i/nodes/20eMKjyp81pMKDNaSr0ZG5
 const url = process.env.DINGTALK_COST_URL || DEFAULT_URL;
 
 const emit = (obj) => process.stdout.write(JSON.stringify(obj));
+
+// 优先检查 dws (dingtalk-workspace-cli) 是否已登录（毫秒级返回）
+try {
+  const rawDws = execSync('dws auth status -f json', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 2000 });
+  const parsedDws = JSON.parse(rawDws);
+  if (parsedDws && parsedDws.authenticated) {
+    emit({ ok: true, loggedIn: true, engine: 'dws', profile: parsedDws.profile || null });
+    process.exit(0);
+  }
+} catch {}
 
 const hasStorage = fs.existsSync(STORAGE_STATE);
 const hasProfile = fs.existsSync(PROFILE);

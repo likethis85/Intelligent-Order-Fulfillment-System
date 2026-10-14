@@ -23,6 +23,20 @@ const DEFAULT_URL = 'https://alidocs.dingtalk.com/i/nodes/20eMKjyp81pMKDNaSr0ZG5
 const DINGTALK_URL = process.env.DINGTALK_COST_URL || DEFAULT_URL;
 const OUT_JSON = path.join(__dirname, '..', 'server', 'data', 'hengji-cost.json');
 
+// 优先检查 dingtalk-workspace-cli (dws) 认证状态；若已登录，走原生 API 秒级同步
+try {
+  const dwsStatusRaw = execSync('dws auth status -f json', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 2000 });
+  const dwsStatus = JSON.parse(dwsStatusRaw);
+  if (dwsStatus && dwsStatus.authenticated) {
+    console.log('⚡ 检测到 dingtalk-workspace-cli (dws) 已认证，启用原生 API 极速同步...');
+    const dwsScript = path.join(__dirname, 'dws-sync-cost.mjs');
+    execSync(`node "${dwsScript}"`, { stdio: 'inherit', env: process.env });
+    process.exit(0);
+  }
+} catch {
+  // dws 未安装或未登录，平滑进入 Playwright 无头同步
+}
+
 // 跨平台系统剪贴板读取辅助
 function getSystemClipboard() {
   try {
