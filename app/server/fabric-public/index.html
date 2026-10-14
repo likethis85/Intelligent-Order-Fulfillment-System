@@ -404,10 +404,15 @@
       -webkit-overflow-scrolling: touch;
       touch-action: pan-x pan-y;
     }
-    table { width: 100%; min-width: 1600px; border-collapse: collapse; font-size: 12px; }
+    table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
     th {
       background: #f9f9f9;
-      padding: 8px 10px;
+      padding: 6px 6px;
       text-align: left;
       font-weight: 500;
       color: #666;
@@ -424,15 +429,47 @@
       position: sticky;
       background: #fff;
       z-index: 2;
-      min-width: 90px;
       white-space: nowrap;
     }
     thead th.freeze-col { z-index: 4; background: #f9f9f9; }
-    td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; user-select: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
-    td .col-input { height: 26px; padding: 2px 6px; }
+    td {
+      padding: 5px 6px;
+      border-bottom: 1px solid #f5f5f5;
+      color: #333;
+      user-select: text;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: middle;
+    }
+    td .col-input { height: 24px; padding: 2px 4px; }
     tbody tr:hover { background: #d0e8ff !important; }
     tbody tr:hover td.freeze-col { background: #d0e8ff !important; }
     tr:last-child td { border-bottom: none; }
+
+    /* 紧凑列宽定义：消除大屏拉伸时的空隙，左右间距紧凑贴合内容 */
+    th:nth-child(1), td:nth-child(1) { min-width: 76px; max-width: 88px; }   /* 款式编码 */
+    th:nth-child(2), td:nth-child(2) { min-width: 88px; max-width: 102px; }  /* SKC */
+    th:nth-child(3), td:nth-child(3) { min-width: 52px; max-width: 66px; }   /* 成衣颜色 */
+    th:nth-child(4), td:nth-child(4) { min-width: 86px; max-width: 98px; }   /* 物料编码 */
+    th:nth-child(5), td:nth-child(5) { min-width: 80px; max-width: 130px; }  /* 物料名称 */
+    th:nth-child(6), td:nth-child(6) { min-width: 48px; max-width: 58px; }   /* 物料类型 */
+    th:nth-child(7), td:nth-child(7) { min-width: 105px; max-width: 170px; } /* 物料规格名称 */
+    th:nth-child(8), td:nth-child(8) { min-width: 76px; max-width: 150px; }  /* 供应商 */
+    th:nth-child(9), td:nth-child(9) { min-width: 52px; max-width: 66px; }   /* 物料颜色 */
+    th:nth-child(10), td:nth-child(10) { min-width: 46px; max-width: 58px; } /* 仓库 */
+    th:nth-child(11), td:nth-child(11) { min-width: 50px; max-width: 62px; } /* 用量(米) */
+    th:nth-child(12), td:nth-child(12) { min-width: 50px; max-width: 62px; } /* 单价(元) */
+    th:nth-child(13), td:nth-child(13) { min-width: 52px; max-width: 66px; } /* 库存(米) */
+    th:nth-child(14), td:nth-child(14) { min-width: 44px; max-width: 56px; } /* 可生产 */
+    th:nth-child(15), td:nth-child(15) { min-width: 62px; max-width: 72px; } /* 在途(米) */
+    th:nth-child(16), td:nth-child(16) { min-width: 98px; max-width: 110px; } /* 交期 */
+    th:nth-child(17), td:nth-child(17) { min-width: 54px; max-width: 66px; text-align: center; } /* 采购明细 */
+    th:nth-child(18), td:nth-child(18) { min-width: 62px; max-width: 72px; } /* 工厂现货(米) */
+    th:nth-child(19), td:nth-child(19) { min-width: 62px; max-width: 72px; } /* 可订货(米) */
+    th:nth-child(20), td:nth-child(20) { min-width: 52px; max-width: 62px; } /* 订货周期(天) */
+    th:nth-child(21), td:nth-child(21) { min-width: 42px; max-width: 50px; text-align: center; } /* 询单 */
+    th:nth-child(22), td:nth-child(22) { min-width: 64px; max-width: 76px; text-align: center; } /* 翻单 */
     .copy-tip {
       position: fixed;
       top: 20px;
@@ -544,12 +581,12 @@
     .btn-danger { background: #ef4444; color: white; }
     .btn-danger:hover { background: #dc2626; }
     /* 新增列样式 */
-    .col-input { width: 70px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; text-align: right; }
-    .btn-inquiry { padding: 4px 10px; font-size: 12px; border: 1px solid #333; background: #333; color: white; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+    .col-input { width: 56px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; text-align: right; }
+    .btn-inquiry { padding: 3px 6px; font-size: 11.5px; border: 1px solid #333; background: #333; color: white; border-radius: 4px; cursor: pointer; white-space: nowrap; }
     .btn-inquiry:hover { background: #555; }
     .btn-inquiry:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
     .col-input:focus { outline: none; border-color: #333; }
-    .col-input[type="date"] { width: 120px; text-align: center; }
+    .col-input[type="date"] { width: 98px; text-align: center; }
     /* 货盘文字模态框 */
     .huopan-textarea { width: 100%; min-height: 200px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; line-height: 1.8; resize: vertical; font-family: monospace; }
     .huopan-actions { display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end; }
@@ -681,35 +718,35 @@
         -webkit-overflow-scrolling: touch;
       }
       table {
-        min-width: 1100px;
+        min-width: 1000px;
       }
       /* 移动端固定前 3 列：款式编码、SKC、成衣颜色；第 4 列（物料编码）及后续列横向自由滑动 */
       th.freeze-col, td.freeze-col {
-        min-width: 56px;
-        padding: 6px 6px;
+        min-width: 50px;
+        padding: 5px 5px;
       }
       /* 款式编码列宽 */
       th.freeze-col:nth-of-type(1), td.freeze-col:nth-of-type(1) {
-        min-width: 76px;
+        min-width: 74px;
         max-width: 86px;
       }
       /* SKC 列宽 */
       th.freeze-col:nth-of-type(2), td.freeze-col:nth-of-type(2) {
-        min-width: 90px;
-        max-width: 102px;
+        min-width: 88px;
+        max-width: 100px;
       }
       /* 成衣颜色列宽 */
       th.freeze-col:nth-of-type(3), td.freeze-col:nth-of-type(3) {
-        min-width: 54px;
-        max-width: 66px;
+        min-width: 50px;
+        max-width: 64px;
       }
       /* 第 4 列及之后（物料编码等）在移动端取消强制 sticky，随表格平滑横向滚动 */
       th.freeze-col:nth-of-type(n+4), td.freeze-col:nth-of-type(n+4) {
         position: static !important;
         left: auto !important;
         box-shadow: none !important;
-        min-width: 80px;
-        padding: 6px 10px;
+        min-width: 60px;
+        padding: 5px 6px;
       }
       .mobile-panel-toggle {
         display: inline-flex !important;
