@@ -19,3 +19,7 @@ deploy.mjs
 deploy.ps1
 deploy.sh
 deploy.tar.gz
+
+# 钉钉与 DWS 凭据（敏感信息，不纳入版本控制）
+app/server/data/dws-credentials/
+app/server/data/dingtalk-storage-state.json

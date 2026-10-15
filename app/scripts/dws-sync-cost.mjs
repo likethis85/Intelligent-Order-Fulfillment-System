@@ -117,95 +117,161 @@ const salesPriceByCode = {};
 let dupCost = 0, badCost = 0, dupSales = 0, badSales = 0;
 
 for (const sheet of sheetList) {
-  const sheetParam = (sheet.sheetId || sheet.id) ? `--sheet-id "${sheet.sheetId || sheet.id}"` : '';
-  console.log(`\n▶ 正在导出工作表: ${sheet.name || sheet.id || '默认'}...`);
+  const sheetIdentifier = sheet.sheetId || sheet.id || sheet.name || '';
+  const sheetParam = sheetIdentifier ? `--sheet-id "${sheetIdentifier}"` : '';
+  console.log(`\n▶ 正在处理工作表: ${sheet.name || sheet.id || '默认'}...`);
 
-  let csvContent = '';
+  // 1. 获取工作表非空行数，决定分块策略
+  let totalRows = 500;
   try {
-    csvContent = execSync(`dws sheet export-csv --node "${DINGTALK_URL}" ${sheetParam} --value-render-option formatted_value --allow-truncated`, {
+    const rawInfo = execSync(`dws sheet info --node "${DINGTALK_URL}" ${sheetParam} -f json`, {
       encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024,
       stdio: ['pipe', 'pipe', 'pipe']
     });
-  } catch (err) {
-    console.error(`  ❌ 导出工作表 ${sheet.name || sheet.id} 失败:`, err.message);
-    continue;
+    const info = JSON.parse(rawInfo);
+    totalRows = info.nonEmptyRange?.lastRow || info.rowCount || 500;
+    console.log(`  工作表行数: ${totalRows}`);
+  } catch {
+    console.log(`  无法获取行数，使用默认 500 行分块导出`);
   }
 
-  if (!csvContent || !csvContent.trim()) {
-    console.log(`  ⚠ 未读到有效内容，跳过`);
-    continue;
-  }
+  let iCode = -1, iCost = -1, iSales = -1;
+  const CHUNK_SIZE = 500;
+  let validInSheet = 0;
 
-  const rows = parseCsv(csvContent);
-  if (rows.length < 2) {
-    console.log(`  ⚠ 行数不足 (${rows.length} 行)，跳过`);
-    continue;
-  }
+  for (let startRow = 1; startRow <= totalRows; startRow += CHUNK_SIZE) {
+    const endRow = Math.min(startRow + CHUNK_SIZE - 1, totalRows + 10);
+    const rangeParam = `--range "A${startRow}:AF${endRow}"`;
 
-  // 寻找表头
-  let iCode = -1, iCost = -1, iSales = -1, headerRowIndex = 0;
-  for (let rIdx = 0; rIdx < Math.min(6, rows.length); rIdx++) {
-    const hdr = rows[rIdx] || [];
-    const testCode = hdr.findIndex((h) => {
-      const s = String(h || '').replace(/\s/g, '');
-      return s.includes('款号') || s.includes('商品编码') || s.includes('样衣款号');
-    });
-    const testCost = hdr.findIndex((h) => {
-      const s = String(h || '').replace(/\s/g, '');
-      return s.includes('总成本') || (s.includes('成本') && !s.includes('面料') && !s.includes('加工'));
-    });
-    const testSales = hdr.findIndex((h) => {
-      const s = String(h || '').replace(/\s/g, '');
-      return s.includes('售价区间') || s.includes('销售价') || s.includes('售价') || s.includes('一口价') || s.includes('吊牌价') || s.includes('零售价');
-    });
-
-    if (testCode >= 0 && testCost >= 0) {
-      iCode = testCode;
-      iCost = testCost;
-      iSales = testSales;
-      headerRowIndex = rIdx;
+    let csvContent = '';
+    try {
+      csvContent = execSync(`dws sheet export-csv --node "${DINGTALK_URL}" ${sheetParam} ${rangeParam} --value-render-option formatted_value --allow-truncated`, {
+        encoding: 'utf8',
+        maxBuffer: 25 * 1024 * 1024,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    } catch (err) {
+      console.error(`  ❌ 分块导出失败 (${rangeParam}):`, err.message);
       break;
     }
-  }
 
-  if (iCode < 0 || iCost < 0) {
-    console.log(`  ⚠ 找不到 款号/总成本 列，首行示例:`, (rows[0] || []).slice(0, 10).join(' | '));
-    continue;
-  }
-
-  let validInSheet = 0;
-  for (const r of rows.slice(headerRowIndex + 1)) {
-    const code = (r[iCode] || '').trim().toUpperCase();
-    if (!code || code === '款号' || code === '商品编码') continue;
-
-    const rawCost = String(r[iCost] || '').replace(/[,，\s¥￥]/g, '');
-    const cost = parseFloat(rawCost);
-    if (!Number.isFinite(cost) || cost <= 0) {
-      badCost++;
-      continue;
+    if (!csvContent || !csvContent.trim()) {
+      break;
     }
 
-    if (code in byCode && byCode[code] !== cost) {
-      dupCost++;
-      byCode[code] = Math.max(byCode[code], cost); // 多行取大
-    } else if (!(code in byCode)) {
-      byCode[code] = cost;
-    }
+    const rows = parseCsv(csvContent);
+    if (rows.length === 0) break;
 
-    if (iSales >= 0) {
-      const rawSales = String(r[iSales] || '').replace(/[,，\s¥￥]/g, '');
-      const sales = parseFloat(rawSales);
-      if (!Number.isFinite(sales) || sales <= 0) {
-        badSales++;
-      } else if (code in salesPriceByCode && salesPriceByCode[code] !== sales) {
-        dupSales++;
-        salesPriceByCode[code] = Math.max(salesPriceByCode[code], sales);
-      } else if (!(code in salesPriceByCode)) {
-        salesPriceByCode[code] = sales;
+    let dataStartIndex = 0;
+    // 首次分块需解析表头
+    if (startRow === 1) {
+      for (let rIdx = 0; rIdx < Math.min(6, rows.length); rIdx++) {
+        const hdr = rows[rIdx] || [];
+        const testCode = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s === '款号' || s === '商品编码' || s === '样衣款号';
+        });
+
+        // 严格定位总成本列：
+        // 1) 优先精确匹配 '总成本' / '核价成本' / '最终成本'
+        // 2) 其次精确匹配 '成本'（1-8月表头为“成本”，其值为面料+辅料+加工+其他之和）
+        // 3) 排除“辅料成本”、“面料成本”、“成本区间”、“成本备注”
+        let testCost = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s === '总成本' || s === '核价成本' || s === '最终成本';
+        });
+        if (testCost < 0) {
+          testCost = hdr.findIndex(h => {
+            const s = String(h || '').trim().replace(/\s/g, '');
+            return s === '成本';
+          });
+        }
+        if (testCost < 0) {
+          testCost = hdr.findIndex(h => {
+            const s = String(h || '').trim().replace(/\s/g, '');
+            return s.includes('总成本') && !s.includes('区间') && !s.includes('备注');
+          });
+        }
+        if (testCost < 0) {
+          testCost = hdr.findIndex(h => {
+            const s = String(h || '').trim().replace(/\s/g, '');
+            return s.includes('成本') && !s.includes('辅料') && !s.includes('面料') && !s.includes('加工') && !s.includes('区间') && !s.includes('备注');
+          });
+        }
+
+        // 售价定位
+        let testSales = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s === '售价' || s === '销售价';
+        });
+        if (testSales < 0) {
+          testSales = hdr.findIndex(h => {
+            const s = String(h || '').trim().replace(/\s/g, '');
+            return s.includes('售价区间') || s.includes('销售价区间');
+          });
+        }
+        if (testSales < 0) {
+          testSales = hdr.findIndex(h => {
+            const s = String(h || '').trim().replace(/\s/g, '');
+            return s.includes('售价') || s.includes('销售价') || s.includes('一口价');
+          });
+        }
+        if (testSales < 0) {
+          testSales = hdr.findIndex(h => {
+            const s = String(h || '').trim().replace(/\s/g, '');
+            return s.includes('吊牌');
+          });
+        }
+
+        if (testCode >= 0 && testCost >= 0) {
+          iCode = testCode;
+          iCost = testCost;
+          iSales = testSales;
+          dataStartIndex = rIdx + 1;
+          console.log(`  ✓ 找到表头: 款号列=${iCode}(${hdr[iCode]}), 总成本列=${iCost}(${hdr[iCost]}), 售价列=${iSales}(${hdr[iSales] || '无'})`);
+          break;
+        }
       }
     }
-    validInSheet++;
+
+    if (iCode < 0 || iCost < 0) {
+      console.log(`  ⚠ 找不到 款号/总成本 列，跳过此工作表`);
+      break;
+    }
+
+    for (let r = dataStartIndex; r < rows.length; r++) {
+      const row = rows[r];
+      const code = (row[iCode] || '').trim().toUpperCase();
+      if (!code || code === '款号' || code === '商品编码') continue;
+
+      const rawCost = String(row[iCost] || '').replace(/[,，\s¥￥]/g, '');
+      const cost = parseFloat(rawCost);
+      if (!Number.isFinite(cost) || cost <= 0) {
+        badCost++;
+        continue;
+      }
+
+      if (code in byCode && byCode[code] !== cost) {
+        dupCost++;
+        byCode[code] = Math.max(byCode[code], cost); // 多行取大
+      } else if (!(code in byCode)) {
+        byCode[code] = cost;
+      }
+
+      if (iSales >= 0) {
+        const rawSales = String(row[iSales] || '').replace(/[,，\s¥￥]/g, '');
+        const sales = parseFloat(rawSales);
+        if (!Number.isFinite(sales) || sales <= 0) {
+          badSales++;
+        } else if (code in salesPriceByCode && salesPriceByCode[code] !== sales) {
+          dupSales++;
+          salesPriceByCode[code] = Math.max(salesPriceByCode[code], sales);
+        } else if (!(code in salesPriceByCode)) {
+          salesPriceByCode[code] = sales;
+        }
+      }
+      validInSheet++;
+    }
   }
   console.log(`  ✓ ${sheet.name || sheet.id}: 成功解析 ${validInSheet} 条记录`);
 }
@@ -228,7 +294,7 @@ fs.writeFileSync(OUT_JSON, JSON.stringify({
 }, null, 2));
 
 console.log(`\n🎉 [dws 同步完成]`);
-console.log(`   成本数据: ${totalCosts} 款号 (多行取大 ${dupCost} 次, 无效/过滤 ${badCost} 行)`);
+console.log(`   总成本数据: ${totalCosts} 款号 (多行取大 ${dupCost} 次, 无效/过滤 ${badCost} 行)`);
 console.log(`   销售价格: ${totalSales} 款号 (多行取大 ${dupSales} 次, 无效/过滤 ${badSales} 行)`);
 console.log(`   已写入: ${OUT_JSON}`);
 process.exit(0);

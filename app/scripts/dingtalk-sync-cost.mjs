@@ -194,18 +194,61 @@ try {
     let iCode = -1, iCost = -1, iSales = -1, headerRowIndex = 0;
     for (let rIdx = 0; rIdx < Math.min(5, rows.length); rIdx++) {
       const hdr = rows[rIdx] || [];
-      const testCode = hdr.findIndex((h) => {
-        const s = String(h || '').replace(/\s/g, '');
-        return s.includes('款号') || s.includes('商品编码') || s.includes('样衣款号');
+      const testCode = hdr.findIndex(h => {
+        const s = String(h || '').trim().replace(/\s/g, '');
+        return s === '款号' || s === '商品编码' || s === '样衣款号';
       });
-      const testCost = hdr.findIndex((h) => {
-        const s = String(h || '').replace(/\s/g, '');
-        return s.includes('总成本') || (s.includes('成本') && !s.includes('面料') && !s.includes('加工'));
+
+      // 严格定位总成本列：
+      // 1) 优先精确匹配 '总成本' / '核价成本' / '最终成本'
+      // 2) 其次精确匹配 '成本'（1-8月表头为“成本”，其值为面料+辅料+加工+其他之和）
+      // 3) 排除“辅料成本”、“面料成本”、“成本区间”、“成本备注”
+      let testCost = hdr.findIndex(h => {
+        const s = String(h || '').trim().replace(/\s/g, '');
+        return s === '总成本' || s === '核价成本' || s === '最终成本';
       });
-      const testSales = hdr.findIndex((h) => {
-        const s = String(h || '').replace(/\s/g, '');
-        return s.includes('售价区间') || s.includes('销售价') || s.includes('售价') || s.includes('一口价') || s.includes('吊牌价') || s.includes('零售价');
+      if (testCost < 0) {
+        testCost = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s === '成本';
+        });
+      }
+      if (testCost < 0) {
+        testCost = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s.includes('总成本') && !s.includes('区间') && !s.includes('备注');
+        });
+      }
+      if (testCost < 0) {
+        testCost = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s.includes('成本') && !s.includes('辅料') && !s.includes('面料') && !s.includes('加工') && !s.includes('区间') && !s.includes('备注');
+        });
+      }
+
+      // 售价定位
+      let testSales = hdr.findIndex(h => {
+        const s = String(h || '').trim().replace(/\s/g, '');
+        return s === '售价' || s === '销售价';
       });
+      if (testSales < 0) {
+        testSales = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s.includes('售价区间') || s.includes('销售价区间');
+        });
+      }
+      if (testSales < 0) {
+        testSales = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s.includes('售价') || s.includes('销售价') || s.includes('一口价');
+        });
+      }
+      if (testSales < 0) {
+        testSales = hdr.findIndex(h => {
+          const s = String(h || '').trim().replace(/\s/g, '');
+          return s.includes('吊牌');
+        });
+      }
 
       if (testCode >= 0 && testCost >= 0) {
         iCode = testCode;
