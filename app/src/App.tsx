@@ -26,6 +26,8 @@ const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: 'config', label: '配置后台', icon: Settings2 },
 ];
 
+const MOBILE_NAV = NAV.filter((n) => n.key !== 'config');
+
 const TRAYS_KEY = 'marius:trays:v2';
 const ACTIVE_KEY = 'marius:activeTrayId';
 const TRAYS_UPDATED_AT_KEY = 'marius:trays:updatedAt';
@@ -573,6 +575,18 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
           <span className="app-target">当前选款目标：<span className="font-medium text-ink-primary">{activeTray?.name} · {activeTray?.date}</span></span>
           <button
             type="button"
+            aria-current={page === 'config' ? 'page' : undefined}
+            onClick={() => { setPage('config'); window.scrollTo({ top: 0 }); }}
+            aria-label="配置后台"
+            title="配置后台"
+            className={`mobile-config-btn flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-ink-secondary hover:bg-surface-subtle transition-colors ${
+              page === 'config' ? 'bg-surface-muted font-semibold text-ink-primary' : ''
+            }`}
+          >
+            <Settings2 size={16} strokeWidth={page === 'config' ? 2 : 1.7} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
             onClick={() => { void onLogout(); }}
             disabled={logoutPending}
             aria-label={`退出登录（${user.displayName}）`}
@@ -664,7 +678,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
         )}
       </main>
       <nav aria-label="移动端主导航" className="mobile-nav print:hidden">
-        {NAV.map((n) => (
+        {MOBILE_NAV.map((n) => (
           <button
             key={n.key}
             type="button"

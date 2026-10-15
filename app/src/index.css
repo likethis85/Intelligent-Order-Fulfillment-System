@@ -88,7 +88,8 @@
 .app-brand-mobile,
 .mobile-nav,
 .mobile-scroll-hint,
-.sequence-presets-toggle {
+.sequence-presets-toggle,
+.mobile-config-btn {
   display: none;
 }
 
@@ -186,6 +187,10 @@ button:focus-visible,
   .desktop-nav,
   .app-target {
     display: none;
+  }
+
+  .mobile-config-btn {
+    display: flex;
   }
 
   .app-brand-mobile {
