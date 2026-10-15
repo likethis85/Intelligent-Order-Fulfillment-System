@@ -55,6 +55,10 @@ test('fabric-public assets do not have broken root script tags or recursive logi
   assert.ok(!salesHtml.includes('src="/vendor/supabase.min.js"'), 'sales.html must not use root /vendor path');
   assert.ok(!salesHtml.includes("window.location.href = '/login.html'"), 'sales.html must not redirect to login.html');
   assert.ok(salesHtml.includes('src="/fabric/vendor/supabase.min.js"'), 'sales.html must use /fabric/vendor/supabase.min.js');
+  assert.ok(salesHtml.includes('<option value="45"'), 'sales.html must have 45 days option');
+
+  const salesMobileHtml = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'sales-mobile.html'), 'utf8');
+  assert.ok(salesMobileHtml.includes('<option value="45"'), 'sales-mobile.html must have 45 days option');
 });
 
 test('TraysPage points to /fabric/index.html explicitly and supports mobile dialog', () => {

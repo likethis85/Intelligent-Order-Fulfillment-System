@@ -1385,22 +1385,26 @@
 
     // 交货天数下拉（动态渲染用，直接设 data- 属性）
     function makeDaySelect(value, itemId, idx) {
+      const v = Number(value);
       return `<select onchange="updateFabricBatch(this)" data-itemid="${itemId}" data-batchidx="${idx}" data-field="days">
         <option value="0">请选择</option>
-        <option value="15" ${value === 15 ? 'selected' : ''}>15</option>
-        <option value="25" ${value === 25 ? 'selected' : ''}>25</option>
-        <option value="35" ${value === 35 ? 'selected' : ''}>35</option>
+        <option value="15" ${v === 15 ? 'selected' : ''}>15</option>
+        <option value="25" ${v === 25 ? 'selected' : ''}>25</option>
+        <option value="35" ${v === 35 ? 'selected' : ''}>35</option>
+        <option value="45" ${v === 45 ? 'selected' : ''}>45</option>
       </select>`;
     }
 
     // 第1批交货天数下拉：保存到 sales_delivery_days
     // 治本：与 sales_batches[0].days 共享同一份数据（updateFabric 双向同步）
     function makeFirstDaySelect(value, itemId) {
+      const v = Number(value);
       return `<select onchange="updateFabric('${itemId}', 'sales_delivery_days', this.value)" data-itemid="${itemId}" data-field="days">
         <option value="0">请选择</option>
-        <option value="15" ${value === 15 ? 'selected' : ''}>15</option>
-        <option value="25" ${value === 25 ? 'selected' : ''}>25</option>
-        <option value="35" ${value === 35 ? 'selected' : ''}>35</option>
+        <option value="15" ${v === 15 ? 'selected' : ''}>15</option>
+        <option value="25" ${v === 25 ? 'selected' : ''}>25</option>
+        <option value="35" ${v === 35 ? 'selected' : ''}>35</option>
+        <option value="45" ${v === 45 ? 'selected' : ''}>45</option>
       </select>`;
     }
 
@@ -1584,7 +1588,7 @@
     }
 
     // 渲染编辑行
-    function renderEditRows() {
+    function renderEditRows(opts = {}) {
       const container = document.getElementById('fabricEditRows');
       const editorCard = document.getElementById('editorCard');
       const emptyEditor = document.getElementById('emptyEditor');
@@ -1600,8 +1604,8 @@
       editorCard.style.display = 'block';
       emptyEditor.style.display = 'none';
 
-      // 手机端：勾选/更新后自动滚动到编辑区
-      if (window.innerWidth <= 768) {
+      // 手机端：勾选/更新后自动滚动到编辑区（若未明确传 noScroll）
+      if (!opts.noScroll && window.innerWidth <= 768) {
         editorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
 
@@ -1834,11 +1838,15 @@
       });
       if (targets.length === 0) { console.warn('[resetFabric] 没找到同 SKC 条目:', pdt, targetSkc); return; }
       targets.forEach(([id, f]) => {
+        pendingSaves.delete(id);
         f.sales_pieces = 0;
         f.sales_delivery_days = 0;
         f.sales_batches = [];
         saveToSupabase(id, f);
       });
+      // 重新渲染编辑输入区（将输入框重置为 0，交期重置为请选择）与列表
+      renderEditRows({ noScroll: true });
+      renderFabricList();
       // 立即在该 SKC 行的颜色后面加 "✓ 已重置" 提示，强制让点击可见
       try {
         const heads = document.querySelectorAll('.skc-color');
@@ -1856,9 +1864,7 @@
           }
         }
       } catch (e) { console.warn('[resetFabric] flash 失败:', e); }
-      renderFabricList();
-      // 关键修复：重置后必须立刻刷新翻单文字——否则输入框已 0/请选择，文字区还显示旧的 200件25天 300件35天
-      // （重置不触发 updateFabric 的防抖刷新；同时手动改过文字时 _manualEdited=true 也会阻断防抖，必须强制刷新并清标记）
+      // 关键修复：重置后必须立刻刷新翻单文字
       _manualEdited = false;
       try {
         const { perSkcText, skcPdt } = buildPerSkcTextMap();
@@ -1872,7 +1878,7 @@
     }
 
     // 动态批次：新增第N批
-        function addBatch(itemId) {
+    function addBatch(itemId) {
       const fabric = selectedFabrics[itemId];
       if (!fabric) return;
       if (!Array.isArray(fabric.sales_batches)) fabric.sales_batches = [];
@@ -1886,7 +1892,7 @@
         fabric.sales_batches.push({ pieces: 0, days: 0 });
       }
       saveToSupabase(itemId, fabric);
-      renderEditRows();
+      renderEditRows({ noScroll: true });
     }
 
     // 动态批次：删除第i批（从0开始）
@@ -1905,7 +1911,7 @@
         }
       }
       saveToSupabase(itemId, fabric);
-      renderEditRows();
+      renderEditRows({ noScroll: true });
     }
 
     // 动态批次输入框实时保存（件数/交期下拉变化时）

@@ -1368,20 +1368,24 @@
     }
 
     function makeDaySelect(value, itemId, idx) {
+      const v = Number(value);
       return `<select onchange="updateFabricBatch(this)" data-itemid="${itemId}" data-batchidx="${idx}" data-field="days" class="batch-select">
         <option value="0">请选择</option>
-        <option value="15" ${value === 15 ? 'selected' : ''}>15</option>
-        <option value="25" ${value === 25 ? 'selected' : ''}>25</option>
-        <option value="35" ${value === 35 ? 'selected' : ''}>35</option>
+        <option value="15" ${v === 15 ? 'selected' : ''}>15</option>
+        <option value="25" ${v === 25 ? 'selected' : ''}>25</option>
+        <option value="35" ${v === 35 ? 'selected' : ''}>35</option>
+        <option value="45" ${v === 45 ? 'selected' : ''}>45</option>
       </select>`;
     }
 
     function makeFirstDaySelect(value, itemId) {
+      const v = Number(value);
       return `<select onchange="updateFabric('${itemId}', 'sales_delivery_days', this.value)" data-itemid="${itemId}" data-field="days" class="batch-select">
         <option value="0">请选择</option>
-        <option value="15" ${value === 15 ? 'selected' : ''}>15</option>
-        <option value="25" ${value === 25 ? 'selected' : ''}>25</option>
-        <option value="35" ${value === 35 ? 'selected' : ''}>35</option>
+        <option value="15" ${v === 15 ? 'selected' : ''}>15</option>
+        <option value="25" ${v === 25 ? 'selected' : ''}>25</option>
+        <option value="35" ${v === 35 ? 'selected' : ''}>35</option>
+        <option value="45" ${v === 45 ? 'selected' : ''}>45</option>
       </select>`;
     }
 
@@ -1519,7 +1523,7 @@
         </div>`;
     }
 
-    function renderEditRows() {
+    function renderEditRows(opts = {}) {
       const container = document.getElementById('fabricEditRows');
       const editorArea = document.getElementById('editorArea');
       const fabricIds = Object.keys(selectedFabrics);
@@ -1530,7 +1534,9 @@
       }
 
       editorArea.classList.add('show');
-      editorArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!opts.noScroll) {
+        editorArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
 
       const allItems = fabricIds.map(id => ({ itemId: id, fabric: selectedFabrics[id] }));
       const sharedMap = findSharedFabricMap(allItems);
@@ -1676,16 +1682,52 @@
       const fabric = selectedFabrics[itemId];
       if (!fabric) return;
       const pdt = fabric.pdt_code;
-      const sku = fabric.sku_code || fabric.skuCode || '';
-      const targets = Object.entries(selectedFabrics).filter(([id, f]) =>
-        (f.pdt_code || '') === pdt && (f.sku_code || f.skuCode || '') === sku
-      );
+      const pdtItems = Object.entries(selectedFabrics).filter(([, f]) => (f.pdt_code || '') === pdt);
+      const skcLength = pdtItems.reduce((min, [, f]) => {
+        const s = f.sku_code || f.skuCode || f.mt_code || '';
+        return s && (min === 0 || s.length < min) ? s.length : min;
+      }, 0);
+      const rawSku = fabric.sku_code || fabric.skuCode || fabric.mt_code || '';
+      const targetSkc = skcLength > 0 && rawSku.length >= skcLength ? rawSku.slice(0, skcLength) : rawSku;
+      const targets = pdtItems.filter(([, f]) => {
+        const s = f.sku_code || f.skuCode || f.mt_code || '';
+        const fSkc = skcLength > 0 && s.length >= skcLength ? s.slice(0, skcLength) : s;
+        return fSkc === targetSkc;
+      });
+      if (targets.length === 0) return;
       targets.forEach(([id, f]) => {
+        pendingSaves.delete(id);
         f.sales_pieces = 0; f.sales_delivery_days = 0; f.sales_batches = [];
         saveToSupabase(id, f);
       });
-      renderEditRows();
+      renderEditRows({ noScroll: true });
       renderFabricList();
+      try {
+        const heads = document.querySelectorAll('.sku-color');
+        for (const h of heads) {
+          if (h.textContent && (h.textContent.includes(targetSkc) || h.textContent.includes(fabric.pdt_color_name || ''))) {
+            let tag = h.querySelector('.reset-flash');
+            if (!tag) {
+              tag = document.createElement('span');
+              tag.className = 'reset-flash';
+              tag.style.cssText = 'margin-left:8px;font-size:11px;color:#16a34a;font-weight:600;';
+              tag.textContent = '✓ 已重置';
+              h.appendChild(tag);
+              setTimeout(() => { try { tag.remove(); } catch {} }, 2000);
+            }
+          }
+        }
+      } catch (e) { console.warn('[resetFabric] flash 失败:', e); }
+      _manualEdited = false;
+      try {
+        const { perSkcText, skcPdt } = buildPerSkcTextMap();
+        const updated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+        const ta = document.getElementById('textResult');
+        if (ta) ta.value = updated;
+        window._lastPerSkcText = perSkcText;
+      } catch (e) {
+        console.warn('[resetFabric] 刷新文字失败:', e);
+      }
     }
 
     function addBatch(itemId) {
@@ -1694,7 +1736,7 @@
       if (!Array.isArray(fabric.sales_batches)) fabric.sales_batches = [];
       fabric.sales_batches.push({ pieces: 0, days: 0 });
       saveToSupabase(itemId, fabric);
-      renderEditRows();
+      renderEditRows({ noScroll: true });
     }
 
     function removeBatch(itemId, idx) {
@@ -1702,7 +1744,7 @@
       if (!fabric || !Array.isArray(fabric.sales_batches)) return;
       fabric.sales_batches.splice(idx, 1);
       saveToSupabase(itemId, fabric);
-      renderEditRows();
+      renderEditRows({ noScroll: true });
     }
 
     function updateFabricBatch(el) {
@@ -1824,7 +1866,7 @@
             const p = batch.pieces || 0;
             const d = batch.days || 0;
             if (d === 0 && p > 0) incomplete.push(`${skc} ${pdtColorName} 第${i + 2}批：填了件数${p}件，未填天数`);
-            else if (p === 0 && d > 0) incomplete.push(`${skc} ${pdtColorName} 第${i + 2}批：填了天数${d}天，未填天数`);
+            else if (p === 0 && d > 0) incomplete.push(`${skc} ${pdtColorName} 第${i + 2}批：填了天数${d}天，未填件数`);
             if (p > 0 || d > 0) {
               if (d > 0 && p > 0) line += ` ${p}件${d}天`;
               else if (p > 0) line += ` ${p}件`;
