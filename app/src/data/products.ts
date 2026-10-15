@@ -145,6 +145,7 @@ export interface Tray {
   colorOverrideByLook?: Record<string, string>; // 颜色文案手动覆盖（lookId → 文案，如 "棕色 / 灰"），per-tray 优先于 pid.colors union；清空 = 清除 override
   costOverrides?: Record<string, string>; // BOM 成本手动编辑（pid → "123.45"），per-tray 优先于 BI bom商品成本；清空 = 清除 override
   mcostOverrides?: Record<string, string>; // 马总 BOM 成本手动编辑（仅马总场显示），per-tray 优先；清空 = 清除 override
+  sizeRangeOverrides?: Record<string, string>; // 尺码范围手动编辑（pid → "S~XL" / "均码"），per-tray 优先于 BI ETL 聚合的 sizeRange；清空 = 清除 override
   // 直播排品（SequencePage）专用
   startTime?: string; // 'HH:MM' 直播开始时间，默认 '19:00'
   seqDisplayMode?: 'list' | 'timeline'; // 排品页显示模式，默认 'list'

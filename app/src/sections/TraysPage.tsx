@@ -461,6 +461,74 @@ const CostEditor = forwardRef<
   );
 });
 
+// 尺码范围内联编辑：点击文字变 input，Enter/blur 保存，Esc 还原
+// 覆盖态旁边展示小 ×，支持点 × 一键清除（恢复为默认尺码范围）
+function SizeEditor({
+  value,
+  isOverridden,
+  onSave,
+  onClear,
+  placeholder = '—',
+}: {
+  value: string;
+  isOverridden: boolean;
+  onSave: (v: string) => void;
+  onClear: () => void;
+  placeholder?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+
+  const cls = 'text-[11.5px] font-mono text-ink-primary leading-4';
+  const ph = placeholder || '—';
+  const inputCls = `${cls} w-full min-w-[50px] bg-transparent text-center border-0 outline-none px-1`;
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const trimmed = draft.trim();
+          if (trimmed !== value) onSave(trimmed);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) {
+            (e.target as HTMLInputElement).blur();
+          }
+          if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+        }}
+        placeholder={ph}
+        className={inputCls}
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-0.5">
+      <span
+        onClick={() => setEditing(true)}
+        className={`${cls} cursor-text rounded-sm px-1 hover:bg-surface-subtle text-center ${isOverridden ? 'text-stage-return-fg font-medium' : ''}`}
+        title={isOverridden ? '已手动编辑（点击修改，点 × 清除恢复默认尺码）' : '点击编辑尺码范围'}
+      >
+        {value || <span className="text-ink-faint">{ph}</span>}
+      </span>
+      {isOverridden && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onClear(); }}
+          className="text-ink-faint hover:text-stage-return-fg"
+          title="清除手动编辑（恢复为默认尺码范围）"
+        >
+          <X size={10} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // 整行可点的「cost/ratio」编辑器：
 // - 成本在前面（左），倍率在后面（右），整体在 cell 内居中
 // - 点 row 任意位置（cost 数字 / "/" / ratio）都触发编辑
@@ -1107,7 +1175,7 @@ async function exportTrayLayoutExcel(
     { label: '主图', img: true, height: 224, get: () => '' },
     { label: '商品名称', height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
     { label: '款号', height: 40, dataStyle: 'codeBlue', get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
-    { label: '尺码', height: 32, get: (l) => byId(l.pids[0])?.sizeRange || '' },
+    { label: '尺码', height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
     { label: '售价', height: 45, dataStyle: 'priceGreen', get: (l) => priceCellText(l) },
     { label: '成本/倍率', height: 40, get: (l) => l.pids.map((p) => costRatioText(p, t, byId)).filter(Boolean).join('\n') },
     { label: '库存情况(主仓)', labelBlue: true, height: 70, get: (l) => l.pids.map((p) => stockCellText(byId(p))).join('\n') },
@@ -1125,7 +1193,7 @@ async function exportTrayLayoutExcel(
     { label: '主图', img: true, labelRed: true, height: 224, get: () => '' },
     { label: '商品名称', labelRed: true, height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
     { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
-    { label: '尺码', labelRed: true, height: 32, get: (l) => byId(l.pids[0])?.sizeRange || '' },
+    { label: '尺码', labelRed: true, height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
     { label: '售价', labelRed: true, dataStyle: 'priceGreen', height: 45, get: (l) => priceCellText(l) },
     { label: '库存情况(主仓)', labelRed: true, labelBlue: true, height: 70, get: (l) => l.pids.map((p) => stockCellText(byId(p))).join('\n') },
   ];
@@ -1848,6 +1916,10 @@ interface FieldRenderCtx {
   onClearMcost?: (pid: string) => void;
   codeSuffixOverride?: string;
   onSaveCodeSuffix?: (pid: string, value: string) => void;
+  sizeRangeOverride?: string;
+  sizeRangeOverrides?: Record<string, string>;
+  onSaveSizeRange?: (pid: string, value: string) => void;
+  onClearSizeRange?: (pid: string) => void;
   // 颜色文案 override：per-look（整行覆盖 pid.colors union）
   colorOverride?: string;
   // 样衣阶段颜色（黑巧/驼色等未转大货色）：pid → colorName[]，卡片颜色行追加展示
@@ -2077,39 +2149,56 @@ const FIELDS: FieldRow[] = [
   {
     label: '尺码',
     show: () => true,
-    aggregate: true, // 多款号合并展示：同尺码合一写一行，不同则「款号：尺码」分行
-    render: (p) => (
-      <div className="text-center font-mono text-[11.5px] text-ink-primary">
-        {p.sizeRange || <span className="text-ink-faint">—</span>}
-      </div>
-    ),
-    aggregateRender: (ps) => {
-      // 单款号：直接显示尺码
-      if (ps.length === 1) {
-        return (
-          <div className="text-center font-mono text-[12.5px] text-ink-primary">
-            {ps[0].sizeRange || <span className="text-ink-faint">—</span>}
-          </div>
-        );
-      }
-      const sizes = ps.map((p) => (p.sizeRange ?? '').trim() || '—');
-      const allSame = sizes.every((s) => s === sizes[0]);
-      // 所有款号尺码一致：写一行
-      if (allSame) {
-        return (
-          <div className="text-center font-mono text-[12.5px] text-ink-primary">{sizes[0]}</div>
-        );
-      }
-      // 尺码不同：按「款号：尺码」分行
+    aggregate: true, // 多款号合并展示：各款独立显示并支持编辑
+    render: (p, _tpl, ctx) => {
+      const ov = ctx.sizeRangeOverride ?? (p.id ? ctx.sizeRangeOverrides?.[p.id] : undefined);
+      const effectiveSize = ov !== undefined ? ov : (p.sizeRange || '');
+      const isOverridden = ov !== undefined && ov !== (p.sizeRange || '');
       return (
-        <div className="space-y-0.5 font-mono text-[12px] text-ink-primary">
-          {ps.map((p, i) => (
-            <div key={p.id} className="flex items-baseline justify-center gap-1">
-              <span className="text-ink-secondary">{p.id.toUpperCase()}</span>
-              <span className="text-ink-faint">：</span>
-              <span>{sizes[i]}</span>
-            </div>
-          ))}
+        <SizeEditor
+          value={effectiveSize}
+          isOverridden={isOverridden}
+          onSave={(v) => ctx.onSaveSizeRange?.(p.id, v)}
+          onClear={() => ctx.onClearSizeRange?.(p.id)}
+        />
+      );
+    },
+    aggregateRender: (ps, _tpl, ctx) => {
+      // 单款号：直接显示尺码编辑器
+      if (ps.length === 1) {
+        const p = ps[0];
+        const ov = ctx.sizeRangeOverrides?.[p.id];
+        const effectiveSize = ov !== undefined ? ov : (p.sizeRange || '');
+        const isOverridden = ov !== undefined && ov !== (p.sizeRange || '');
+        return (
+          <SizeEditor
+            value={effectiveSize}
+            isOverridden={isOverridden}
+            onSave={(v) => ctx.onSaveSizeRange?.(p.id, v)}
+            onClear={() => ctx.onClearSizeRange?.(p.id)}
+          />
+        );
+      }
+      // 多款号：各款独立显示「款号：尺码」并支持编辑
+      return (
+        <div className="space-y-1 font-mono text-[12px] text-ink-primary">
+          {ps.map((p) => {
+            const ov = ctx.sizeRangeOverrides?.[p.id];
+            const effectiveSize = ov !== undefined ? ov : (p.sizeRange || '');
+            const isOverridden = ov !== undefined && ov !== (p.sizeRange || '');
+            return (
+              <div key={p.id} className="flex items-center justify-center gap-1">
+                <span className="text-ink-secondary text-[11px]">{p.id.toUpperCase()}</span>
+                <span className="text-ink-faint">：</span>
+                <SizeEditor
+                  value={effectiveSize}
+                  isOverridden={isOverridden}
+                  onSave={(v) => ctx.onSaveSizeRange?.(p.id, v)}
+                  onClear={() => ctx.onClearSizeRange?.(p.id)}
+                />
+              </div>
+            );
+          })}
         </div>
       );
     },
@@ -3086,14 +3175,16 @@ export default function TraysPage({
       .catch(() => { if (!cancelled) setHengjiStatus({ ok: false, error: 'check_failed' }); });
     return () => { cancelled = true; };
   }, [dataVersion]);
+  const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
   const fullByIdWithSize = useMemo(() => {
-    if (Object.keys(sizeByCode).length === 0) return fullById;
     return (id: string) => {
       const p = fullById(id);
+      const ov = tray?.sizeRangeOverrides?.[id];
+      if (ov !== undefined) return { ...p, sizeRange: ov };
       const size = sizeByCode[id];
       return size ? { ...p, sizeRange: size } : p;
     };
-  }, [fullById, sizeByCode]);
+  }, [fullById, sizeByCode, tray?.sizeRangeOverrides]);
 
   // 销量（直播当天 + 累计总销量）：只在「已播完」的货盘（tray.date < 今天）才请求；未开播的不显示也不请求
   // 数据源：BI ETL e106807e71f8045669969e95「宽表关联后数据源」
@@ -3166,7 +3257,6 @@ export default function TraysPage({
     };
   }, [fullByIdWithSize, costByCode]);
 
-  const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
   // 修改记录抽屉：打开时拉一次；期间本地/远端更新也顺带刷新（靠 tray.updatedAt 变化触发）
   useEffect(() => {
     if (!showLog || !tray?.id) return;
@@ -3975,6 +4065,18 @@ export default function TraysPage({
                             if (Object.keys(next).length > 0) m.mcostOverrides = next; else delete m.mcostOverrides;
                             return m;
                           });
+                        const saveSizeRange = (pid: string, v: string) =>
+                          upd((t) => {
+                            if (v === '') {
+                              const next = { ...(t.sizeRangeOverrides || {}) };
+                              delete next[pid];
+                              const m = { ...t };
+                              if (Object.keys(next).length > 0) m.sizeRangeOverrides = next; else delete m.sizeRangeOverrides;
+                              return m;
+                            }
+                            return { ...t, sizeRangeOverrides: { ...(t.sizeRangeOverrides || {}), [pid]: v } };
+                          });
+                        const clearSizeRange = (pid: string) => saveSizeRange(pid, '');
                         return (
                         <tr key={f.label} className={f.rowCls ?? ''}>
                           <td className={`${labelCell} ${f.labelCls ?? ''}`}>{f.label}</td>
@@ -4029,6 +4131,9 @@ export default function TraysPage({
                                     onSaveMcost: saveMcost,
                                     onClearMcost: clearMcost,
                                     onSaveCodeSuffix: saveCodeSuffix,
+                                    sizeRangeOverrides: tray.sizeRangeOverrides,
+                                    onSaveSizeRange: saveSizeRange,
+                                    onClearSizeRange: clearSizeRange,
                                     colorOverride: tray.colorOverrideByLook?.[l.id],
                                     sampleColorsByPid: sampleColorsByCode,
                                     onSaveColor: saveColor,
@@ -4091,6 +4196,10 @@ export default function TraysPage({
                                       onSaveMcost: saveMcost,
                                       onClearMcost: clearMcost,
                                       onSaveCodeSuffix: saveCodeSuffix,
+                                     sizeRangeOverride: tray.sizeRangeOverrides?.[pid],
+                                     sizeRangeOverrides: tray.sizeRangeOverrides,
+                                     onSaveSizeRange: saveSizeRange,
+                                     onClearSizeRange: clearSizeRange,
                                     onSaveFabricNote: saveFabricNote,
                                     onClearFabricNote: clearFabricNote,
                                     })}
