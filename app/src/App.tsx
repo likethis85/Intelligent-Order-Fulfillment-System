@@ -20,6 +20,7 @@ type PageKey = 'trays' | 'sequence' | 'board' | 'profile' | 'weather' | 'config'
 const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: 'trays', label: '货盘', icon: Layers },
   { key: 'sequence', label: '直播排品', icon: ListOrdered },
+  { key: 'board', label: '选款看板', icon: LayoutGrid },
   { key: 'profile', label: '画像卡片', icon: BarChart3 },
   { key: 'weather', label: '天气面板', icon: CloudSun },
   { key: 'config', label: '配置后台', icon: Settings2 },
