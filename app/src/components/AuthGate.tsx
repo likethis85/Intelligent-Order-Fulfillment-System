@@ -85,6 +85,7 @@ export default function AuthGate() {
       if (!response.ok) throw new Error('logout_failed');
       setSession((current) => current ? { ...current, authenticated: false, user: null, expiresAt: null } : null);
       setMessage('已退出登录。');
+      window.location.replace('/');
     } catch { toast.error('退出失败，请稍后重试。'); }
     finally { setBusy(false); }
   };
