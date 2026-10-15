@@ -270,11 +270,12 @@ try {
       if (!code || code === '款号' || code === '商品编码') continue;
       const cost = parseFloat(String(r[iCost] || '').replace(/[,，\s]/g, ''));
       if (!Number.isFinite(cost) || cost <= 0) { bad++; continue; }
-      if (code in byCode && byCode[code] !== cost) {
+      const roundedCost = Math.round(cost * 10) / 10;
+      if (code in byCode && byCode[code] !== roundedCost) {
         dup++;
-        byCode[code] = Math.max(byCode[code], cost); // 多行取大（保守口径）
+        byCode[code] = Math.max(byCode[code], roundedCost); // 多行取大（保守口径）
       } else if (!(code in byCode)) {
-        byCode[code] = cost;
+        byCode[code] = roundedCost;
       }
 
       // 核价表销售价
@@ -282,11 +283,14 @@ try {
         const sales = parseFloat(String(r[iSales] || '').replace(/[,，\s]/g, ''));
         if (!Number.isFinite(sales) || sales <= 0) {
           badSales++;
-        } else if (code in salesPriceByCode && salesPriceByCode[code] !== sales) {
-          dupSales++;
-          salesPriceByCode[code] = Math.max(salesPriceByCode[code], sales);
-        } else if (!(code in salesPriceByCode)) {
-          salesPriceByCode[code] = sales;
+        } else {
+          const roundedSales = Math.round(sales * 10) / 10;
+          if (code in salesPriceByCode && salesPriceByCode[code] !== roundedSales) {
+            dupSales++;
+            salesPriceByCode[code] = Math.max(salesPriceByCode[code], roundedSales);
+          } else if (!(code in salesPriceByCode)) {
+            salesPriceByCode[code] = roundedSales;
+          }
         }
       }
       n++;

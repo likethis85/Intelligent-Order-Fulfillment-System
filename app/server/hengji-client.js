@@ -33,13 +33,15 @@ function norm(code) {
 export function getHengjiCost(code) {
   const data = load();
   const v = data.byCode?.[norm(code).toUpperCase()];
-  return Number(v) || undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : undefined;
 }
 
 export function getHengjiSalesPrice(code) {
   const data = load();
   const v = data.salesPriceByCode?.[norm(code).toUpperCase()];
-  return Number(v) || undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : undefined;
 }
 
 // 给 Product/Sample 补核价表销售价兜底；BI/领猫/零售价都没有时才补

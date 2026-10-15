@@ -250,12 +250,13 @@ for (const sheet of sheetList) {
         badCost++;
         continue;
       }
+      const roundedCost = Math.round(cost * 10) / 10;
 
-      if (code in byCode && byCode[code] !== cost) {
+      if (code in byCode && byCode[code] !== roundedCost) {
         dupCost++;
-        byCode[code] = Math.max(byCode[code], cost); // 多行取大
+        byCode[code] = Math.max(byCode[code], roundedCost); // 多行取大
       } else if (!(code in byCode)) {
-        byCode[code] = cost;
+        byCode[code] = roundedCost;
       }
 
       if (iSales >= 0) {
@@ -263,11 +264,14 @@ for (const sheet of sheetList) {
         const sales = parseFloat(rawSales);
         if (!Number.isFinite(sales) || sales <= 0) {
           badSales++;
-        } else if (code in salesPriceByCode && salesPriceByCode[code] !== sales) {
-          dupSales++;
-          salesPriceByCode[code] = Math.max(salesPriceByCode[code], sales);
-        } else if (!(code in salesPriceByCode)) {
-          salesPriceByCode[code] = sales;
+        } else {
+          const roundedSales = Math.round(sales * 10) / 10;
+          if (code in salesPriceByCode && salesPriceByCode[code] !== roundedSales) {
+            dupSales++;
+            salesPriceByCode[code] = Math.max(salesPriceByCode[code], roundedSales);
+          } else if (!(code in salesPriceByCode)) {
+            salesPriceByCode[code] = roundedSales;
+          }
         }
       }
       validInSheet++;
