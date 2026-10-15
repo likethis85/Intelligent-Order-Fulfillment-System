@@ -222,7 +222,7 @@ router.get('/cost/by-ids', async (req, res) => {
     const { items: products } = await loadAllProducts();
     const vscmCostByCode = new Map();
     for (const p of products) {
-      if (p.costPrice > 0) vscmCostByCode.set(p.id, String(p.costPrice));
+      if (p.costPrice > 0) vscmCostByCode.set(p.id, String(Math.round(p.costPrice * 10) / 10));
     }
     // BI BOM 成本兜底
     await loadBomCost(ids);

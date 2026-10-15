@@ -106,7 +106,8 @@ export async function loadBomCost(pids) {
     }
     for (const k of missing) {
       const cost = byPid.get(k);
-      const range = cost !== undefined ? String(cost) : '';
+      const rounded = cost !== undefined ? Math.round(cost * 10) / 10 : undefined;
+      const range = rounded !== undefined ? String(rounded) : '';
       if (process.env.COST_DEBUG === '1') {
         console.log(`[cost] ${k}: max=${cost} → "${range}"`);
       }
