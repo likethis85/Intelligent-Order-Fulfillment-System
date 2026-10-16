@@ -2787,6 +2787,146 @@ export default function TraysPage({
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<TrayOpLogEntry[]>([]);
   const [logLoading, setLogLoading] = useState(false);
+
+  // ── 表格缩放与移动端默认 4 列视图 ──
+  const [tableZoom, setTableZoom] = useState<number>(1);
+  const [fourColZoom, setFourColZoom] = useState<number>(0.4);
+  const [userHasZoomed, setUserHasZoomed] = useState<boolean>(false);
+  const trayContainerRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef<number>(tableZoom);
+  zoomRef.current = tableZoom;
+  const fourColZoomRef = useRef<number>(fourColZoom);
+  fourColZoomRef.current = fourColZoom;
+
+  // 自适应计算移动端 4 列基准缩放比（4列商品款+1列标签=954px）
+  useEffect(() => {
+    if (!editing) return;
+    const updateZoom = () => {
+      const mobile = window.innerWidth < 768;
+      const containerWidth = trayContainerRef.current?.clientWidth || (window.innerWidth - 16);
+      const calculated4Col = Math.max(0.25, Math.min(1.0, Math.round((containerWidth / 954) * 100) / 100));
+      setFourColZoom(calculated4Col);
+
+      if (mobile && !userHasZoomed) {
+        setTableZoom(calculated4Col);
+      } else if (!mobile && !userHasZoomed) {
+        setTableZoom(1);
+      }
+    };
+
+    updateZoom();
+    window.addEventListener('resize', updateZoom);
+    return () => window.removeEventListener('resize', updateZoom);
+  }, [editing, userHasZoomed]);
+
+  // 双指捏合缩放（Pinch to Zoom）+ 双击切换手势监听
+  useEffect(() => {
+    if (!editing) return;
+
+    let initialDist = 0;
+    let initialZoom = 1;
+    let lastTap = 0;
+
+    const isInsideTable = (target: EventTarget | null) => {
+      if (!target || !(target instanceof Node)) return false;
+      return !!trayContainerRef.current?.contains(target);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!isInsideTable(e.target)) return;
+
+      if (e.touches.length === 2) {
+        const [t1, t2] = [e.touches[0], e.touches[1]];
+        initialDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        initialZoom = zoomRef.current;
+      } else if (e.touches.length === 1) {
+        const now = Date.now();
+        // 双击切换：4列视图 vs 100% 原始大小
+        if (now - lastTap < 280) {
+          const current = zoomRef.current;
+          const target = current < 0.75 ? 1 : fourColZoomRef.current;
+          setTableZoom(target);
+          setUserHasZoomed(true);
+          lastTap = 0;
+          return;
+        }
+        lastTap = now;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        if (!isInsideTable(e.target) && initialDist === 0) return;
+        if (e.cancelable) e.preventDefault();
+        const [t1, t2] = [e.touches[0], e.touches[1]];
+        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        if (initialDist > 0) {
+          const ratio = currentDist / initialDist;
+          const nextZoom = Math.max(0.25, Math.min(2.0, Math.round(initialZoom * ratio * 100) / 100));
+          setTableZoom(nextZoom);
+          setUserHasZoomed(true);
+        } else {
+          initialDist = currentDist;
+          initialZoom = zoomRef.current;
+        }
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        initialDist = 0;
+      }
+    };
+
+    // iOS Safari 原生双指手势支持
+    const onGestureStart = (e: any) => {
+      if (!isInsideTable(e.target)) return;
+      e.preventDefault();
+      initialZoom = zoomRef.current;
+    };
+    const onGestureChange = (e: any) => {
+      if (!isInsideTable(e.target)) return;
+      e.preventDefault();
+      const nextZoom = Math.max(0.25, Math.min(2.0, Math.round(initialZoom * e.scale * 100) / 100));
+      setTableZoom(nextZoom);
+      setUserHasZoomed(true);
+    };
+    const onGestureEnd = (e: any) => {
+      if (!isInsideTable(e.target)) return;
+      e.preventDefault();
+    };
+
+    // 笔记本触摸板双指捏合支持
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        if (!isInsideTable(e.target)) return;
+        e.preventDefault();
+        const delta = -e.deltaY * 0.005;
+        const next = Math.max(0.25, Math.min(2.0, Math.round((zoomRef.current + delta) * 100) / 100));
+        setTableZoom(next);
+        setUserHasZoomed(true);
+      }
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    window.addEventListener('gesturestart', onGestureStart as any, { passive: false, capture: true });
+    window.addEventListener('gesturechange', onGestureChange as any, { passive: false, capture: true });
+    window.addEventListener('gestureend', onGestureEnd as any, { passive: false, capture: true });
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart, { capture: true });
+      window.removeEventListener('touchmove', onTouchMove, { capture: true });
+      window.removeEventListener('touchend', onTouchEnd, { capture: true });
+      window.removeEventListener('gesturestart', onGestureStart as any, { capture: true });
+      window.removeEventListener('gesturechange', onGestureChange as any, { capture: true });
+      window.removeEventListener('gestureend', onGestureEnd as any, { capture: true });
+      window.removeEventListener('wheel', onWheel, { capture: true });
+    };
+  }, [editing]);
+
   useEffect(() => {
     if (!picker && !coverMenu && !fabricPicker && !restockPicker && !showLog) return;
     const previousOverflow = document.body.style.overflow;
@@ -3829,9 +3969,62 @@ export default function TraysPage({
         </button>
       </div>
 
-      {/* Excel 版式：每个版块一张表，行=字段，列=坑位；超宽换排 */}
-      <p className="mobile-scroll-hint" aria-label="表格可横向滑动">↔ 左右滑动查看全部坑位，点击单元格编辑</p>
-      <div className="mt-6 space-y-2 pb-16">
+      {/* 移动端快捷缩放控制栏 */}
+      <div className="mobile-zoom-toolbar mb-3 flex items-center justify-between gap-2 rounded-lg border border-edge bg-surface-card px-3 py-2 text-[12px] shadow-sm">
+        <div className="flex items-center gap-1.5 text-ink-secondary">
+          <span className="font-semibold text-ink-primary">双指缩放</span>
+          <span className="text-[11px] text-ink-muted">· {Math.round(tableZoom * 100)}%</span>
+          {Math.abs(tableZoom - fourColZoom) < 0.03 && (
+            <span className="rounded bg-stage-return-fg/10 px-1 py-0.5 text-[10px] font-medium text-stage-return-fg">4列视图</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => { setTableZoom(fourColZoom); setUserHasZoomed(true); }}
+            className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              Math.abs(tableZoom - fourColZoom) < 0.03
+                ? 'bg-action-primary text-white'
+                : 'border border-edge bg-surface-subtle text-ink-secondary hover:text-ink-primary'
+            }`}
+            title="缩放为默认 4 列视图"
+          >
+            4列
+          </button>
+          <button
+            onClick={() => { setTableZoom(1); setUserHasZoomed(true); }}
+            className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              Math.abs(tableZoom - 1) < 0.03
+                ? 'bg-action-primary text-white'
+                : 'border border-edge bg-surface-subtle text-ink-secondary hover:text-ink-primary'
+            }`}
+            title="恢复 100% 原始大小"
+          >
+            100%
+          </button>
+          <button
+            onClick={() => {
+              setTableZoom((prev) => Math.max(0.25, Math.round((prev - 0.1) * 100) / 100));
+              setUserHasZoomed(true);
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded border border-edge bg-surface-subtle text-[13px] font-bold text-ink-secondary hover:text-ink-primary active:bg-surface-card"
+            title="缩小表格"
+          >
+            －
+          </button>
+          <button
+            onClick={() => {
+              setTableZoom((prev) => Math.min(2.0, Math.round((prev + 0.1) * 100) / 100));
+              setUserHasZoomed(true);
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded border border-edge bg-surface-subtle text-[13px] font-bold text-ink-secondary hover:text-ink-primary active:bg-surface-card"
+            title="放大表格"
+          >
+            ＋
+          </button>
+        </div>
+      </div>
+      <p className="mobile-scroll-hint" aria-label="表格可横向滑动">↔ 左右滑动查看全部坑位，双指可缩放表格</p>
+      <div ref={trayContainerRef} className="mt-6 space-y-2 pb-16">
         {visible.map((s) => {
           const bands: (typeof s.looks)[] = [];
           for (let i = 0; i < s.looks.length; i += LOOKS_PER_BAND) bands.push(s.looks.slice(i, i + LOOKS_PER_BAND));
@@ -3850,6 +4043,7 @@ export default function TraysPage({
                       </div>
                     )}
                   <div className="tray-sheet overflow-x-auto" data-local-scroll tabIndex={0} role="region" aria-label={`${s.label}货盘表格，左右滑动查看全部坑位`}>
+                  <div style={{ zoom: tableZoom, width: 'max-content' }} className="tray-zoom-inner">
                   <table className="border-collapse bg-surface-card text-[11.5px] table-fixed" style={{ '--tray-table-width': `${74 + band.length * 220}px` } as React.CSSProperties}>
                     <thead>
                       <tr>
@@ -4214,6 +4408,7 @@ export default function TraysPage({
                       })}
                     </tbody>
                   </table>
+                  </div>
                   </div>
                   </div>
                 );

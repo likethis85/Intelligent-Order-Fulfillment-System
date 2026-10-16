@@ -88,6 +88,7 @@
 .app-brand-mobile,
 .mobile-nav,
 .mobile-scroll-hint,
+.mobile-zoom-toolbar,
 .sequence-presets-toggle,
 .mobile-config-btn {
   display: none;
@@ -396,14 +397,18 @@ button:focus-visible,
     white-space: nowrap;
   }
 
+  .mobile-zoom-toolbar {
+    display: flex;
+    margin-top: 16px;
+  }
+
   .mobile-scroll-hint {
-    display: block;
-    margin-top: 20px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    background: #F3F1EA;
-    color: #6B685E;
-    font-size: 11px;
+    display: none;
+  }
+
+  .responsive-page.trays-page {
+    padding-left: 8px;
+    padding-right: 8px;
   }
 
   .tray-sheet {
@@ -411,6 +416,7 @@ button:focus-visible,
     max-width: 100%;
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
   }
 
   .tray-sheet :is(td, th):first-child {
