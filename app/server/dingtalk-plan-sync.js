@@ -186,6 +186,16 @@ async function executeSyncPlanToDingtalk({
   for (const row of existingDataRows) {
     const rowPdt = String(row[0] || '').trim().toUpperCase();
     const rowSkc = String(row[1] || '').trim().toUpperCase();
+
+    // 过滤空行：若款号和 SKC 均为空，或整行字段全为空，则属于无效空行，直接跳过不保留
+    if (!rowPdt && !rowSkc) {
+      continue;
+    }
+    const isAllBlank = row.every((c) => !c || !String(c).trim());
+    if (isAllBlank) {
+      continue;
+    }
+
     const liveDate = String(row[4] || '').trim();
 
     if (rowSkc && liveDate) {
