@@ -84,7 +84,7 @@ export async function loadBomCost(pids) {
   if (missing.length === 0) return;
   if (inflight) return inflight;
   inflight = (async () => {
-    const filters = missing.map((k) => `款式编码 = ${k.toUpperCase()}`);
+    const filters = missing.map((k) => `款式编码 EQ ${k.toUpperCase()}`);
     let csv = '';
     try {
       csv = await runGuancliDsPreview(filters);

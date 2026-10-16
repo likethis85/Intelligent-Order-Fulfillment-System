@@ -8,6 +8,7 @@ import {
   getSampleSkus,
   queryFabricInfoMulti,
 } from '../fabric-client.js';
+import { syncPlanToDingtalk } from '../dingtalk-plan-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -456,7 +457,20 @@ router.get('/config', (_req, res) => {
 
 // ── POST /api/dingtalk-sync ──
 router.post('/dingtalk-sync', async (req, res) => {
-  res.json({ success: true, message: 'dingtalk_sync_acknowledged' });
+  try {
+    const { pdt_codes = [], items = [], all_skcs = [], full_text = '', per_skc_text = {} } = req.body;
+    const result = await syncPlanToDingtalk({
+      pdt_codes,
+      items,
+      all_skcs,
+      full_text,
+      per_skc_text,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[POST /api/dingtalk-sync] 同步失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 export default router;

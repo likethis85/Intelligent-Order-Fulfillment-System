@@ -85,9 +85,9 @@ async function loadDaily(pids, date) {
         const csv = await runGuancli([
           'ds', 'preview', DS_ID,
           '--columns', '款式编码,支付日期,净销量',
-          '--filter', `款式编码 = ${String(p).toUpperCase()}`,
+          '--filter', `款式编码 EQ ${String(p).toUpperCase()}`,
           '--combine-type', 'AND',
-          '--filter', `支付日期 = ${date}`,
+          '--filter', `支付日期 EQ ${date}`,
           '--limit', '50000',
           '-f', 'csv',
         ]);
@@ -140,7 +140,7 @@ async function loadCumulative(pids) {
         const csv = await runGuancli([
           'ds', 'preview', DS_ID,
           '--columns', '款式编码,款净销量',
-          '--filter', `款式编码 = ${String(p).toUpperCase()}`,
+          '--filter', `款式编码 EQ ${String(p).toUpperCase()}`,
           '--combine-type', 'AND',
           '--limit', '50000',
           '-f', 'csv',

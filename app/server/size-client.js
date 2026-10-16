@@ -117,7 +117,7 @@ export async function loadSizeRange(pids) {
   if (inflight) return inflight;
   inflight = (async () => {
     // 一次 OR 查询拿所有缺失款号
-    const filters = missing.map((k) => `款式编码 = ${k.toUpperCase()}`);
+    const filters = missing.map((k) => `款式编码 EQ ${k.toUpperCase()}`);
     let csv = '';
     try {
       csv = await runGuancliDsPreview(filters);
