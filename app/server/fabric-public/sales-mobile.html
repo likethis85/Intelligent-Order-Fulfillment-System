@@ -1955,6 +1955,7 @@
       const touchedPdts = [...new Set(Object.values(selectedFabrics).map(f => (f && (f.pdt_code || f.pdtCode)) || '').filter(Boolean))];
       const syncItems = [];
       const allSkcs = [];
+      const seenSyncItemKeys = new Set();
       Object.values(selectedFabrics).forEach(fab => {
         if (!fab) return;
         const skc = fab.sku_code || fab.skuCode || '';
@@ -1962,14 +1963,20 @@
         if (!skc || !pdt) return;
         const color = fab.pdt_color_name || fab.colorName || '';
         if (!allSkcs.includes(skc)) allSkcs.push(skc);
-        const p1 = Number(fab.sales_pieces) || 0;
-        const d1 = Number(fab.sales_delivery_days) || 0;
-        if (p1 > 0 || d1 > 0) syncItems.push({ pdt, skc, color, pieces: p1, days: d1 });
-        const batches = Array.isArray(fab.sales_batches) ? fab.sales_batches : [];
+        let batches = Array.isArray(fab.sales_batches) ? fab.sales_batches.slice() : [];
+        if (batches.length === 0 && (Number(fab.sales_pieces) > 0 || Number(fab.sales_delivery_days) > 0)) {
+          batches = [{ pieces: Number(fab.sales_pieces) || 0, days: Number(fab.sales_delivery_days) || 0 }];
+        }
         batches.forEach(b => {
           const p = Number(b.pieces) || 0;
           const d = Number(b.days) || 0;
-          if (p > 0 || d > 0) syncItems.push({ pdt, skc, color, pieces: p, days: d });
+          if (p > 0 || d > 0) {
+            const key = `${pdt}|${skc}|${p}|${d}`;
+            if (!seenSyncItemKeys.has(key)) {
+              seenSyncItemKeys.add(key);
+              syncItems.push({ pdt, skc, color, pieces: p, days: d, _source: fab._source || 'craft' });
+            }
+          }
         });
       });
       try { await syncToDingtalk(touchedPdts, syncItems, allSkcs, text, perSkcText); } catch (e) { console.error('[generateText] 同步异常:', e && e.message); }

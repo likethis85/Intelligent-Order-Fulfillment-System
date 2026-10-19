@@ -2195,6 +2195,7 @@
       // 治本：只读 sales_batches，不再单独 push 主行（主行 = batches[0]，已同步）
       const syncItems = [];
       const allSkcs = []; // 本次款下所有 SKC（含无翻单的，用于后端判定是否删行）
+      const seenSyncItemKeys = new Set();
       Object.values(selectedFabrics).forEach(fab => {
         if (!fab) return;
         const skc = fab.sku_code || fab.skuCode || '';
@@ -2210,7 +2211,13 @@
         batches.forEach(b => {
           const p = Number(b.pieces) || 0;
           const d = Number(b.days) || 0;
-          if (p > 0 || d > 0) syncItems.push({ pdt, skc, color, pieces: p, days: d, _source: fab._source || 'craft' });
+          if (p > 0 || d > 0) {
+            const key = `${pdt}|${skc}|${p}|${d}`;
+            if (!seenSyncItemKeys.has(key)) {
+              seenSyncItemKeys.add(key);
+              syncItems.push({ pdt, skc, color, pieces: p, days: d, _source: fab._source || 'craft' });
+            }
+          }
         });
       });
       console.log('[generateText] syncItems:', syncItems.length, 'allSkcs:', allSkcs);

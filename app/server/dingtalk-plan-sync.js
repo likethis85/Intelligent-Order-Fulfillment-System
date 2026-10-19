@@ -214,6 +214,7 @@ async function executeSyncPlanToDingtalk({
   const nowStr = formatDateTime();
   const newRows = [];
   const newSkcSeen = new Set();
+  const seenSyncKeys = new Set();
   let updatedCount = 0;
   let appendedCount = 0;
 
@@ -225,6 +226,14 @@ async function executeSyncPlanToDingtalk({
 
     // 过滤无实质翻单量的行（件数和天数均 <= 0）
     if (pieces <= 0 && days <= 0) continue;
+
+    // 同一 (款号, SKC, 件数, 天数) 只写入一行，避免同一颜色下多条面料或多仓库导致同一批次重复写多行
+    const syncKey = `${pdt}|${skc}|${pieces}|${days}`;
+    if (seenSyncKeys.has(syncKey)) {
+      console.log(`[dingtalk-plan-sync] 跳过重复批次: ${syncKey}`);
+      continue;
+    }
+    seenSyncKeys.add(syncKey);
 
     newSkcSeen.add(skc);
 
