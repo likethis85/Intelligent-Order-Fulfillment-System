@@ -1,10 +1,69 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getToken } from './vscm-client.js';
 
 const BASE = process.env.VSCM_BASE_URL || 'https://open.scm321.com';
 
-// 采购查询结果内存缓存（在途/交期按天级变化，20分钟内复用）
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const FABRIC_CACHE_FILE = path.join(__dirname, 'data', 'fabric-query-cache.json');
+
+// 款号级面料结果缓存（内存 + 磁盘持久化，4 小时 TTL）
+// 查过的款号秒回（< 5ms），大幅减轻领猫 SCM API 压力与限流
+const fabricQueryCache = new Map(); // key (uppercase) -> { time: number, data: any[] }
+const FABRIC_CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+
+function loadFabricCacheFromDisk() {
+  try {
+    if (fs.existsSync(FABRIC_CACHE_FILE)) {
+      const raw = fs.readFileSync(FABRIC_CACHE_FILE, 'utf-8');
+      const json = JSON.parse(raw);
+      const now = Date.now();
+      let count = 0;
+      for (const [code, item] of Object.entries(json)) {
+        if (item && item.time && (now - item.time < FABRIC_CACHE_TTL_MS) && Array.isArray(item.data)) {
+          fabricQueryCache.set(code.toUpperCase(), item);
+          count++;
+        }
+      }
+      if (count > 0) {
+        console.log(`[fabric-cache] 已从磁盘载入 ${count} 个款号的面料缓存`);
+      }
+    }
+  } catch (err) {
+    console.warn('[fabric-cache] 载入磁盘缓存失败:', err.message);
+  }
+}
+
+let saveCacheTimer = null;
+function saveFabricCacheToDiskDebounced() {
+  if (saveCacheTimer) return;
+  saveCacheTimer = setTimeout(() => {
+    saveCacheTimer = null;
+    try {
+      const dir = path.dirname(FABRIC_CACHE_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const obj = {};
+      const now = Date.now();
+      for (const [k, v] of fabricQueryCache.entries()) {
+        if (now - v.time < FABRIC_CACHE_TTL_MS) {
+          obj[k] = v;
+        }
+      }
+      fs.writeFileSync(FABRIC_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('[fabric-cache] 写入磁盘失败:', err.message);
+    }
+  }, 2000);
+}
+
+// 启动时载入持久化缓存
+loadFabricCacheFromDisk();
+
+// 采购查询结果内存缓存（在途/交期按天级变化，60分钟内复用）
 const purchaseBillsCache = new Map(); // key -> { time, data }
-const PO_CACHE_TTL_MS = 20 * 60 * 1000;
+const PO_CACHE_TTL_MS = 60 * 60 * 1000;
 
 function isFabricMaterial(mtType) {
   if (!mtType) return false;
@@ -436,9 +495,9 @@ async function getPurchaseBills(mtCodes) {
 
   const acc = new Map();
   const seenBills = new Set();
-  const LOOKBACK_WEEKS = 9;
-  const EARLY_EXIT_AFTER_WEEKS = 4;
-  const EARLY_EXIT_IDLE_WEEKS = 2;
+  const LOOKBACK_WEEKS = 3; // 缩减到 3 周（消除长达 9 周的连续发包阻塞）
+  const EARLY_EXIT_AFTER_WEEKS = 2;
+  const EARLY_EXIT_IDLE_WEEKS = 1;
   const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   try {
@@ -477,11 +536,25 @@ async function getPurchaseBills(mtCodes) {
   return resultMap;
 }
 
-export async function queryFabricInfo(pdtCode) {
-  const fabrics = await getFabricMaterials(pdtCode);
+export async function queryFabricInfo(pdtCode, forceRefresh = false) {
+  const normCode = String(pdtCode || '').trim().toUpperCase();
+  if (!normCode) return [];
+
+  if (!forceRefresh) {
+    const cached = fabricQueryCache.get(normCode);
+    if (cached && (Date.now() - cached.time < FABRIC_CACHE_TTL_MS) && cached.data) {
+      return cached.data;
+    }
+  }
+
+  const fabrics = await getFabricMaterials(normCode);
   if (fabrics.length === 0) {
-    const sampleFabrics = await getSampleDevMaterials(pdtCode);
-    if (sampleFabrics.length > 0) return sampleFabrics;
+    const sampleFabrics = await getSampleDevMaterials(normCode);
+    if (sampleFabrics.length > 0) {
+      fabricQueryCache.set(normCode, { time: Date.now(), data: sampleFabrics });
+      saveFabricCacheToDiskDebounced();
+      return sampleFabrics;
+    }
     return [];
   }
 
@@ -493,13 +566,8 @@ export async function queryFabricInfo(pdtCode) {
 
   async function fetchPOWithRetry() {
     const poPromise = getPurchaseBills(mtCodes);
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 12000));
-    let billingMap = await Promise.race([poPromise, timeoutPromise]);
-    if (billingMap === null) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      billingMap = await getPurchaseBills(mtCodes);
-    }
-    return billingMap;
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 3000)); // 3秒超时，不再死等 12s
+    return Promise.race([poPromise, timeoutPromise]);
   }
   const billingMap = await fetchPOWithRetry();
 
@@ -570,22 +638,49 @@ export async function queryFabricInfo(pdtCode) {
       results.push({ ...resultBase, warehouse: '-', stock: 0, canProduce: 0 });
     }
   }
+
+  // 存入款号级缓存并异步刷盘
+  if (results && results.length > 0) {
+    fabricQueryCache.set(normCode, { time: Date.now(), data: results });
+    saveFabricCacheToDiskDebounced();
+  }
+
   return results;
 }
 
-export async function queryFabricInfoMulti(pdtCodes, concurrency = 3) {
+export async function queryFabricInfoMulti(pdtCodes, concurrency = 3, forceRefresh = false) {
   const trimmedCodes = pdtCodes.map((c) => String(c || '').trim()).filter(Boolean);
   if (trimmedCodes.length === 0) return [];
 
   const results = new Array(trimmedCodes.length);
+  const toFetchIndices = [];
+
+  for (let i = 0; i < trimmedCodes.length; i++) {
+    const code = trimmedCodes[i].toUpperCase();
+    if (!forceRefresh) {
+      const cached = fabricQueryCache.get(code);
+      if (cached && (Date.now() - cached.time < FABRIC_CACHE_TTL_MS) && cached.data) {
+        results[i] = cached.data;
+        continue;
+      }
+    }
+    toFetchIndices.push(i);
+  }
+
+  // 全部命中缓存：直接返回（0~5ms 秒开）
+  if (toFetchIndices.length === 0) {
+    return results.flat();
+  }
+
   let next = 0;
   async function runner() {
     while (true) {
-      const i = next++;
-      if (i >= trimmedCodes.length) break;
+      const idx = next++;
+      if (idx >= toFetchIndices.length) break;
+      const i = toFetchIndices[idx];
       const code = trimmedCodes[i];
       try {
-        const rows = await queryFabricInfo(code);
+        const rows = await queryFabricInfo(code, forceRefresh);
         if (rows.length === 0) {
           results[i] = [{
             pdtCode: code,
@@ -610,7 +705,7 @@ export async function queryFabricInfoMulti(pdtCodes, concurrency = 3) {
       }
     }
   }
-  const workers = Array.from({ length: Math.min(concurrency, trimmedCodes.length) }, runner);
+  const workers = Array.from({ length: Math.min(concurrency, toFetchIndices.length) }, runner);
   await Promise.all(workers);
   return results.flat();
 }

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ArrowUp, ArrowDown, RotateCcw, Trash2, Sparkles, Clock, Layers } from 'lucide-react';
+import { ArrowUp, ArrowDown, RotateCcw, Trash2, Sparkles, Clock, Layers, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { type Product, type Tray, type SeqEntry } from '@/data/products';
 import { useProductResolver } from '@/data/ProductsContext';
+import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 
 // ── 排品 = 货盘的"上场顺序视图"：绑定货盘，坑位拉成直播时间线 ──
 
@@ -143,6 +144,7 @@ export default function SequencePage({
   const isMobile = useIsMobile();
   const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
   const [strategy, setStrategy] = useState('');
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   // 与 TraysPage 同源：/api/products 没有的老款/样衣号从 /api/samples 兜底补齐
   const allPids = useMemo(
     () => tray.sections.flatMap((s) => s.looks.flatMap((l) => l.pids)),
@@ -256,7 +258,13 @@ export default function SequencePage({
     if (ps.length === 0) return null;
     const totalStock = ps.reduce((s, p) => s + (p.stockMain || 0), 0);
     const totalTransit = ps.reduce((s, p) => s + (p.inTransit || 0), 0);
-    const priceTxt = ps.map((p) => (p.price ? `¥${p.price}` : '—')).join(' / ');
+    const priceTxt = ps
+      .map((p) => {
+        const base = p.price ? `¥${p.price}` : '—';
+        const suffix = tray.priceSuffixOverrides?.[p.id];
+        return suffix ? `${base} ${suffix}` : base;
+      })
+      .join(' / ');
     const restockTxt = ps.map((p) => p.restock || '—').join(' / ');
     const hasRestock = ps.some((p) => p.restock);
     return (
@@ -376,6 +384,13 @@ export default function SequencePage({
           }`}
         >
           线轴
+        </button>
+        <button
+          onClick={() => setPrintDialogOpen(true)}
+          className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-1 text-xs hover:border-edge"
+          title="打印排品（纸张大小、页面方向、缩放比例）"
+        >
+          <Printer size={12} /> 打印排品
         </button>
         <span className="text-xs text-ink-muted">· 拖拽行 / 卡片调整顺序 · 「返场」追加到收尾 · 删除仅影响排品不动货盘 · 调整后点「保存排品」生效</span>
       </div>
@@ -551,8 +566,9 @@ export default function SequencePage({
                         ))}
                       </div>
                       <div className="mt-2 truncate text-[11.5px] font-semibold">{ps.map((p) => p.name).join('+')}</div>
-                      <div className="mt-0.5 truncate text-[10.5px] text-ink-muted">{pids.map((x) => x.toUpperCase()).join('/')}</div>
-                      <div className="mt-1 text-[12px] font-bold text-stage-connect-fg">{ps[0] ? `¥${ps[0].price || '—'}` : '—'}</div>
+                      <div className="mt-1 text-[12px] font-bold text-stage-connect-fg">
+                        {ps[0] ? `¥${ps[0].price || '—'}${tray.priceSuffixOverrides?.[ps[0].id] ? ` ${tray.priceSuffixOverrides[ps[0].id]}` : ''}` : '—'}
+                      </div>
                       <div className="text-[10.5px] text-ink-muted">
                         现货 {ps.reduce((s, p) => s + (p.stockMain || 0), 0)}
                         {ps.some((p) => p.inTransit > 0) && <> · 在途 {ps.reduce((s, p) => s + (p.inTransit || 0), 0)}</>}
@@ -587,6 +603,15 @@ export default function SequencePage({
             </div>
           </div>
         </div>
+      )}
+
+      {tray && (
+        <PrintSettingsDialog
+          open={printDialogOpen}
+          onOpenChange={setPrintDialogOpen}
+          title={`直播排品打印设置 - ${tray.name}`}
+          showHideBackupOption={false}
+        />
       )}
     </div>
   );

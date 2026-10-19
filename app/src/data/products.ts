@@ -140,6 +140,7 @@ export interface Tray {
   noRestockSkcs?: string[]; // 兼容旧数据：标记为「无面料不翻单」的 SKC 编码
   noRestockItems?: NoRestockItem[]; // SKC 维度无面料不翻单标记（含颜色/面料信息）
   priceOverrides?: Record<string, string>; // 售价手动编辑（pid → 文案，如 "999" / "999/1199"），per-tray 优先于 BI / 领猫价；清空 = 清除 override
+  priceSuffixOverrides?: Record<string, string>; // 售价注脚手动编辑（pid → 后缀文案，如 "券后" / "秒杀" / "套装价"），渲染在售价后面；清空 = 清除 override
   mpriceOverrides?: Record<string, string>; // 马总直播价手动编辑（仅马总场显示），per-tray 优先于 BI mprice；清空 = 清除 override
   codeSuffixOverrides?: Record<string, string>; // 款号注脚手动编辑（pid → 后缀文案，如 "黑色" / "黑色/咖色"），渲染在款号后面；清空 = 清除 override
   colorOverrideByLook?: Record<string, string>; // 颜色文案手动覆盖（lookId → 文案，如 "棕色 / 灰"），per-tray 优先于 pid.colors union；清空 = 清除 override

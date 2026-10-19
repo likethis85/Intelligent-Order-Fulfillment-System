@@ -840,6 +840,7 @@ button:focus-visible,
 }
 
 @media print {
+  /* 兜底页面大小，实际由 PrintSettings 动态样式注入接管 */
   @page {
     size: A3 landscape;
     margin: 8mm;
@@ -848,14 +849,24 @@ button:focus-visible,
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  html, body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
   main {
     padding-top: 0 !important;
   }
-  header {
+  header,
+  .app-header,
+  .mobile-nav,
+  .mobile-scroll-hint,
+  .mobile-zoom-toolbar,
+  [data-slot="dialog-portal"],
+  [data-slot="dialog-overlay"] {
     display: none !important;
   }
-  .mobile-nav,
-  .mobile-scroll-hint {
-    display: none !important;
+  .tray-sheet {
+    overflow: visible !important;
   }
 }
+

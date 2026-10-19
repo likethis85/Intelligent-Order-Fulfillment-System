@@ -396,12 +396,12 @@ router.post('/fabric-data/clear-supplementary', async (_req, res) => {
 // ── POST /api/query ──
 router.post('/query', async (req, res) => {
   try {
-    const { pdtCodes } = req.body;
+    const { pdtCodes, refresh } = req.body;
     if (!pdtCodes || !Array.isArray(pdtCodes) || pdtCodes.length === 0) {
       return res.status(400).json({ error: '请提供款式编码列表' });
     }
 
-    const rows = await queryFabricInfoMulti(pdtCodes, 3);
+    const rows = await queryFabricInfoMulti(pdtCodes, 3, !!refresh);
     if (rows.length > 0) {
       const history = loadHistory();
       const record = {

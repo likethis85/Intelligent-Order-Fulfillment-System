@@ -2,11 +2,12 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import {
   ArrowLeft, ArrowRight, Plus, Eye, EyeOff, ArrowUp, ArrowDown, Pencil, Trash2, X, Check,
   Download, RefreshCw, Search, Sparkles, Bot, Send, MoreHorizontal, Archive, FileText,
-  Camera, History, CircleAlert,
+  Camera, History, CircleAlert, Printer,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx-js-style';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
+import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 import {
   TRAY_TYPES, goodsValue, matchCandidates,
   type NoRestockItem, type Product, type RoleTag, type Tray, type TrayType,
@@ -42,7 +43,7 @@ function CodeSuffixEditor({ value, onSave }: { value: string; onSave: (v: string
           if (e.key === 'Escape') { setDraft(value); setEditing(false); }
         }}
         placeholder="+ 注脚"
-        className="text-[11px] leading-4 text-ink-secondary bg-transparent text-left border-0 outline-none px-1 w-[88px]"
+        className="text-[10.5px] leading-4 text-ink-primary bg-surface-card border border-edge-strong rounded px-1.5 py-0.5 w-[84px] shadow-xs outline-none focus:border-ink-primary"
       />
     );
   }
@@ -50,10 +51,57 @@ function CodeSuffixEditor({ value, onSave }: { value: string; onSave: (v: string
   return (
     <span
       onClick={() => setEditing(true)}
-      className={`select-none text-[11px] leading-4 ${value ? 'text-ink-secondary' : 'text-ink-faint'} cursor-text rounded-sm px-1 hover:bg-surface-subtle ${
-        value ? '' : 'opacity-0 group-hover:opacity-100 transition-opacity'
+      className={`select-none text-[10.5px] leading-4 cursor-pointer rounded px-1.5 py-0.5 transition-all ${
+        value
+          ? 'text-ink-secondary font-medium bg-surface-card/70 hover:bg-surface-card border border-edge-subtle'
+          : 'opacity-0 group-hover:opacity-100 group-hover/cell:opacity-100 text-ink-primary font-medium bg-surface-card/90 hover:bg-surface-card border border-dashed border-edge-strong shadow-2xs print:hidden'
       }`}
-      title={value ? `注脚：${value}（点击修改）` : '点击添加注脚（如颜色说明）'}
+      title={value ? `注脚：${value}（点击修改，清空回车可清除）` : '点击添加注脚（如颜色说明）'}
+    >
+      {value || '+ 注脚'}
+    </span>
+  );
+}
+
+// 售价注脚内联编辑：售价本身不动，售价后面追加一段文案（如 "券后" / "秒杀" / "套装价"）
+// 用法和 CodeSuffixEditor 一致：Enter / Cmd+Enter / blur 保存，Esc 还原
+function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const trimmed = draft.trim();
+          if (trimmed !== value) onSave(trimmed);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) {
+            (e.target as HTMLInputElement).blur();
+          }
+          if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+        }}
+        placeholder="+ 注脚"
+        className="text-[10.5px] leading-4 text-ink-primary bg-surface-card border border-edge-strong rounded px-1.5 py-0.5 w-[80px] shadow-xs outline-none focus:border-ink-primary"
+      />
+    );
+  }
+
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      className={`select-none text-[10.5px] leading-4 cursor-pointer rounded px-1.5 py-0.5 transition-all ${
+        value
+          ? 'text-ink-secondary font-semibold bg-surface-card/70 hover:bg-surface-card border border-edge-subtle'
+          : 'opacity-0 group-hover:opacity-100 group-hover/cell:opacity-100 group-hover/price:opacity-100 text-ink-primary font-medium bg-surface-card/95 hover:bg-surface-card border border-dashed border-edge-strong shadow-2xs print:hidden'
+      }`}
+      title={value ? `售价注脚：${value}（点击修改，清空回车可清除）` : '点击添加售价注脚（如"券后"、"秒杀"）'}
     >
       {value || '+ 注脚'}
     </span>
@@ -349,7 +397,7 @@ function PriceEditor({
   }
 
   return (
-    <div className="flex items-center justify-center gap-1">
+    <span className="inline-flex items-center justify-center gap-1">
       <span
         onClick={() => setEditing(true)}
         className={`${cls} cursor-text rounded-sm px-1 hover:bg-surface-subtle`}
@@ -366,7 +414,7 @@ function PriceEditor({
           <X size={10} />
         </button>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -616,8 +664,9 @@ interface FabricQuickTooltipProps {
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   onOpenFullPicker: () => void;
+  onRefresh?: () => void;
 }
-function FabricQuickTooltip({ rect, codes, data, loading, error, onMouseEnter, onMouseLeave, onOpenFullPicker }: FabricQuickTooltipProps) {
+function FabricQuickTooltip({ rect, codes, data, loading, error, onMouseEnter, onMouseLeave, onOpenFullPicker, onRefresh }: FabricQuickTooltipProps) {
   if (!rect) return null;
   // 卡片 360px 宽，贴在锚点下方 6px；左边界避免超出视口右沿
   const W = 360;
@@ -640,6 +689,15 @@ function FabricQuickTooltip({ rect, codes, data, loading, error, onMouseEnter, o
       <div className="flex items-center justify-between border-b border-edge px-3 py-2">
         <div className="text-[11px] font-semibold tracking-wide text-ink-secondary">面料快查 · {codes.length} 个款号</div>
         <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-primary hover:bg-surface-subtle"
+              title="强制向领猫重新拉取最新数据并更新缓存"
+            >
+              刷新
+            </button>
+          )}
           <button
             onClick={onOpenFullPicker}
             className="rounded px-1.5 py-0.5 text-[11px] text-action-link hover:bg-surface-subtle"
@@ -1157,7 +1215,9 @@ async function exportTrayLayoutExcel(
   const priceCellText = (l: Look): string => {
     const vals = l.pids.map((p) => {
       const v = effectivePrice(t.priceOverrides?.[p], byId(p));
-      return v > 0 ? String(v) : (byId(p).price ?? '');
+      const base = v > 0 ? String(v) : (byId(p).price ?? '');
+      const suffix = t.priceSuffixOverrides?.[p];
+      return suffix ? `${base} ${suffix}` : base;
     });
     const lines: string[] = [];
     for (let i = 0; i < vals.length; i += 2) lines.push(vals.slice(i, i + 2).join(' / '));
@@ -1900,6 +1960,9 @@ interface FieldRenderCtx {
   priceOverride?: string;
   mpriceOverride?: string;
   priceOverrides?: Record<string, string>; // 整个 look 所有 pid 的售价 override（多款号用）
+  priceSuffixOverrides?: Record<string, string>; // 整个 look 所有 pid 的售价注脚 override（多款号用）
+  priceSuffixOverride?: string;
+  onSavePriceSuffix?: (pid: string, value: string) => void;
   mpriceOverrides?: Record<string, string>; // 整个 look 所有 pid 的马总价 override（多款号用）
   codeSuffixOverrides?: Record<string, string>; // 整个 look 所有 pid 的款号注脚 override（多款号用）
   costOverrides?: Record<string, string>; // 整个 look 所有 pid 的成本 override（多款号用）
@@ -2114,9 +2177,9 @@ const FIELDS: FieldRow[] = [
       // 注脚 absolute 挂在款号 span 右边（left-full = 款号右边缘），紧贴款号末尾，不参与居中计算；
       // 不垂直居中——同字号下 absolute 默认 top:0 让注脚 baseline 自然对齐款号 baseline
       <div className="text-center">
-        <span className="group relative inline-block">
+        <span className="group relative inline-flex items-center justify-center">
           <span className="font-mono text-[12px] font-semibold text-ink-primary">{p.id.toUpperCase()}</span>
-          <span className="absolute left-full ml-1 whitespace-nowrap select-none">
+          <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
             <CodeSuffixEditor
               value={ctx.codeSuffixOverride ?? ''}
               onSave={(v) => ctx.onSaveCodeSuffix?.(ctx.pid, v)}
@@ -2131,9 +2194,9 @@ const FIELDS: FieldRow[] = [
         <div className="space-y-0.5">
           {ps.map((p) => (
             <div key={p.id} className="text-center leading-5">
-              <span className="group relative inline-block">
+              <span className="group relative inline-flex items-center justify-center">
                 <span className="font-mono text-[12px] font-semibold text-ink-primary">{p.id.toUpperCase()}</span>
-                <span className="absolute left-full ml-1 whitespace-nowrap select-none">
+                <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
                   <CodeSuffixEditor
                     value={ctx.codeSuffixOverrides?.[p.id] ?? ''}
                     onSave={(v) => ctx.onSaveCodeSuffix?.(p.id, v)}
@@ -2215,14 +2278,24 @@ const FIELDS: FieldRow[] = [
       const mOverridden = ctx.mpriceOverride !== undefined && ctx.mpriceOverride !== (p.mprice ?? '');
       return (
         <>
-          <PriceEditor
-            value={text}
-            isOverridden={isOverridden}
-            placeholder={p.price ? '' : '待定价'}
-            kind="price"
-            onSave={(v) => ctx.onSavePrice?.(ctx.pid, v)}
-            onClear={() => ctx.onClearPrice?.(ctx.pid)}
-          />
+          <div className="text-center">
+            <div className="group/price group relative inline-flex items-center justify-center">
+              <PriceEditor
+                value={text}
+                isOverridden={isOverridden}
+                placeholder={p.price ? '' : '待定价'}
+                kind="price"
+                onSave={(v) => ctx.onSavePrice?.(ctx.pid, v)}
+                onClear={() => ctx.onClearPrice?.(ctx.pid)}
+              />
+              <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-20">
+                <PriceSuffixEditor
+                  value={ctx.priceSuffixOverride ?? ''}
+                  onSave={(v) => ctx.onSavePriceSuffix?.(ctx.pid, v)}
+                />
+              </span>
+            </div>
+          </div>
           {p.priceNote && !isOverridden && <span className={`ml-1 text-[10px] ${RED}`}>{p.priceNote}</span>}
           {tpl === 'mazong' && (p.mprice || ctx.mpriceOverride !== undefined) && (
             <div className="mt-0.5">
@@ -2248,15 +2321,23 @@ const FIELDS: FieldRow[] = [
             const text = ov !== undefined ? ov : p.price;
             const isOverridden = ov !== undefined && ov !== (p.price ?? '');
             return (
-              <div key={p.id} className="leading-5">
-                <PriceEditor
-                  value={text}
-                  isOverridden={isOverridden}
-                  placeholder={p.price ? '' : '待定价'}
-                  kind="price"
-                  onSave={(v) => ctx.onSavePrice?.(p.id, v)}
-                  onClear={() => ctx.onClearPrice?.(p.id)}
-                />
+              <div key={p.id} className="text-center leading-5">
+                <div className="group/price group relative inline-flex items-center justify-center">
+                  <PriceEditor
+                    value={text}
+                    isOverridden={isOverridden}
+                    placeholder={p.price ? '' : '待定价'}
+                    kind="price"
+                    onSave={(v) => ctx.onSavePrice?.(p.id, v)}
+                    onClear={() => ctx.onClearPrice?.(p.id)}
+                  />
+                  <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-20">
+                    <PriceSuffixEditor
+                      value={ctx.priceSuffixOverrides?.[p.id] ?? ''}
+                      onSave={(v) => ctx.onSavePriceSuffix?.(p.id, v)}
+                    />
+                  </span>
+                </div>
               </div>
             );
           })}
@@ -2783,6 +2864,7 @@ export default function TraysPage({
   const [fabricPicker, setFabricPicker] = useState<{ sectionId: string; lookId: string; pid: string } | null>(null);
   const [restockPicker, setRestockPicker] = useState<{ sectionId: string; lookId: string } | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   // 修改记录抽屉：右侧滑出，读 /api/trays/log
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<TrayOpLogEntry[]>([]);
@@ -2972,13 +3054,60 @@ export default function TraysPage({
   const fabricIframeRef = useRef<HTMLIFrameElement | null>(null);
   // 翻单弹窗（sales.html）iframe ref，同样提到顶层避免 IIFE 内对象字面量被 React 重置
   const salesIframeRef = useRef<HTMLIFrameElement | null>(null);
-  // 鼠标进入锚点 → 350ms 后开始查（避免来回扫鼠标时频繁打接口）
+
+  // 前端款号级内存缓存：同一会话内查过的款号直接秒显，不再二次发起网络请求
+  const fabricClientCache = useRef<Map<string, any[]>>(new Map());
+
+  // 执行面料网络查询（支持 forceRefresh 绕过前端与服务端缓存）
+  const doFetchFabric = (codes: string[], forceRefresh = false) => {
+    const cacheKey = codes.map((c) => c.trim().toUpperCase()).sort().join(',');
+    if (forceRefresh) {
+      fabricClientCache.current.delete(cacheKey);
+    }
+    fabricTipAbort.current?.abort();
+    const ac = new AbortController();
+    fabricTipAbort.current = ac;
+    setFabricTip((cur) => cur ? { ...cur, loading: true, error: null } : cur);
+
+    fetch('/api/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pdtCodes: codes.map((c) => c.toUpperCase()), refresh: forceRefresh }),
+      signal: ac.signal,
+    })
+      .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
+      .then((j) => {
+        const list = j.data || [];
+        fabricClientCache.current.set(cacheKey, list);
+        setFabricTip((cur) => cur ? { ...cur, loading: false, data: list, error: null } : cur);
+      })
+      .catch((e) => {
+        if (e?.name === 'AbortError') return;
+        setFabricTip((cur) => cur ? { ...cur, loading: false, error: String(e?.message || e) } : cur);
+      });
+  };
+
+  // 鼠标进入锚点 → 500ms 后开始查（防抖：放宽至 500ms 避免快速划过打接口，若已命中缓存则秒显）
   const onHoverFabricQuick = (codes: string[], anchorEl: HTMLElement) => {
     if (!codes || codes.length === 0) return;
     if (fabricTipTimer.current) clearTimeout(fabricTipTimer.current);
     const rect = anchorEl.getBoundingClientRect();
-    // 如果已经在查同一个坑位，不要重置 loading 闪一下
-    const sameLook = fabricTip && fabricTip.sectionId === undefined /* sectionId not in scope here */;
+    const cacheKey = codes.map((c) => c.trim().toUpperCase()).sort().join(',');
+
+    // 1. 若前端内存已命中缓存，直接秒开展示，不发请求，不闪烁
+    if (fabricClientCache.current.has(cacheKey)) {
+      setFabricTip({
+        sectionId: '', lookId: '', codes,
+        rect,
+        data: fabricClientCache.current.get(cacheKey) || [],
+        loading: false,
+        error: null,
+      });
+      return;
+    }
+
+    // 2. 未命中缓存：先设置初始态，防抖 500ms 后再发起请求
+    const sameLook = fabricTip && fabricTip.codes.join(',') === codes.join(',');
     setFabricTip({
       sectionId: '', lookId: '', codes,
       rect,
@@ -2987,27 +3116,8 @@ export default function TraysPage({
       error: null,
     });
     fabricTipTimer.current = setTimeout(() => {
-      // 取最新 codes（防止用户在定时器期间又移到了另一个坑位）
-      setFabricTip((cur) => cur ? { ...cur, loading: true, error: null } : cur);
-      // 取消上一次进行中的请求
-      fabricTipAbort.current?.abort();
-      const ac = new AbortController();
-      fabricTipAbort.current = ac;
-      fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdtCodes: codes.map((c) => c.toUpperCase()) }),
-        signal: ac.signal,
-      })
-        .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
-        .then((j) => {
-          setFabricTip((cur) => cur ? { ...cur, loading: false, data: j.data || [], error: null } : cur);
-        })
-        .catch((e) => {
-          if (e?.name === 'AbortError') return;
-          setFabricTip((cur) => cur ? { ...cur, loading: false, error: String(e?.message || e) } : cur);
-        });
-    }, 350);
+      doFetchFabric(codes, false);
+    }, 500);
   };
   // 180ms 延迟关闭，让用户能移到 tooltip 上（hoverable）
   const onLeaveFabricQuick = () => {
@@ -3234,6 +3344,8 @@ export default function TraysPage({
   }, [fabricPicker]);
 
   const PRODUCTS = useProducts();
+  const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
+
   // 兜底：坑位里的样衣/老款 pids 在 /api/products 里不存在，从 /api/samples 拉一次补到渲染
   // （逻辑在 useProductResolver 里，与 SequencePage 共用，保证两页查表结果一致）
   const allPids = useMemo(
@@ -3242,32 +3354,38 @@ export default function TraysPage({
   );
   const fullById = useProductResolver(allPids);
 
+  // 仅针对当前激活货盘收集款号，避免全量拉取全库所有历史货盘打爆 SCM API 配额
+  const activeTrayPids = useMemo(() => {
+    if (!tray) return [];
+    const ids = new Set<string>();
+    for (const s of tray.sections) {
+      for (const l of s.looks) {
+        for (const pid of l.pids) ids.add(pid);
+      }
+    }
+    return [...ids];
+  }, [tray]);
+
   // 面料 row 用 + 翻单清单导出用：服务端 BI SKC 卡返回的 SKC 列表（[{code, color, plannedRestockQty}]）
   // plannedRestockQty 来自 BI「翻单量」列（bi-client.js getSkcsForCode 已提取）
   const [skcsByCode, setSkcsByCode] = useState<Record<string, Array<{ code: string; color: string; plannedRestockQty: number }>>>({});
   useEffect(() => {
-    const ids = new Set<string>();
-    for (const t of trays) for (const s of t.sections) for (const l of s.looks) for (const pid of l.pids) ids.add(pid);
-    const list = [...ids];
-    if (list.length === 0) return;
+    if (activeTrayPids.length === 0) return;
     let cancelled = false;
-    authenticatedFetch(`${API_BASE}/products/skcs/by-ids?ids=${encodeURIComponent(list.join(','))}`)
+    authenticatedFetch(`${API_BASE}/products/skcs/by-ids?ids=${encodeURIComponent(activeTrayPids.join(','))}`)
       .then((r) => r.ok ? r.json() : { byCode: {} })
-      .then((j) => { if (!cancelled) setSkcsByCode(j.byCode || {}); })
-      .catch(() => { if (!cancelled) setSkcsByCode({}); });
+      .then((j) => { if (!cancelled) setSkcsByCode((prev) => ({ ...prev, ...(j.byCode || {}) })); })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [trays, dataVersion]);
+  }, [activeTrayPids, dataVersion]);
 
-  // 样衣阶段颜色（黑巧/驼色等未转大货色）：批量拉所有 tray 款号的样衣 BOM，卡片颜色行追加展示
+  // 样衣阶段颜色（黑巧/驼色等未转大货色）：按当前激活货盘款号拉取样衣 BOM，卡片颜色行追加展示
   // 服务端按款号缓存 1h，冷启动慢但在后台跑，不阻塞渲染
   const [sampleColorsByCode, setSampleColorsByCode] = useState<Record<string, string[]>>({});
   useEffect(() => {
-    const ids = new Set<string>();
-    for (const t of trays) for (const s of t.sections) for (const l of s.looks) for (const pid of l.pids) ids.add(pid);
-    const list = [...ids];
-    if (list.length === 0) return;
+    if (activeTrayPids.length === 0) return;
     let cancelled = false;
-    fetchSampleMaterials(list)
+    fetchSampleMaterials(activeTrayPids)
       .then((r) => {
         if (cancelled) return;
         const byCode: Record<string, string[]> = {};
@@ -3278,34 +3396,27 @@ export default function TraysPage({
           if (!byCode[pid]) byCode[pid] = [];
           if (!byCode[pid].includes(color)) byCode[pid].push(color);
         }
-        setSampleColorsByCode(byCode);
+        setSampleColorsByCode((prev) => ({ ...prev, ...byCode }));
       })
       .catch(() => { /* 失败保留旧值，不清空（限流恢复后下次进页自动补上） */ });
     return () => { cancelled = true; };
-  }, [trays, dataVersion]);
+  }, [activeTrayPids, dataVersion]);
 
-  // 尺码范围：批量拉所有 tray 里出现的款号，从 BI ETL 数据集聚合 "S~XL"
-  // 依赖 dataVersion：每次「同步商品/库存」完成后重新拉（缓存被清掉了）
-  // 说明：2026-09-29 砍掉了 localStorage 持久化缓存（曾因此前服务端返回过错尺码范围，
-  // 旧脏值在客户端缓存里反复保留，刷新也清不掉）。代价是首屏短暂显示 `—`（<1s），
-  // 但换来了任何后端数据/聚合逻辑变更都能即时生效。
+  // 尺码范围：拉取当前激活货盘里出现的款号，从 BI ETL 数据集聚合 "S~XL"
+  // 依赖 dataVersion：每次「同步商品/库存」完成后重新拉
   const [sizeByCode, setSizeByCode] = useState<Record<string, string>>({});
   useEffect(() => {
-    const ids = new Set<string>();
-    for (const t of trays) for (const s of t.sections) for (const l of s.looks) for (const pid of l.pids) ids.add(pid);
-    const list = [...ids];
-    if (list.length === 0) return;
+    if (activeTrayPids.length === 0) return;
     let cancelled = false;
-    authenticatedFetch(`${API_BASE}/products/sizes/by-ids?ids=${encodeURIComponent(list.join(','))}`)
+    authenticatedFetch(`${API_BASE}/products/sizes/by-ids?ids=${encodeURIComponent(activeTrayPids.join(','))}`)
       .then((r) => r.ok ? r.json() : { byCode: {} })
       .then((j) => {
         if (cancelled) return;
-        // 服务端响应是权威来源：直接替换，不继承任何可能的旧脏值
-        setSizeByCode(j.byCode || {});
+        setSizeByCode((prev) => ({ ...prev, ...(j.byCode || {}) }));
       })
-      .catch(() => { /* 离线/失败：保留空对象，不回退到可能过期的缓存 */ });
+      .catch(() => { /* 离线/失败：保留旧值，不回退到可能过期的缓存 */ });
     return () => { cancelled = true; };
-  }, [trays, dataVersion]);
+  }, [activeTrayPids, dataVersion]);
   // 检查 WPS 核价表登录态：进入页面 + 每次同步（dataVersion++）后重新检查
   // 失败/无登录态时按钮旁显示红点 + 提示，让用户提前知道同步会失败
   useEffect(() => {
@@ -3315,7 +3426,6 @@ export default function TraysPage({
       .catch(() => { if (!cancelled) setHengjiStatus({ ok: false, error: 'check_failed' }); });
     return () => { cancelled = true; };
   }, [dataVersion]);
-  const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
   const fullByIdWithSize = useMemo(() => {
     return (id: string) => {
       const p = fullById(id);
@@ -3863,7 +3973,13 @@ export default function TraysPage({
           <button onClick={() => exportRestockExcel(tray, fullByIdWithSize)} className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge" title="导出计划翻单量 + 不可翻单清单">
             <FileText size={13} /> 导出翻单信息
           </button>
-          <button onClick={() => window.print()} className="rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge">打印</button>
+          <button
+            onClick={() => setPrintDialogOpen(true)}
+            className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge"
+            title="打印设置（纸张大小、页面方向、缩放比例）"
+          >
+            <Printer size={13} /> 打印
+          </button>
           <button
             onClick={() => setShowLog(true)}
             className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge"
@@ -4029,7 +4145,7 @@ export default function TraysPage({
           const bands: (typeof s.looks)[] = [];
           for (let i = 0; i < s.looks.length; i += LOOKS_PER_BAND) bands.push(s.looks.slice(i, i + LOOKS_PER_BAND));
           return (
-            <div key={s.id}>
+            <div key={s.id} className={s.isBackup ? 'tray-section-backup' : ''}>
               {bands.map((band, bi) => {
                 const isFirstBand = bi === 0;
                 return (
@@ -4195,6 +4311,18 @@ export default function TraysPage({
                             }
                             return { ...t, codeSuffixOverrides: { ...(t.codeSuffixOverrides || {}), [pid]: v } };
                           });
+                        const savePriceSuffix = (pid: string, v: string) =>
+                          upd((t) => {
+                            // 空字符串 = 清除 override
+                            if (v === '') {
+                              const next = { ...(t.priceSuffixOverrides || {}) };
+                              delete next[pid];
+                              const m = { ...t };
+                              if (Object.keys(next).length > 0) m.priceSuffixOverrides = next; else delete m.priceSuffixOverrides;
+                              return m;
+                            }
+                            return { ...t, priceSuffixOverrides: { ...(t.priceSuffixOverrides || {}), [pid]: v } };
+                          });
                         const saveColor = (lookId: string, v: string) =>
                           upd((t) => {
                             // 空字符串 = 清除 override
@@ -4312,6 +4440,8 @@ export default function TraysPage({
                                     },
                                     onPickRestock: () => setRestockPicker({ sectionId: s.id, lookId: l.id }),
                                     priceOverrides: tray.priceOverrides,
+                                    priceSuffixOverrides: tray.priceSuffixOverrides,
+                                    onSavePriceSuffix: savePriceSuffix,
                                     mpriceOverrides: tray.mpriceOverrides,
                                     codeSuffixOverrides: tray.codeSuffixOverrides,
                                     costOverrides: tray.costOverrides,
@@ -4377,6 +4507,9 @@ export default function TraysPage({
                                         toast.success('已隐藏面料信息');
                                       },
                                       priceOverride: tray.priceOverrides?.[pid],
+                                      priceSuffixOverride: tray.priceSuffixOverrides?.[pid],
+                                      priceSuffixOverrides: tray.priceSuffixOverrides,
+                                      onSavePriceSuffix: savePriceSuffix,
                                       mpriceOverride: tray.mpriceOverrides?.[pid],
                                       codeSuffixOverride: tray.codeSuffixOverrides?.[pid],
                                       costOverride: tray.costOverrides?.[pid],
@@ -4507,7 +4640,7 @@ export default function TraysPage({
         );
       })()}
 
-      {/* 面料悬停快查：350ms 后自动查，移到卡片上不关，移走 180ms 后关 */}
+      {/* 面料悬停快查：500ms 后自动查（内存缓存秒显），移到卡片上不关，移走 180ms 后关 */}
       {fabricTip && (
         <FabricQuickTooltip
           rect={fabricTip.rect}
@@ -4517,6 +4650,7 @@ export default function TraysPage({
           error={fabricTip.error}
           onMouseEnter={onTipEnter}
           onMouseLeave={onTipLeave}
+          onRefresh={() => doFetchFabric(fabricTip.codes, true)}
           onOpenFullPicker={() => {
             // 把当前坑位传去 fabricPicker（复用现有 iframe 流）
             const cur = fabricTip;
@@ -4794,6 +4928,15 @@ export default function TraysPage({
             </div>
           </div>
         </div>
+      )}
+
+      {tray && (
+        <PrintSettingsDialog
+          open={printDialogOpen}
+          onOpenChange={setPrintDialogOpen}
+          title={`货盘打印设置 - ${tray.name}`}
+          showHideBackupOption={true}
+        />
       )}
     </div>
   );

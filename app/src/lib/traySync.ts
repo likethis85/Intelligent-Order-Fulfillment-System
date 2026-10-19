@@ -15,6 +15,7 @@ const KEYED_FIELDS = [
   'fabricNotes',
   'costOverrides',
   'priceOverrides',
+  'priceSuffixOverrides',
   'mpriceOverrides',
   'mcostOverrides',
   'restockOverrides',
@@ -107,6 +108,7 @@ export function diffTray(prev: Tray, next: Tray): TrayOp[] {
   put('成本', fmtKeys(prev.costOverrides, next.costOverrides), fmtKeyChanges(prev.costOverrides, next.costOverrides));
   put('马总成本', fmtKeys(prev.mcostOverrides, next.mcostOverrides), fmtKeyChanges(prev.mcostOverrides, next.mcostOverrides));
   put('售价', fmtKeys(prev.priceOverrides, next.priceOverrides), fmtKeyChanges(prev.priceOverrides, next.priceOverrides));
+  put('售价注脚', fmtKeys(prev.priceSuffixOverrides, next.priceSuffixOverrides), fmtKeyChanges(prev.priceSuffixOverrides, next.priceSuffixOverrides));
   put('马总价', fmtKeys(prev.mpriceOverrides, next.mpriceOverrides), fmtKeyChanges(prev.mpriceOverrides, next.mpriceOverrides));
   put('翻单', fmtKeys(prev.restockOverrides, next.restockOverrides), fmtKeyChanges(prev.restockOverrides, next.restockOverrides));
   put('款号注脚', fmtKeys(prev.codeSuffixOverrides, next.codeSuffixOverrides), fmtKeyChanges(prev.codeSuffixOverrides, next.codeSuffixOverrides));
