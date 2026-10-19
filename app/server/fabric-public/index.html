@@ -2445,7 +2445,7 @@
             if (colorDesc) break;
           }
           if (!colorDesc && skc && skc !== '-') colorDesc = skc;
-          const noFabricLine = colorDesc ? `${colorDesc}无面料` : '无面料';
+          const noFabricLine = colorDesc ? `${colorDesc}无面料不翻单` : '无面料不翻单';
           if (!seenLines.has(noFabricLine)) {
             lines.push(noFabricLine);
             seenLines.add(noFabricLine);
@@ -2511,7 +2511,7 @@
             if (m) colorDesc = m[1].trim();
           }
           if (!colorDesc && item.skuCode && item.skuCode !== '-') colorDesc = item.skuCode;
-          const noFabricLine = colorDesc ? `${colorDesc}无面料` : '无面料';
+          const noFabricLine = colorDesc ? `${colorDesc}无面料不翻单` : '无面料不翻单';
           if (!seenLines.has(noFabricLine)) {
             lines.push(noFabricLine);
             seenLines.add(noFabricLine);

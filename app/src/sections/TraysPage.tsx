@@ -813,12 +813,20 @@ function cleanFabricText(text: string): string {
   if (!text) return text;
   return text
     .split('\n')
-    .map((line) =>
-      line
+    .map((line) => {
+      let l = line
         // 去掉行尾成对括号（如 "200米（面料仓）"），允许括号后有空白
         .replace(/\s*[（(][^）)]*[）)]\s*$/g, '')
         // 去掉行尾孤立右括号（如 "200米面料仓)" / "无面料不翻单）"），允许括号后有空白
-        .replace(/[）)]\s*$/g, ''))
+        .replace(/[）)]\s*$/g, '')
+        .trim();
+      // 将「xx无面料」统一规范为「xx无面料不翻单」
+      if (l.includes('无面料') && !l.includes('不翻单')) {
+        l = l.replace(/无面料/g, '无面料不翻单');
+      }
+      return l;
+    })
+    .filter(Boolean)
     .join('\n');
 }
 
@@ -1143,13 +1151,14 @@ function fabricCellText(pid: string, p: Product, t: Tray): string {
   } else {
     base = isFabricNoise(p.fabric) ? '' : (p.fabric ?? '');
   }
+  base = cleanFabricText(base);
   if (noRestockLines.length > 0) {
     const currentLines = base ? base.split('\n') : [];
     for (const nr of noRestockLines) {
       const nrColor = nr.replace(/无面料.*$/, '');
       const alreadyHas = currentLines.some((l) => {
         const trimmed = l.trim();
-        if (trimmed.includes(nr) || nr.includes(trimmed)) return true;
+        if (trimmed === nr || trimmed.includes(nr) || nr.includes(trimmed)) return true;
         if (nrColor && trimmed.includes(nrColor) && trimmed.includes('无面料')) return true;
         if (!nrColor && trimmed.includes('无面料')) return true;
         return false;
@@ -1264,14 +1273,21 @@ async function exportTrayLayoutExcel(
       get: (l) => {
         const rawBlocks = l.pids.map((p) => fabricCellText(p, byId(p), t)).filter(Boolean);
         const seen = new Set<string>();
+        const seenNoRestockColors = new Set<string>();
         const out: string[] = [];
         for (const block of rawBlocks) {
           for (const line of block.split('\n')) {
             const trimmed = line.trim();
-            if (trimmed && !seen.has(trimmed)) {
-              seen.add(trimmed);
-              out.push(trimmed);
+            if (!trimmed || seen.has(trimmed)) continue;
+            if (trimmed.includes('无面料')) {
+              const colorPrefix = trimmed.replace(/无面料.*$/, '');
+              if (colorPrefix && seenNoRestockColors.has(colorPrefix)) continue;
+              if (colorPrefix) seenNoRestockColors.add(colorPrefix);
+              else if (seenNoRestockColors.has('__ALL__')) continue;
+              else seenNoRestockColors.add('__ALL__');
             }
+            seen.add(trimmed);
+            out.push(trimmed);
           }
         }
         return out.join('\n');
@@ -2697,13 +2713,14 @@ const FIELDS: FieldRow[] = [
         const note = (ctx.fabricNotes || {})[ctx.pid];
         if (note) base = [base, note].filter(Boolean).join('\n');
       }
+      base = cleanFabricText(base);
       if (noRestockLines.length > 0) {
         const currentLines = base ? base.split('\n') : [];
         for (const nr of noRestockLines) {
           const nrColor = nr.replace(/无面料.*$/, '');
           const alreadyHas = currentLines.some((l) => {
             const trimmed = l.trim();
-            if (trimmed.includes(nr) || nr.includes(trimmed)) return true;
+            if (trimmed === nr || trimmed.includes(nr) || nr.includes(trimmed)) return true;
             if (nrColor && trimmed.includes(nrColor) && trimmed.includes('无面料')) return true;
             if (!nrColor && trimmed.includes('无面料')) return true;
             return false;
@@ -2746,13 +2763,14 @@ const FIELDS: FieldRow[] = [
           // BI 自带面料里只写「羊毛/棉」这种材质词时视为噪音，不展示
           base = isFabricNoise(p.fabric) ? '' : (p.fabric ?? '');
         }
+        base = cleanFabricText(base);
         if (hasNoRestock) {
           const currentLines = base ? base.split('\n') : [];
           for (const nr of noRestockLines) {
             const nrColor = nr.replace(/无面料.*$/, '');
             const alreadyHas = currentLines.some((l) => {
               const trimmed = l.trim();
-              if (trimmed.includes(nr) || nr.includes(trimmed)) return true;
+              if (trimmed === nr || trimmed.includes(nr) || nr.includes(trimmed)) return true;
               if (nrColor && trimmed.includes(nrColor) && trimmed.includes('无面料')) return true;
               if (!nrColor && trimmed.includes('无面料')) return true;
               return false;
@@ -2763,14 +2781,15 @@ const FIELDS: FieldRow[] = [
           }
           base = currentLines.join('\n');
         }
-        base = cleanFabricText(base);
         note = fabricNotes[pid] || '';
         const hasNote = note.trim().length > 0;
         const text = hasNote ? `${base}\n※ ${note}` : base;
         return { pid, text, base, note, hasNote, hasNoRestock: hasNoRestock || base.includes('无面料') };
       });
-      // 同一坑位内跨款号去重：若多款号共用相同面料，已展示过的面料行不再重复展示
+      // 同一坑位内跨款号去重：若多款号共用相同面料，已展示过的面料行不再重复展示；
+      // 同时同一坑位内同一颜色的「无面料不翻单」只展示一次，不重复展示
       const seenFabricLines = new Set<string>();
+      const seenNoRestockColors = new Set<string>();
       const dedupedRows = rows.map((r) => {
         if (!r.base) return r;
         const filteredLines = r.base
@@ -2779,6 +2798,13 @@ const FIELDS: FieldRow[] = [
             const trimmed = line.trim();
             if (!trimmed) return false;
             if (seenFabricLines.has(trimmed)) return false;
+            if (trimmed.includes('无面料')) {
+              const colorPrefix = trimmed.replace(/无面料.*$/, '');
+              if (colorPrefix && seenNoRestockColors.has(colorPrefix)) return false;
+              if (colorPrefix) seenNoRestockColors.add(colorPrefix);
+              else if (seenNoRestockColors.has('__ALL__')) return false;
+              else seenNoRestockColors.add('__ALL__');
+            }
             seenFabricLines.add(trimmed);
             return true;
           });
