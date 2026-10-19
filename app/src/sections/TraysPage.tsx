@@ -2836,6 +2836,234 @@ const FIELDS: FieldRow[] = [
   },
 ];
 
+// ── 删除款号弹窗：允许用户选择并删除坑位中的单个或多个款号 ──
+function DeletePidDialog({
+  target,
+  tray,
+  fullByIdWithSize,
+  onClose,
+  onRemoveSingle,
+  onRemoveMultiple,
+  onDeleteLook,
+}: {
+  target: { sectionId: string; lookId: string; lookIdx: number };
+  tray: Tray;
+  fullByIdWithSize: (id: string) => Product;
+  onClose: () => void;
+  onRemoveSingle: (sectionId: string, lookId: string, pid: string) => void;
+  onRemoveMultiple: (sectionId: string, lookId: string, pids: string[]) => void;
+  onDeleteLook: (sectionId: string, lookId: string) => void;
+}) {
+  const section = tray.sections.find((x) => x.id === target.sectionId);
+  const look = section?.looks.find((y) => y.id === target.lookId);
+  const [selectedPids, setSelectedPids] = useState<string[]>([]);
+
+  if (!section || !look) return null;
+
+  const handleToggleSelect = (pid: string) => {
+    setSelectedPids((prev) =>
+      prev.includes(pid) ? prev.filter((p) => p !== pid) : [...prev, pid]
+    );
+  };
+
+  const handleToggleAll = () => {
+    if (selectedPids.length === look.pids.length) {
+      setSelectedPids([]);
+    } else {
+      setSelectedPids([...look.pids]);
+    }
+  };
+
+  const handleDeleteSingle = (pid: string) => {
+    if (look.pids.length <= 1) {
+      toast.error('当前坑位仅剩 1 个款号，坑位至少保留 1 款；如需清空请直接「删除坑位」');
+      return;
+    }
+    onRemoveSingle(target.sectionId, target.lookId, pid);
+    setSelectedPids((prev) => prev.filter((p) => p !== pid));
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedPids.length === 0) return;
+    if (selectedPids.length === look.pids.length) {
+      if (window.confirm('您勾选了当前坑位的所有款号，继续将直接删除整个坑位。是否确认？')) {
+        onDeleteLook(target.sectionId, target.lookId);
+        onClose();
+      }
+      return;
+    }
+    onRemoveMultiple(target.sectionId, target.lookId, selectedPids);
+    setSelectedPids([]);
+  };
+
+  const handleDeleteEntireLook = () => {
+    if (window.confirm('确定要删除整个坑位吗？')) {
+      onDeleteLook(target.sectionId, target.lookId);
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-[1px]" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="删除款号"
+        className="delete-pid-dialog relative w-[min(540px,96vw)] max-h-[85vh] flex flex-col rounded-lg border border-edge bg-surface-card shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 标题栏 */}
+        <div className="flex items-center justify-between border-b border-edge px-5 py-3.5">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-[14px] font-bold text-ink-primary">删除款号</h3>
+              <span className="rounded bg-surface-subtle px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+                坑位 {target.lookIdx + 1}
+              </span>
+              <span className="text-[11px] text-ink-faint">
+                {section.label} · 共 {look.pids.length} 款
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              选择需要从该坑位中移除的款号（支持单款直接移除或勾选批量删除）
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="关闭"
+            className="rounded-md p-1.5 text-ink-muted hover:bg-surface-subtle hover:text-ink-primary transition-colors"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* 款号列表 */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2.5 max-h-[50vh]">
+          {look.pids.length <= 1 && (
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-[11.5px] text-amber-700 dark:text-amber-400">
+              💡 当前坑位仅剩 1 个款号。根据货盘规则，每个坑位必须至少保留 1 款；如不需要此坑位，请直接点击下方「删除整个坑位」。
+            </div>
+          )}
+          {look.pids.map((pid) => {
+            const p = fullByIdWithSize(pid);
+            const isSelected = selectedPids.includes(pid);
+            const isCover = look.cover === pid;
+            return (
+              <div
+                key={pid}
+                onClick={() => handleToggleSelect(pid)}
+                className={`group flex items-center gap-3 rounded-lg border p-2.5 transition-colors cursor-pointer ${
+                  isSelected
+                    ? 'border-action-danger/50 bg-action-danger/5'
+                    : 'border-edge bg-surface-base hover:border-edge-strong'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => {}}
+                  className="h-4 w-4 rounded border-edge text-action-danger focus:ring-action-danger cursor-pointer"
+                />
+                <SafeImg
+                  src={p.img}
+                  alt={p.name}
+                  pid={pid}
+                  fallbackText="无图"
+                  className="h-14 w-12 flex-shrink-0 rounded object-cover border border-edge bg-surface-muted"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-bold text-ink-primary">
+                      {pid.toUpperCase()}
+                    </span>
+                    {isCover && (
+                      <span className="rounded bg-action-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-action-primary">
+                        当前主图
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 truncate text-[12px] text-ink-secondary" title={p.name}>
+                    {p.name || '未命名商品'}
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-ink-muted" title={p.colors?.join(' / ') || ''}>
+                    {p.colors?.join(' / ') || '无颜色属性'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteSingle(pid);
+                  }}
+                  disabled={look.pids.length <= 1}
+                  className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                    look.pids.length <= 1
+                      ? 'cursor-not-allowed opacity-40 text-ink-faint border border-edge'
+                      : 'border border-action-danger/30 bg-action-danger/5 text-action-danger hover:bg-action-danger hover:text-white'
+                  }`}
+                  title={look.pids.length <= 1 ? '坑位至少保留 1 款' : '从坑位移除此款号'}
+                >
+                  <Trash2 size={12} />
+                  移除
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 底部操作栏 */}
+        <div className="flex items-center justify-between border-t border-edge bg-surface-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            {look.pids.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleToggleAll}
+                  className="text-[11.5px] font-medium text-ink-muted hover:text-ink-primary underline underline-offset-2"
+                >
+                  {selectedPids.length === look.pids.length ? '取消全选' : '全选'}
+                </button>
+                <span className="text-[11.5px] text-ink-faint">
+                  已选 {selectedPids.length} / {look.pids.length} 款
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedPids.length > 0 && (
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                className="flex items-center gap-1.5 rounded-md bg-action-danger px-3 py-1.5 text-[12px] font-medium text-white hover:bg-action-danger-hover shadow-sm"
+              >
+                <Trash2 size={12} />
+                删除选中款号 ({selectedPids.length})
+              </button>
+            )}
+            {look.pids.length <= 1 && (
+              <button
+                type="button"
+                onClick={handleDeleteEntireLook}
+                className="flex items-center gap-1.5 rounded-md border border-action-danger/40 bg-action-danger/10 px-3 py-1.5 text-[12px] font-medium text-action-danger hover:bg-action-danger hover:text-white transition-colors"
+              >
+                <Trash2 size={12} />
+                删除整个坑位
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-edge-strong px-4 py-1.5 text-[12px] font-medium text-ink-primary hover:border-edge hover:bg-surface-subtle"
+            >
+              完成
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 主页面 ──
 export default function TraysPage({
   trays, activeTrayId, onOpenTray, onCreateTray, onUpdateTray, onDeleteTray, onSync,
@@ -2863,6 +3091,7 @@ export default function TraysPage({
   const [coverMenu, setCoverMenu] = useState<{ sectionId: string; lookId: string } | null>(null);
   const [fabricPicker, setFabricPicker] = useState<{ sectionId: string; lookId: string; pid: string } | null>(null);
   const [restockPicker, setRestockPicker] = useState<{ sectionId: string; lookId: string } | null>(null);
+  const [deletePidTarget, setDeletePidTarget] = useState<{ sectionId: string; lookId: string; lookIdx: number } | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   // 修改记录抽屉：右侧滑出，读 /api/trays/log
@@ -3010,16 +3239,16 @@ export default function TraysPage({
   }, [editing]);
 
   useEffect(() => {
-    if (!picker && !coverMenu && !fabricPicker && !restockPicker && !showLog) return;
+    if (!picker && !coverMenu && !fabricPicker && !restockPicker && !showLog && !deletePidTarget) return;
     const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
-    const dialog = document.querySelector<HTMLElement>('.product-picker, .cover-dialog, .tray-iframe-dialog, .tray-history');
+    const dialog = document.querySelector<HTMLElement>('.product-picker, .cover-dialog, .tray-iframe-dialog, .tray-history, .delete-pid-dialog');
     const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select, textarea, iframe, [tabindex="0"]') ?? []).filter((el) => el.getClientRects().length > 0);
     focusable()[0]?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setPicker(null); setCoverMenu(null); setFabricPicker(null); setRestockPicker(null); setShowLog(false);
+        setPicker(null); setCoverMenu(null); setFabricPicker(null); setRestockPicker(null); setShowLog(false); setDeletePidTarget(null);
       }
       if (event.key === 'Tab') {
         const items = focusable();
@@ -3034,7 +3263,7 @@ export default function TraysPage({
       document.removeEventListener('keydown', onKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
-  }, [picker, coverMenu, fabricPicker, restockPicker, showLog]);
+  }, [picker, coverMenu, fabricPicker, restockPicker, showLog, deletePidTarget]);
   // 删除确认弹窗：点击 trash 图标先 set 这个，再渲染 Radix AlertDialog 二次确认
   //   避免之前 window.confirm 在某些场景下被自动 dismiss 或被误点
   const [pendingDelete, setPendingDelete] = useState<Tray | null>(null);
@@ -3658,6 +3887,45 @@ export default function TraysPage({
     }));
   };
 
+  // 删除整个坑位
+  const deleteLook = (sectionId: string, lookId: string) => {
+    upd((t) => ({
+      ...t,
+      sections: t.sections.map((x) =>
+        x.id === sectionId ? { ...x, looks: x.looks.filter((y) => y.id !== lookId) } : x,
+      ),
+    }));
+    toast.success('坑位已删除');
+  };
+
+  // 从坑位批量移除款号（若清空全部则连同坑位一同删除）
+  const removePids = (sectionId: string, lookId: string, pidsToRemove: string[]) => {
+    const section = tray.sections.find((s) => s.id === sectionId);
+    const look = section?.looks.find((l) => l.id === lookId);
+    if (!look) return;
+    const toRemoveSet = new Set(pidsToRemove);
+    const next = look.pids.filter((x) => !toRemoveSet.has(x));
+    if (next.length === 0) {
+      deleteLook(sectionId, lookId);
+      return;
+    }
+    const nextCover = toRemoveSet.has(look.cover || '') ? next[0] : look.cover;
+    upd((t) => ({
+      ...t,
+      sections: t.sections.map((s) => {
+        if (s.id !== sectionId) return s;
+        return {
+          ...s,
+          looks: s.looks.map((l) => {
+            if (l.id !== lookId) return l;
+            return { ...l, pids: next, cover: nextCover };
+          }),
+        };
+      }),
+    }));
+    toast.success(pidsToRemove.length === 1 ? '已从坑位移除款号' : `已从坑位移除 ${pidsToRemove.length} 个款号`);
+  };
+
   // 从坑位移除某个款号（保护：至少留 1 个；若是封面则用剩余第一张作新封面）
   const removePid = (sectionId: string, lookId: string, pid: string) => {
     const section = tray.sections.find((s) => s.id === sectionId);
@@ -3667,22 +3935,7 @@ export default function TraysPage({
       toast.error('坑位至少保留 1 个款号，请整坑位删除');
       return;
     }
-    upd((t) => ({
-      ...t,
-      sections: t.sections.map((s) => {
-        if (s.id !== sectionId) return s;
-        return {
-          ...s,
-          looks: s.looks.map((l) => {
-            if (l.id !== lookId) return l;
-            const next = l.pids.filter((x) => x !== pid);
-            const nextCover = l.cover === pid ? next[0] : l.cover;
-            return { ...l, pids: next, cover: nextCover };
-          }),
-        };
-      }),
-    }));
-    toast.success('已从坑位移除款号');
+    removePids(sectionId, lookId, [pid]);
   };
 
   // ── 列表模式 ──
@@ -4213,18 +4466,21 @@ export default function TraysPage({
                                         <div className="my-1 border-t border-edge-muted" />
                                         <button
                                           onClick={() => {
-                                            upd((t) => ({
-                                              ...t,
-                                              sections: t.sections.map((x) =>
-                                                x.id === s.id ? { ...x, looks: x.looks.filter((y) => y.id !== l.id) } : x,
-                                              ),
-                                            }));
-                                            toast.success('坑位已删除');
+                                            deleteLook(s.id, l.id);
                                             setMenuLookId(null);
                                           }}
                                           className="flex w-full items-center gap-2 px-3 py-1.5 text-stage-return-fg hover:bg-surface-subtle"
                                         >
                                           <Trash2 size={10} /> 删除坑位
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setDeletePidTarget({ sectionId: s.id, lookId: l.id, lookIdx: gi });
+                                            setMenuLookId(null);
+                                          }}
+                                          className="flex w-full items-center gap-2 px-3 py-1.5 text-stage-return-fg hover:bg-surface-subtle"
+                                        >
+                                          <Trash2 size={10} /> 删除款号
                                         </button>
                                       </div>
                                     )}
@@ -4864,6 +5120,19 @@ export default function TraysPage({
           </div>
         );
       })()}
+
+      {/* 删除款号弹窗 */}
+      {deletePidTarget && (
+        <DeletePidDialog
+          target={deletePidTarget}
+          tray={tray}
+          fullByIdWithSize={fullByIdWithSize}
+          onClose={() => setDeletePidTarget(null)}
+          onRemoveSingle={removePid}
+          onRemoveMultiple={removePids}
+          onDeleteLook={deleteLook}
+        />
+      )}
 
       {/* 修改记录抽屉：谁、什么时间、改了什么 */}
       {showLog && tray && (
