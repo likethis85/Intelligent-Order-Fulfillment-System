@@ -1449,6 +1449,17 @@
     function renderSkuEditRow(skc, pdtColorName, displayInfo, main, sharedMap, skcItems) {
       const itemId = main.itemId;
       const fabric = main.fabric;
+
+      // 继承同一SKC下已有的翻单计划（例如此前通过强制添加填写的计划，新同步面料后自动继承）
+      if ((!fabric.sales_pieces || Number(fabric.sales_pieces) <= 0) && (!fabric.sales_batches || fabric.sales_batches.length === 0) && Array.isArray(skcItems)) {
+        const itemWithPlan = skcItems.find(it => it.fabric && (Number(it.fabric.sales_pieces) > 0 || (Array.isArray(it.fabric.sales_batches) && it.fabric.sales_batches.some(b => Number(b.pieces) > 0))));
+        if (itemWithPlan && itemWithPlan.fabric) {
+          fabric.sales_pieces = itemWithPlan.fabric.sales_pieces;
+          fabric.sales_delivery_days = itemWithPlan.fabric.sales_delivery_days;
+          fabric.sales_batches = itemWithPlan.fabric.sales_batches;
+        }
+      }
+
       const originalBatches = Array.isArray(fabric.sales_batches) ? fabric.sales_batches : [];
       // 防御性去重：相邻且 pieces/days 完全相同的批次只保留一个（历史数据/旧 bug 可能产生重复）。
       // 保留原始索引，确保删除/修改按钮能正确定位到原始 sales_batches 中的位置。
@@ -1528,14 +1539,14 @@
       // 件数初始值：治本——以去重后的第1批为权威源，旧数据（无 batches）回退到主行
       const firstIdx = displayBatchIndices[0];
       const firstBatch = firstIdx !== undefined ? originalBatches[firstIdx] : null;
-      const piecesVal = firstBatch ? (firstBatch.pieces || 0) : (fabric.sales_pieces || 0);
+      const piecesVal = firstBatch ? (firstBatch.pieces || '') : (fabric.sales_pieces || '');
       const daysVal = firstBatch ? (firstBatch.days || 0) : (fabric.sales_delivery_days || 0);
 
       let batchRows = `
         <div class="batch-row">
           <span class="batch-label">第1批</span>
           <div class="input-group">
-            <input type="number" value="${piecesVal}" placeholder="0"
+            <input type="number" value="${piecesVal || ''}" placeholder=""
               onchange="updateFabric('${itemId}', 'sales_pieces', this.value)"
               oninput="updateFabric('${itemId}', 'sales_pieces', this.value)">
             <span class="unit">件</span>
@@ -1553,7 +1564,7 @@
         <div class="batch-row">
           <span class="batch-label">第${i + 2}批</span>
           <div class="input-group">
-            <input type="number" value="${batch.pieces || 0}" placeholder="0"
+            <input type="number" value="${batch.pieces || ''}" placeholder=""
               data-itemid="${itemId}" data-batchidx="${originalIdx}" data-field="pieces"
               oninput="updateFabricBatchNum(this)">
             <span class="unit">件</span>

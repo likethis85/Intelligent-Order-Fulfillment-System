@@ -84,6 +84,19 @@ router.post('/fabric-data', async (req, res) => {
     const results = [];
     const errors = [];
 
+    // 预查该批款号下已有的翻单计划（防止新面料行把已填好的计划覆盖为 0）
+    const pdtCodes = [...new Set(items.map((i) => i.pdtCode).filter(Boolean))];
+    const { data: existingPlans } = await supabase
+      .from('fabric_data')
+      .select('pdt_code, sku_code, sales_pieces, sales_delivery_days, sales_batches')
+      .in('pdt_code', pdtCodes)
+      .gt('sales_pieces', 0);
+    const planMap = new Map();
+    (existingPlans || []).forEach((p) => {
+      const k = `${p.pdt_code}_${p.sku_code || ''}`;
+      if (!planMap.has(k)) planMap.set(k, p);
+    });
+
     for (const item of items) {
       const record = {
         pdt_code: item.pdtCode,
@@ -108,6 +121,15 @@ router.post('/fabric-data', async (req, res) => {
         fabric_info: item.fabricInfo || null,
         submitted_by: userId,
       };
+
+      // 若已有计划，继承之
+      const planKey = `${record.pdt_code}_${record.sku_code || ''}`;
+      const existingPlan = planMap.get(planKey);
+      if (existingPlan && (Number(existingPlan.sales_pieces) > 0 || (Array.isArray(existingPlan.sales_batches) && existingPlan.sales_batches.length > 0))) {
+        record.sales_pieces = existingPlan.sales_pieces;
+        record.sales_delivery_days = existingPlan.sales_delivery_days;
+        record.sales_batches = existingPlan.sales_batches;
+      }
 
       const recordToUpsert = { ...record };
       if (!record.fabric_info) {

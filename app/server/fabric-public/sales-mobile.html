@@ -1423,6 +1423,17 @@
     function renderSkuEditRow(skc, pdtColorName, displayInfo, main, sharedMap, skcItems) {
       const itemId = main.itemId;
       const fabric = main.fabric;
+
+      // 继承同一SKC下已有的翻单计划（例如此前通过强制添加填写的计划，新同步面料后自动继承）
+      if ((!fabric.sales_pieces || Number(fabric.sales_pieces) <= 0) && (!fabric.sales_batches || fabric.sales_batches.length === 0) && Array.isArray(skcItems)) {
+        const itemWithPlan = skcItems.find(it => it.fabric && (Number(it.fabric.sales_pieces) > 0 || (Array.isArray(it.fabric.sales_batches) && it.fabric.sales_batches.some(b => Number(b.pieces) > 0))));
+        if (itemWithPlan && itemWithPlan.fabric) {
+          fabric.sales_pieces = itemWithPlan.fabric.sales_pieces;
+          fabric.sales_delivery_days = itemWithPlan.fabric.sales_delivery_days;
+          fabric.sales_batches = itemWithPlan.fabric.sales_batches;
+        }
+      }
+
       const batches = Array.isArray(fabric.sales_batches) ? fabric.sales_batches : [];
 
       const useAmtPro = Number(fabric.use_amt) || 0;
@@ -1472,12 +1483,12 @@
           </div>`;
       }
 
-      const piecesVal = fabric.sales_pieces || 0;
+      const piecesVal = fabric.sales_pieces || '';
       let batchRows = `
         <div class="batch-row">
           <span class="batch-label">第1批</span>
           <div class="batch-input-group">
-            <input type="number" class="batch-input" value="${piecesVal}" placeholder="0"
+            <input type="number" class="batch-input" value="${piecesVal || ''}" placeholder=""
               onchange="updateFabric('${itemId}', 'sales_pieces', this.value)"
               oninput="updateFabric('${itemId}', 'sales_pieces', this.value)">
             <span class="batch-unit">件</span>
@@ -1493,7 +1504,7 @@
         <div class="batch-row">
           <span class="batch-label">第${i + 2}批</span>
           <div class="batch-input-group">
-            <input type="number" class="batch-input" value="${batch.pieces || 0}" placeholder="0"
+            <input type="number" class="batch-input" value="${batch.pieces || ''}" placeholder=""
               data-itemid="${itemId}" data-batchidx="${i}" data-field="pieces"
               oninput="updateFabricBatchNum(this)">
             <span class="batch-unit">件</span>
