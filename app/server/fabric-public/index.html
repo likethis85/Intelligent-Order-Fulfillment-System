@@ -1765,6 +1765,7 @@
       });
       // 快照也刷新一次（勾选态变了）
       if (Array.isArray(lastRenderedRows)) postNoRestockSnapshot(lastRenderedRows);
+      generateHuopanText();
     }
 
     function renderResults(data) {
@@ -1953,6 +1954,7 @@
       // 全量快照：把当前已勾选组合键发给父窗口（货盘）
       lastRenderedRows = uniqueData;
       postNoRestockSnapshot(uniqueData);
+      generateHuopanText();
 
       // 设置前 9 列（款式编码 → 物料颜色）或移动端前 3 列的 sticky.left，横向冻结
       applyFreezeCols();
@@ -2410,14 +2412,16 @@
         console.log(`  [${i}] sku=${item.skuCode}, mtCode=${item.mtCode}, stock=${item.stock}, mtName=${item.mtName}, warehouse=${item.warehouse}`);
       });
 
-      // 按 SKC 分组（排除恒隆仓、工厂物料仓库、查无此款）
+      // 按 SKC 分组（排除恒隆仓、工厂物料仓库；如果是查无此款但勾选了无面料，仍需保留生成无面料文案）
       const skcGroups = {};
       queryResults.forEach(item => {
+        const key = noRestockComboKey(item.mtCode, item.mtSpecName, item.skuCode);
+        const isChecked = noRestockKeys.has(key);
         const isNotFound = item.mtName === '无此款' || item.mtName === '查无此款' || item.mtName === '未找到物料' || item.mtCode === '-';
-        if (isNotFound) return;
+        if (isNotFound && !isChecked) return;
         const w = (item.warehouse || '');
-        if (w.includes('恒隆') || w.includes('工厂物料')) return;
-        const skc = item.skuCode || '-';
+        if ((w.includes('恒隆') || w.includes('工厂物料')) && !isChecked) return;
+        const skc = item.skuCode || item.pdtCode || '-';
         if (!skcGroups[skc]) skcGroups[skc] = [];
         skcGroups[skc].push(item);
       });
@@ -2427,6 +2431,28 @@
       const seenLines = new Set();
       Object.keys(skcGroups).sort().forEach(skc => {
         let items = skcGroups[skc];
+
+        // 检查该 SKC 是否勾选了「无面料」
+        const isNoFabric = items.some(it => noRestockKeys.has(noRestockComboKey(it.mtCode, it.mtSpecName, it.skuCode)));
+        if (isNoFabric) {
+          let colorDesc = '';
+          for (const it of items) {
+            colorDesc = (it.pdtColorName || it.colorName || '').trim();
+            if (!colorDesc && it.mtSpecName) {
+              const m = it.mtSpecName.match(/\]([^;]+?)(?:-[0-9#]+)?;?$/);
+              if (m) colorDesc = m[1].trim();
+            }
+            if (colorDesc) break;
+          }
+          if (!colorDesc && skc && skc !== '-') colorDesc = skc;
+          const noFabricLine = colorDesc ? `${colorDesc}无面料` : '无面料';
+          if (!seenLines.has(noFabricLine)) {
+            lines.push(noFabricLine);
+            seenLines.add(noFabricLine);
+          }
+          return;
+        }
+
         // 同 SKC 内按「用量 × 单价」分数剔除明显里料：分数 < max × 0.3 视为里料，不进 warehouseGroups 与非主料评分
         // （不依赖「里布/里料/里衬」关键字，归类错误的 mtCategory 也能识别）
         const scores = items.map(it => fabricScore(it)).filter(s => s > 0);
@@ -2471,6 +2497,24 @@
           if (mainLine && !seenLines.has(mainLine)) {
             lines.push(mainLine);
             seenLines.add(mainLine);
+          }
+        }
+      });
+
+      // 兜底：如果 queryResults 中有任何行勾选了「无面料」，但未能在 skcGroups 中体现，则补充追加
+      (queryResults || []).forEach(item => {
+        const key = noRestockComboKey(item.mtCode, item.mtSpecName, item.skuCode);
+        if (noRestockKeys.has(key)) {
+          let colorDesc = (item.pdtColorName || item.colorName || '').trim();
+          if (!colorDesc && item.mtSpecName) {
+            const m = item.mtSpecName.match(/\]([^;]+?)(?:-[0-9#]+)?;?$/);
+            if (m) colorDesc = m[1].trim();
+          }
+          if (!colorDesc && item.skuCode && item.skuCode !== '-') colorDesc = item.skuCode;
+          const noFabricLine = colorDesc ? `${colorDesc}无面料` : '无面料';
+          if (!seenLines.has(noFabricLine)) {
+            lines.push(noFabricLine);
+            seenLines.add(noFabricLine);
           }
         }
       });
@@ -2956,11 +3000,11 @@
       const items = [];
       (rows || []).forEach((item) => {
         const pid = (item.pdtCode || '').trim();
-        if (!pid || seenPid.has(pid)) return;
-        // 把当前查询里的所有 pid 都推入 pids（不管有没有勾选）—— TraysPage 用 snapPids 判定「这些款号走 incoming 替换」，
-        // 取消勾选后若只把 item 从 items 移除、pid 也不在 pids，TraysPage 那边会被 keep 路径留住旧 item
-        seenPid.add(pid);
-        pids.push(pid);
+        if (!pid) return;
+        if (!seenPid.has(pid)) {
+          seenPid.add(pid);
+          pids.push(pid);
+        }
         // 组合键用于查询 noRestockKeys（联动勾选用 mtCode+mtSpecName；同 SKC 兜底）
         const comboKey = (item.mtCode && item.mtSpecName)
           ? ((item.mtCode || '') + '||' + (item.mtSpecName || ''))
@@ -2969,7 +3013,7 @@
         const skc = (item.skuCode || '').trim();
         if (!skc || seenSkc.has(skc)) return; // 按 SKC 去重（之前按组合键去重会让共用主面料的多 SKC 漏报）
         seenSkc.add(skc);
-        items.push({ skc, pid, color: item.pdtColorName || '', fabric: item.mtName || '', mtCode: item.mtCode || '', mtSpecName: item.mtSpecName || '' });
+        items.push({ skc, pid, color: item.pdtColorName || item.colorName || '', fabric: item.mtName || '', mtCode: item.mtCode || '', mtSpecName: item.mtSpecName || '' });
       });
       const sig = JSON.stringify({ pids, items });
       if (sig === lastNoRestockSnapshotSig) return;

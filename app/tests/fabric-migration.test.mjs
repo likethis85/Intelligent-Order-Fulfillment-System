@@ -64,7 +64,7 @@ test('fabric-public assets do not have broken root script tags or recursive logi
 test('TraysPage points to /fabric/index.html explicitly and supports mobile dialog', () => {
   const traysPage = fs.readFileSync(path.join(appDir, 'src', 'sections', 'TraysPage.tsx'), 'utf8');
   assert.ok(traysPage.includes('${FABRIC_BASE}/index.html?codes='), 'TraysPage must use /fabric/index.html');
-  assert.ok(traysPage.includes('h-[100dvh] w-full sm:h-[85vh] sm:w-[90vw]'), 'TraysPage dialog must support mobile full height/width');
+  assert.ok(traysPage.includes('h-[100dvh] w-full sm:h-[92vh] sm:w-[95vw]'), 'TraysPage dialog must support mobile full height/width');
 });
 
 test('fabric-public index.html includes mobile responsiveness and iframe-mode optimization', () => {

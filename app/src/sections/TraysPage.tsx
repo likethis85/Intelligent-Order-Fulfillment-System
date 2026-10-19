@@ -1138,10 +1138,27 @@ function fabricCellText(pid: string, p: Product, t: Tray): string {
     return `${c}无面料不翻单`;
   });
   let base = '';
-  if (noRestockLines.length > 0) base = noRestockLines.join('\n');
-  else {
-    const ov = t.fabricOverrides?.[pid];
-    base = ov !== undefined ? ov : (isFabricNoise(p.fabric) ? '' : (p.fabric ?? ''));
+  if (t.fabricOverrides?.[pid] !== undefined) {
+    base = t.fabricOverrides[pid];
+  } else {
+    base = isFabricNoise(p.fabric) ? '' : (p.fabric ?? '');
+  }
+  if (noRestockLines.length > 0) {
+    const currentLines = base ? base.split('\n') : [];
+    for (const nr of noRestockLines) {
+      const nrColor = nr.replace(/无面料.*$/, '');
+      const alreadyHas = currentLines.some((l) => {
+        const trimmed = l.trim();
+        if (trimmed.includes(nr) || nr.includes(trimmed)) return true;
+        if (nrColor && trimmed.includes(nrColor) && trimmed.includes('无面料')) return true;
+        if (!nrColor && trimmed.includes('无面料')) return true;
+        return false;
+      });
+      if (!alreadyHas) {
+        currentLines.push(nr);
+      }
+    }
+    base = currentLines.join('\n');
   }
   const note = t.fabricNotes?.[pid] || '';
   let text = note ? `${base}\n※ ${note}` : base;
@@ -2672,15 +2689,32 @@ const FIELDS: FieldRow[] = [
         if (!c || c === '-') return '无面料不翻单';
         return `${c}无面料不翻单`;
       });
-      let text = '';
-      if (noRestockLines.length > 0) text = noRestockLines.join('\n');
-      else if (ctx.fabricOverride !== undefined) text = ctx.fabricOverride;
-      else {
-        const base = isFabricNoise(p.fabric) ? '' : (p.fabric ?? '');
+      let base = '';
+      if (ctx.fabricOverride !== undefined) {
+        base = ctx.fabricOverride;
+      } else {
+        base = isFabricNoise(p.fabric) ? '' : (p.fabric ?? '');
         const note = (ctx.fabricNotes || {})[ctx.pid];
-        text = [base, note].filter(Boolean).join('\n');
+        if (note) base = [base, note].filter(Boolean).join('\n');
       }
-      text = cleanFabricText(text);
+      if (noRestockLines.length > 0) {
+        const currentLines = base ? base.split('\n') : [];
+        for (const nr of noRestockLines) {
+          const nrColor = nr.replace(/无面料.*$/, '');
+          const alreadyHas = currentLines.some((l) => {
+            const trimmed = l.trim();
+            if (trimmed.includes(nr) || nr.includes(trimmed)) return true;
+            if (nrColor && trimmed.includes(nrColor) && trimmed.includes('无面料')) return true;
+            if (!nrColor && trimmed.includes('无面料')) return true;
+            return false;
+          });
+          if (!alreadyHas) {
+            currentLines.push(nr);
+          }
+        }
+        base = currentLines.join('\n');
+      }
+      const text = cleanFabricText(base);
       return (
         <div className={`${BLUE} w-full leading-4 whitespace-pre-line`}>{text || <span className="text-ink-faint">—</span>}</div>
       );
@@ -2706,19 +2740,34 @@ const FIELDS: FieldRow[] = [
         const hasNoRestock = noRestockLines.length > 0;
         let base = '';
         let note = '';
-        if (hasNoRestock) {
-          base = noRestockLines.join('\n');
-        } else if (fabricOverrides[pid] !== undefined) {
+        if (fabricOverrides[pid] !== undefined) {
           base = fabricOverrides[pid];
         } else {
           // BI 自带面料里只写「羊毛/棉」这种材质词时视为噪音，不展示
           base = isFabricNoise(p.fabric) ? '' : (p.fabric ?? '');
         }
+        if (hasNoRestock) {
+          const currentLines = base ? base.split('\n') : [];
+          for (const nr of noRestockLines) {
+            const nrColor = nr.replace(/无面料.*$/, '');
+            const alreadyHas = currentLines.some((l) => {
+              const trimmed = l.trim();
+              if (trimmed.includes(nr) || nr.includes(trimmed)) return true;
+              if (nrColor && trimmed.includes(nrColor) && trimmed.includes('无面料')) return true;
+              if (!nrColor && trimmed.includes('无面料')) return true;
+              return false;
+            });
+            if (!alreadyHas) {
+              currentLines.push(nr);
+            }
+          }
+          base = currentLines.join('\n');
+        }
         base = cleanFabricText(base);
         note = fabricNotes[pid] || '';
         const hasNote = note.trim().length > 0;
         const text = hasNote ? `${base}\n※ ${note}` : base;
-        return { pid, text, base, note, hasNote, hasNoRestock };
+        return { pid, text, base, note, hasNote, hasNoRestock: hasNoRestock || base.includes('无面料') };
       });
       // 同一坑位内跨款号去重：若多款号共用相同面料，已展示过的面料行不再重复展示
       const seenFabricLines = new Set<string>();
@@ -2755,12 +2804,19 @@ const FIELDS: FieldRow[] = [
       return (
         <div className="group relative w-full text-center" {...hoverHandlers}>
           <div className="space-y-1">
-            {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, hasNoRestock, note }) => (
-              <div key={pid} className={`${hasNoRestock ? RED : BLUE} group/row w-full leading-4 whitespace-pre-line`}>
+            {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, note }) => (
+              <div key={pid} className="group/row w-full leading-4 whitespace-pre-line">
                 {base && (
                   <span className="group/base inline-block max-w-full whitespace-pre-line align-top">
-                    {base}
-                    {!hasNoRestock && ctx.onClearFabric && (
+                    {base.split('\n').map((line, li) => {
+                      const isNoFabricLine = line.includes('无面料');
+                      return (
+                        <span key={li} className={isNoFabricLine ? RED : BLUE} style={{ display: 'block' }}>
+                          {line}
+                        </span>
+                      );
+                    })}
+                    {ctx.onClearFabric && (
                       <button
                         onClick={(e) => { e.stopPropagation(); ctx.onClearFabric?.(pid); }}
                         className="ml-1 hidden rounded px-1 align-middle text-[10px] text-ink-faint hover:bg-action-danger/10 hover:text-action-danger-fg group-hover/base:inline"
@@ -2771,7 +2827,7 @@ const FIELDS: FieldRow[] = [
                     )}
                   </span>
                 )}
-                {!hasNoRestock && !hasNote && ctx.onSaveFabricNote && (
+                {!hasNote && ctx.onSaveFabricNote && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -3452,6 +3508,19 @@ export default function TraysPage({
       // 面料文案为空但用户已勾选无面料不翻单：关闭弹窗，noRestock 已通过 fabric-no-restock 写入
       if (ev.data.type === 'fabric-selected-empty' && ev.data.source === 'fabric-query') {
         if (!fabricPicker) return;
+        const fpSection = trayRef.current?.sections.find((x) => x.id === fabricPicker.sectionId);
+        const fpLook = fpSection?.looks.find((y) => y.id === fabricPicker.lookId);
+        const fpPids = fpLook?.pids || [fabricPicker.pid];
+        updLatest((t) => {
+          const nextOverrides = { ...(t.fabricOverrides || {}) };
+          for (const p of fpPids) {
+            delete nextOverrides[p];
+          }
+          return {
+            ...t,
+            fabricOverrides: nextOverrides,
+          };
+        });
         toast.success('已保存无面料不翻单标记');
         setFabricPicker(null);
         return;
