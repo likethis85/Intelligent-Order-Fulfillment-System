@@ -2455,7 +2455,7 @@
         // 每组生成一行文字
         Object.values(warehouseGroups).forEach(main => {
           console.log(`[SKC=${skc}] 选中主面料: mtCode=${main?.mtCode}, stock=${main?.stock}, mtName=${main?.mtName}, warehouse=${main?.warehouse}`);
-          const mainLine = buildFabricInfoLine(main);
+          const mainLine = buildFabricInfoLine(main).trim();
           console.log(`[SKC=${skc}] 生成文字: "${mainLine}"`);
           if (mainLine && !seenLines.has(mainLine)) {
             lines.push(mainLine);
@@ -2466,7 +2466,7 @@
         if (Object.keys(warehouseGroups).length === 0) {
           const main = pickMainFabric(items);
           console.log(`[SKC=${skc}] 选中主面料: mtCode=${main?.mtCode}, stock=${main?.stock}, mtName=${main?.mtName}`);
-          const mainLine = buildFabricInfoLine(main);
+          const mainLine = buildFabricInfoLine(main).trim();
           console.log(`[SKC=${skc}] 生成文字: "${mainLine}"`);
           if (mainLine && !seenLines.has(mainLine)) {
             lines.push(mainLine);
@@ -2475,7 +2475,17 @@
         }
       });
 
-      textarea.value = lines.join('\n');
+      // 全局最终二次安全去重，防止多个不同SKC生成相同文案行
+      const finalUniqueLines = [];
+      const finalSeen = new Set();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !finalSeen.has(trimmed)) {
+          finalSeen.add(trimmed);
+          finalUniqueLines.push(trimmed);
+        }
+      }
+      textarea.value = finalUniqueLines.join('\n');
     }
 
     // 里布（名称含里布/里料/里衬，或物料种类为里布）的库存/在途是系统数据，不属于业务员要补充的信息，

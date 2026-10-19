@@ -1240,7 +1240,26 @@ async function exportTrayLayoutExcel(
     { label: '成本/倍率', height: 40, get: (l) => l.pids.map((p) => costRatioText(p, t, byId)).filter(Boolean).join('\n') },
     { label: '库存情况(主仓)', labelBlue: true, height: 70, get: (l) => l.pids.map((p) => stockCellText(byId(p))).join('\n') },
     { label: '翻单周期\n（下单日开始计算）', labelBlue: true, height: 60, get: (l) => restockCellText(l.pids.map(byId), t) },
-    { label: '面料情况', labelBlue: true, height: 80, get: (l) => l.pids.map((p) => fabricCellText(p, byId(p), t)).filter(Boolean).join('\n') },
+    {
+      label: '面料情况',
+      labelBlue: true,
+      height: 80,
+      get: (l) => {
+        const rawBlocks = l.pids.map((p) => fabricCellText(p, byId(p), t)).filter(Boolean);
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const block of rawBlocks) {
+          for (const line of block.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed && !seen.has(trimmed)) {
+              seen.add(trimmed);
+              out.push(trimmed);
+            }
+          }
+        }
+        return out.join('\n');
+      },
+    },
   ];
   if (isPast) {
     // 跟 UI 顺序一致：面料情况 → 直播当天销量 → 累计销量
@@ -2701,7 +2720,28 @@ const FIELDS: FieldRow[] = [
         const text = hasNote ? `${base}\n※ ${note}` : base;
         return { pid, text, base, note, hasNote, hasNoRestock };
       });
-      const visibleRows = rows.filter((r) => r.text);
+      // 同一坑位内跨款号去重：若多款号共用相同面料，已展示过的面料行不再重复展示
+      const seenFabricLines = new Set<string>();
+      const dedupedRows = rows.map((r) => {
+        if (!r.base) return r;
+        const filteredLines = r.base
+          .split('\n')
+          .filter((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return false;
+            if (seenFabricLines.has(trimmed)) return false;
+            seenFabricLines.add(trimmed);
+            return true;
+          });
+        const newBase = filteredLines.join('\n');
+        const newText = r.hasNote ? (newBase ? `${newBase}\n※ ${r.note}` : `※ ${r.note}`) : newBase;
+        return {
+          ...r,
+          base: newBase,
+          text: newText,
+        };
+      });
+      const visibleRows = dedupedRows.filter((r) => r.text);
       const hasAnyContent = visibleRows.length > 0;
       // 悬停 350ms 后自动拿所有 pid 去 fabric_Q 查面料——展示在右下角小卡片里
       const hoverHandlers = ctx.onHoverFabric
@@ -3379,15 +3419,32 @@ export default function TraysPage({
       if (ev.data.type === 'fabric-selected' && ev.data.source === 'fabric-query') {
         const text: string = String(ev.data.payload?.text || '').trim();
         if (!text || !fabricPicker) return;
-        updLatest((t) => ({
-          ...t,
-          fabricOverrides: { ...(t.fabricOverrides || {}), [fabricPicker.pid]: text },
-          // 面料信息已拿到：之前「查无此款」时留下的占位标记（skc='-'）作废，避免红字残留。
-          // 具体 SKC 的勾选标记保留（那是逐色显式勾的）。
-          noRestockItems: (t.noRestockItems || []).filter(
-            (it) => !(it.pid.toLowerCase() === fabricPicker.pid.toLowerCase() && (it.skc === '-' || !it.skc)),
-          ),
-        }));
+
+        // 查找当前坑位的所有款号
+        const fpSection = trayRef.current?.sections.find((x) => x.id === fabricPicker.sectionId);
+        const fpLook = fpSection?.looks.find((y) => y.id === fabricPicker.lookId);
+        const fpPids = fpLook?.pids || [fabricPicker.pid];
+
+        updLatest((t) => {
+          const nextOverrides = { ...(t.fabricOverrides || {}) };
+          // 主款号写入同步的面料信息
+          nextOverrides[fabricPicker.pid] = text;
+          // 同坑位的其他款号置为空字符串（覆盖旧 BI 面料 / 旧 override，避免跨款号重复显示相同面料）
+          for (const otherPid of fpPids) {
+            if (otherPid.toLowerCase() !== fabricPicker.pid.toLowerCase()) {
+              nextOverrides[otherPid] = '';
+            }
+          }
+          return {
+            ...t,
+            fabricOverrides: nextOverrides,
+            // 面料信息已拿到：之前「查无此款」时留下的占位标记（skc='-'）作废，避免红字残留。
+            // 具体 SKC 的勾选标记保留（那是逐色显式勾的）。
+            noRestockItems: (t.noRestockItems || []).filter(
+              (it) => !fpPids.some((p) => p.toLowerCase() === it.pid.toLowerCase() && (it.skc === '-' || !it.skc)),
+            ),
+          };
+        });
         toast.success('面料信息已写入货盘');
         setFabricPicker(null);
         return;
