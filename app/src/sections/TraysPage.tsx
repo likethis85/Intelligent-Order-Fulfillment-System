@@ -4857,7 +4857,7 @@ export default function TraysPage({
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3">
             <div className="absolute inset-0 bg-black/40" onClick={() => setFabricPicker(null)} />
-            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[100dvh] w-full sm:h-[85vh] sm:w-[90vw] max-w-[1100px] flex-col border-0 sm:border border-edge bg-surface-card shadow-2xl rounded-none sm:rounded-lg overflow-hidden">
+            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[100dvh] w-full sm:h-[92vh] sm:w-[95vw] max-w-[1480px] flex-col border-0 sm:border border-edge bg-surface-card shadow-2xl rounded-none sm:rounded-lg overflow-hidden">
               <div className="flex items-center justify-between border-b border-edge px-3 py-2 sm:px-5 sm:py-3">
                 <div>
                   <div className="text-[13px] font-bold">
@@ -4942,7 +4942,7 @@ export default function TraysPage({
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3">
             <div className="absolute inset-0 bg-black/40" onClick={() => setRestockPicker(null)} />
-            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[100dvh] w-full sm:h-[85vh] sm:w-[90vw] max-w-[1100px] flex-col border-0 sm:border border-edge bg-surface-card shadow-2xl rounded-none sm:rounded-lg overflow-hidden">
+            <div style={{ zIndex: 10, position: 'relative' }} role="dialog" aria-modal="true" aria-label="面料或翻单信息" className="tray-iframe-dialog flex h-[100dvh] w-full sm:h-[92vh] sm:w-[95vw] max-w-[1480px] flex-col border-0 sm:border border-edge bg-surface-card shadow-2xl rounded-none sm:rounded-lg overflow-hidden">
               <div className="flex items-center justify-between border-b border-edge px-3 py-2 sm:px-5 sm:py-3">
                 <div>
                   <div className="text-[13px] font-bold">
