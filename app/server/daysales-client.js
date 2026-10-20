@@ -197,9 +197,9 @@ async function dailyOne(pid, date) {
     const rows = await limited(() => runGuancliWithRetry([
       'ds', 'preview', DS_ID,
       '--columns', '款式编码,支付日期,销售量',
-      '--filter', `款式编码 = ${upperPid}`,
+      '--filter', `款式编码 EQ ${upperPid}`,
       '--combine-type', 'AND',
-      '--filter', `支付日期 = ${date}`,
+      '--filter', `支付日期 EQ ${date}`,
       '--limit', '50000',
       '-f', 'csv',
     ]));
@@ -236,7 +236,7 @@ async function cumuOne(pid) {
     const rows = await limited(() => runGuancliWithRetry([
       'ds', 'preview', DS_ID,
       '--columns', '款式编码,销售量',
-      '--filter', `款式编码 = ${upperPid}`,
+      '--filter', `款式编码 EQ ${upperPid}`,
       '--combine-type', 'AND',
       '--limit', '50000',
       '-f', 'csv',
