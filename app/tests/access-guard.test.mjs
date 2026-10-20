@@ -26,6 +26,7 @@ fs.writeFileSync(configFile, JSON.stringify({
 
 process.env.ACCESS_CONFIG_FILE = configFile;
 process.env.ACCESS_USERS_FILE = usersFile;
+process.env.ACCESS_AUDIT_FILE = path.join(tmpDir, 'access-audit.json');
 process.env.ACCESS_ADMIN_IDS = '';
 
 const express = (await import('express')).default;
@@ -157,4 +158,19 @@ test('带上过期的版本号保存会返回 409，避免覆盖别人的修改'
     }),
   });
   assert.equal(ok.status, 200);
+});
+
+
+test('保存后能查到谁改了哪些权限，只读账号看不到', async () => {
+  const denied = await fetch(base + '/api/access/audit', { headers: { 'x-test-user': 'u_ops' } });
+  assert.equal(denied.status, 403);
+
+  const res = await fetch(base + '/api/access/audit', { headers: { 'x-test-user': 'u_boss' } });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.ok(Array.isArray(body.entries));
+  assert.ok(body.entries.length > 0, '保存过配置后应该有记录');
+  const entry = body.entries[0];
+  assert.ok(entry.at && entry.actor, '记录要带时间和操作人');
+  assert.ok(Array.isArray(entry.changes) && entry.changes.length > 0, '记录要说明改了什么');
 });

@@ -678,6 +678,18 @@ export function saveAccessConfig(
   }, 20000);
 }
 
+// GET /api/access/audit → 权限变更记录（仅管理员）
+export interface AccessAuditEntry {
+  at: string;
+  actor: string;
+  changes: string[];
+  total: number;
+}
+
+export function fetchAccessAudit(limit = 30) {
+  return jsonFetch<{ ok: boolean; entries: AccessAuditEntry[] }>(`/access/audit?limit=${limit}`);
+}
+
 // GET /api/access/org/status → 组织架构来源（统一登录服务）是否可用
 export function fetchAccessOrgStatus() {
   return jsonFetch<{

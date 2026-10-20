@@ -27,3 +27,4 @@ app/server/data/dingtalk-storage-state.json
 # 权限体系运行时数据（含真实姓名与登录记录，由服务首次启动自动重建）
 app/server/data/access-control.json
 app/server/data/access-users.json
+app/server/data/access-audit.json

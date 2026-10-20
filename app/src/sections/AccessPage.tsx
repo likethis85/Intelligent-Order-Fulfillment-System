@@ -4,11 +4,11 @@
 //   管理员组：加入后拥有全部权限（管理后台 + 编辑货盘 + 同步 + 规则）
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Building2, ChevronDown, ChevronRight, Plus, RefreshCw, RotateCcw, Save, ShieldCheck, Trash2, UserCog, Users } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, History, Plus, RefreshCw, RotateCcw, Save, Search, ShieldCheck, Trash2, UserCog, Users, X } from 'lucide-react';
 import {
-  fetchAccessConfig, fetchAccessOrgStatus, saveAccessConfig, syncAccessOrg,
+  fetchAccessAudit, fetchAccessConfig, fetchAccessOrgStatus, saveAccessConfig, syncAccessOrg,
 } from '@/data/api';
-import type { AccessConfig, AccessDepartment, AccessMember, AccessMe, AccessRole, KnownUser } from '@/data/api';
+import type { AccessAuditEntry, AccessConfig, AccessDepartment, AccessMember, AccessMe, AccessRole, KnownUser } from '@/data/api';
 
 const ROLE_LABEL: Record<AccessRole, string> = { admin: '管理员', edit: '可编辑', view: '仅查看' };
 const ROLE_HINT: Record<AccessRole, string> = {
@@ -58,6 +58,17 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
   const [adminQuery, setAdminQuery] = useState('');
   // 某一行是否展开；没记录的按层级给默认值（默认只展开到「中心」这一层）
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  // 批量改权限时选中的部门
+  const [checkedDepts, setCheckedDepts] = useState<Set<string>>(new Set());
+  const [batchRole, setBatchRole] = useState<AccessRole | ''>('');
+  // 成员名单弹窗
+  const [memberModal, setMemberModal] = useState<AccessDepartment | null>(null);
+  // 权限检查器
+  const [checkQuery, setCheckQuery] = useState('');
+  const [checkKey, setCheckKey] = useState<string | null>(null);
+  // 变更记录
+  const [audit, setAudit] = useState<AccessAuditEntry[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -334,6 +345,103 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
     return draft?.settings.defaultRole || 'view';
   };
 
+  const ROLE_RANK: Record<AccessRole, number> = { view: 0, edit: 1, admin: 2 };
+
+  // 权限检查器：给出最终角色，并把「为什么」这条链路摊开
+  const explainRole = (row: RosterRow): { role: AccessRole; chain: string[] } => {
+    if (isAdmin(row)) return { role: 'admin', chain: ['管理员组'] };
+    const override = overrideOf(row);
+    if (override) return { role: override.role, chain: ['账号单独授权'] };
+    const byId = new Map((draft?.departments || []).map((d) => [d.id, d]));
+    let best: { role: AccessRole; chain: string[] } | null = null;
+    for (const deptId of memberFor(row)?.deptIds || []) {
+      const chain: string[] = [];
+      let cur = byId.get(deptId);
+      let guard = 0;
+      while (cur && guard++ < 32) {
+        chain.push(cur.role ? `${cur.name}（${ROLE_LABEL[cur.role]}）` : cur.name);
+        if (cur.role) {
+          if (!best || ROLE_RANK[cur.role] > ROLE_RANK[best.role]) best = { role: cur.role, chain: [...chain] };
+          break;
+        }
+        cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+      }
+    }
+    if (best) return best;
+    return { role: draft?.settings.defaultRole || 'view', chain: ['未匹配到部门，按全局默认'] };
+  };
+
+  // 与上次保存的版本比，哪些部门被改过
+  const changedDeptIds = useMemo(() => {
+    const out = new Set<string>();
+    if (!draft || !savedSnapshot) return out;
+    const old = new Map(savedSnapshot.departments.map((d) => [d.id, d]));
+    for (const d of draft.departments) {
+      const prev = old.get(d.id);
+      if (!prev || (prev.role || null) !== (d.role || null)) out.add(d.id);
+    }
+    return out;
+  }, [draft, savedSnapshot]);
+
+  const checkMatches = useMemo(() => {
+    const query = checkQuery.trim();
+    if (!query) return [];
+    return roster.filter((r) => r.name.includes(query)).slice(0, 8);
+  }, [roster, checkQuery]);
+  const checkedPerson = roster.find((r) => r.key === checkKey) || null;
+
+  const loggedUnions = useMemo(
+    () => new Set(roster.filter((r) => r.loggedIn && r.unionId).map((r) => r.unionId as string)),
+    [roster],
+  );
+
+  const modalMembers = useMemo(
+    () => (memberModal
+      ? (draft?.members || []).filter((m) => m.deptIds.some((id) => ancestorsOf(id).has(memberModal.id)))
+      : []),
+    [memberModal, draft, ancestorMap],
+  );
+
+  const toggleChecked = (id: string) => {
+    setCheckedDepts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const togglePageChecked = (on: boolean) => {
+    setCheckedDepts((prev) => {
+      const next = new Set(prev);
+      for (const d of pageDepartments) {
+        if (on) next.add(d.id);
+        else next.delete(d.id);
+      }
+      return next;
+    });
+  };
+
+  const applyBatchRole = () => {
+    if (!checkedDepts.size) return;
+    patch({
+      departments: (draft?.departments || []).map((d) => (checkedDepts.has(d.id) ? { ...d, role: batchRole || null } : d)),
+    });
+    setCheckedDepts(new Set());
+  };
+
+  const loadAudit = async () => {
+    setAuditLoading(true);
+    try {
+      const res = await fetchAccessAudit();
+      setAudit(res.entries || []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '读取改动记录失败');
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
   const setDeptRole = (id: string, role: AccessRole | '') => {
     patch({ departments: (draft?.departments || []).map((d) => (d.id === id ? { ...d, role: role || null } : d)) });
   };
@@ -476,6 +584,58 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         </p>
       </section>
 
+      {/* 权限检查器 */}
+      <section className="mt-6 border border-edge bg-surface-card p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium tracking-widest text-ink-muted">
+            <Search size={13} /> 权限检查器
+          </div>
+          <input
+            value={checkQuery}
+            onChange={(e) => { setCheckQuery(e.target.value); setCheckKey(null); }}
+            placeholder="输入姓名，看这个人最终是什么权限"
+            className="h-8 w-64 rounded border border-edge-strong bg-surface-card px-2 text-[12px] outline-none focus:border-edge"
+          />
+          {checkedPerson && (
+            <button onClick={() => { setCheckQuery(''); setCheckKey(null); }} className="text-[12px] text-ink-muted underline-offset-2 hover:underline">
+              清空
+            </button>
+          )}
+        </div>
+
+        {checkMatches.length > 0 && !checkedPerson && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {checkMatches.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => { setCheckKey(r.key); setCheckQuery(r.name); }}
+                className="rounded border border-edge-strong bg-surface-card px-2 py-1 text-[12px] hover:border-edge"
+              >
+                {r.name}{r.loggedIn ? '' : '（未登录）'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {checkedPerson && (() => {
+          const info = explainRole(checkedPerson);
+          return (
+            <div className="mt-3 rounded border border-edge bg-surface-subtle px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                <span className="font-medium">{checkedPerson.name}</span>
+                <span className={`rounded border px-2 py-0.5 text-[11.5px] ${ROLE_BADGE[info.role]}`}>{ROLE_LABEL[info.role]}</span>
+                <span className="text-ink-muted">判定链路：</span>
+                <span className="text-ink-secondary">{info.chain.join(' → ')}</span>
+              </div>
+              <div className="mt-1 text-[11.5px] text-ink-faint">
+                所属部门：{(memberFor(checkedPerson)?.deptIds || []).map(deptName).join('、') || '未分配'}
+                {checkedPerson.loggedIn ? '' : ' · 该员工还没登录过，按钉钉身份预判'}
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+
       {/* 部门权限 */}
       <section className="mt-10">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -552,10 +712,41 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
           )}
         </div>
 
-        <div className="mt-3 overflow-x-auto border border-edge">
+        {checkedDepts.size > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-[12px]">
+            <span className="text-sky-800">已选 {checkedDepts.size} 个部门</span>
+            <select
+              value={batchRole}
+              onChange={(e) => setBatchRole(e.target.value as AccessRole | '')}
+              className="h-7 rounded border border-sky-200 bg-surface-card px-1.5 text-[12px] outline-none"
+            >
+              <option value="">继承上级</option>
+              <option value="view">仅查看</option>
+              <option value="edit">可编辑货盘</option>
+              <option value="admin">管理员</option>
+            </select>
+            <button onClick={applyBatchRole} className="rounded bg-action-primary px-2.5 py-1 text-[12px] text-surface-card hover:opacity-90">
+              应用到所选
+            </button>
+            <button onClick={() => setCheckedDepts(new Set())} className="text-[12px] text-ink-muted underline-offset-2 hover:underline">
+              清空选择
+            </button>
+          </div>
+        )}
+
+        <div className="mt-2 overflow-x-auto border border-edge">
           <table className="w-full text-[12.5px]">
             <thead className="bg-surface-subtle text-left text-ink-muted">
               <tr>
+                <th className="w-8 px-2 py-2 font-medium">
+                  <input
+                    type="checkbox"
+                    title="选中本页全部"
+                    checked={pageDepartments.length > 0 && pageDepartments.every((d) => checkedDepts.has(d.id))}
+                    onChange={(e) => togglePageChecked(e.target.checked)}
+                    className="h-3.5 w-3.5"
+                  />
+                </th>
                 <th className="px-3 py-2 font-medium">部门</th>
                 <th className="px-3 py-2 font-medium">来源</th>
                 <th className="px-3 py-2 font-medium">货盘权限</th>
@@ -582,6 +773,14 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                   : rowIndex % 2 === 1 ? 'bg-surface-subtle/40' : '';
                 return (
                   <tr key={d.id} className={`border-t border-edge ${rowBg}`}>
+                    <td className="px-2 py-2">
+                      <input
+                        type="checkbox"
+                        checked={checkedDepts.has(d.id)}
+                        onChange={() => toggleChecked(d.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center">
                         {Array.from({ length: Math.min(depth, 5) }).map((_, i) => (
@@ -606,6 +805,14 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                           />
                         )}
                         <span className={nameClass}>{d.name}</span>
+                        {changedDeptIds.has(d.id) && (
+                          <span
+                            title="与上次保存的版本不同"
+                            className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] leading-4 text-amber-700"
+                          >
+                            改动
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2">
@@ -629,9 +836,13 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                     </td>
                     <td className="px-3 py-2">
                       {count > 0 ? (
-                        <span className="inline-block min-w-[26px] rounded border border-edge bg-surface-card px-1.5 py-0.5 text-center text-[11.5px] tabular-nums text-ink-secondary">
+                        <button
+                          onClick={() => setMemberModal(d)}
+                          title="查看这个部门的人员名单（含下级）"
+                          className="inline-block min-w-[26px] rounded border border-edge bg-surface-card px-1.5 py-0.5 text-center text-[11.5px] tabular-nums text-ink-secondary hover:border-edge-strong hover:text-ink-primary"
+                        >
                           {count}
-                        </span>
+                        </button>
                       ) : <span className="text-ink-faint">—</span>}
                     </td>
                     <td className="px-3 py-2">
@@ -649,7 +860,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                 );
               })}
               {pageDepartments.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-6 text-center text-ink-muted">
+                <tr><td colSpan={6} className="px-3 py-6 text-center text-ink-muted">
                   {orderedDepartments.length === 0 ? '还没有部门，点击下方同步通讯录' : '没有符合筛选条件的部门'}
                 </td></tr>
               )}
@@ -879,6 +1090,80 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
           <li>保存后新权限对下一次请求立即生效，页面上的按钮状态在刷新后更新。</li>
         </ul>
       </section>
+
+      {/* 变更记录 */}
+      <section className="mt-6 border border-edge bg-surface-card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+            <History size={13} /> 最近改动
+          </div>
+          <button
+            onClick={() => { void loadAudit(); }}
+            disabled={auditLoading}
+            className="rounded border border-edge-strong px-3 py-1.5 text-[12px] hover:border-edge disabled:opacity-40"
+          >
+            {auditLoading ? '读取中…' : audit ? '刷新' : '查看'}
+          </button>
+        </div>
+        {audit && (
+          <div className="mt-3 space-y-2">
+            {audit.length === 0 && <p className="text-[12px] text-ink-muted">还没有改动记录，保存一次权限后就会出现。</p>}
+            {audit.map((entry, i) => (
+              <div key={`${entry.at}-${i}`} className="rounded border border-edge bg-surface-subtle px-3 py-2">
+                <div className="text-[11.5px] text-ink-muted">
+                  {new Date(entry.at).toLocaleString('zh-CN')} · {entry.actor}
+                </div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[12px] text-ink-secondary">
+                  {entry.changes.map((c, j) => <li key={j}>{c}</li>)}
+                  {entry.total > entry.changes.length && <li>…另有 {entry.total - entry.changes.length} 项</li>}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 部门人员名单 */}
+      {memberModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onClick={() => setMemberModal(null)}
+        >
+          <div
+            className="max-h-[72vh] w-full max-w-lg overflow-hidden rounded-lg border border-edge bg-surface-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-edge px-4 py-3">
+              <div className="text-[13px] font-semibold">
+                {memberModal.name}
+                <span className="ml-2 text-[12px] font-normal text-ink-muted">{modalMembers.length} 人</span>
+              </div>
+              <button onClick={() => setMemberModal(null)} className="text-ink-muted hover:text-ink-primary" aria-label="关闭">
+                <X size={15} />
+              </button>
+            </div>
+            <p className="px-4 pt-2 text-[11.5px] text-ink-faint">含下级部门，与表格里的成员数一致</p>
+            <div className="max-h-[56vh] overflow-auto px-4 pb-3">
+              {modalMembers.map((m) => (
+                <div key={m.userId} className="flex items-start justify-between gap-3 border-b border-edge py-1.5 last:border-0">
+                  <span className="text-[12.5px]">
+                    {m.name}
+                    {m.unionId && loggedUnions.has(m.unionId) ? null : (
+                      <span className="ml-1.5 rounded border border-edge bg-surface-subtle px-1 text-[10px] text-ink-faint">未登录</span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-right text-[11px] text-ink-faint">
+                    {m.deptIds.filter((id) => ancestorsOf(id).has(memberModal.id)).map(deptName).join('、')}
+                  </span>
+                </div>
+              ))}
+              {modalMembers.length === 0 && (
+                <div className="py-8 text-center text-[12px] text-ink-muted">这个部门还没有人</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

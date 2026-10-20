@@ -23,6 +23,10 @@ const CONFIG_FILE = process.env.ACCESS_CONFIG_FILE
 const USERS_FILE = process.env.ACCESS_USERS_FILE
   ? path.resolve(process.env.ACCESS_USERS_FILE)
   : path.join(DATA_DIR, 'access-users.json');
+const AUDIT_FILE = process.env.ACCESS_AUDIT_FILE
+  ? path.resolve(process.env.ACCESS_AUDIT_FILE)
+  : path.join(DATA_DIR, 'access-audit.json');
+const MAX_AUDIT = 200;
 
 const ROLES = ['admin', 'edit', 'view'];
 const ROLE_RANK = { view: 0, edit: 1, admin: 2 };
@@ -156,6 +160,57 @@ export function saveConfig(next) {
   writeJsonAtomic(CONFIG_FILE, merged);
   cache = { config: merged, mtime: fs.statSync(CONFIG_FILE).mtimeMs };
   return merged;
+}
+
+// ── 变更审计 ────────────────────────────────────────────────────────────────
+const ROLE_TEXT = { admin: '管理员', edit: '可编辑', view: '仅查看' };
+const roleText = (role) => (role ? ROLE_TEXT[role] || role : '继承');
+
+// 只记录人看得懂的差异：谁把哪个部门从什么改成了什么
+export function diffConfig(prev, next) {
+  const changes = [];
+  const prevDepts = new Map(prev.departments.map((d) => [d.id, d]));
+  const nextDepts = new Map(next.departments.map((d) => [d.id, d]));
+  for (const d of next.departments) {
+    const old = prevDepts.get(d.id);
+    if (!old) { changes.push(`新增部门「${d.name}」`); continue; }
+    if ((old.role || null) !== (d.role || null)) changes.push(`「${d.name}」${roleText(old.role)} → ${roleText(d.role)}`);
+  }
+  for (const d of prev.departments) if (!nextDepts.has(d.id)) changes.push(`删除部门「${d.name}」`);
+
+  const key = (a) => a.userId || a.unionId || a.name;
+  const prevAdmin = new Map(prev.admins.map((a) => [key(a), a.name]));
+  const nextAdmin = new Map(next.admins.map((a) => [key(a), a.name]));
+  for (const [k, name] of nextAdmin) if (!prevAdmin.has(k)) changes.push(`加入管理员组：${name}`);
+  for (const [k, name] of prevAdmin) if (!nextAdmin.has(k)) changes.push(`移出管理员组：${name}`);
+
+  const prevOverride = new Map(prev.overrides.map((o) => [key(o), o]));
+  const nextOverride = new Map(next.overrides.map((o) => [key(o), o]));
+  for (const [k, o] of nextOverride) {
+    const old = prevOverride.get(k);
+    if (!old) changes.push(`单独授权 ${o.name}：${roleText(o.role)}`);
+    else if (old.role !== o.role) changes.push(`${o.name} 单独授权 ${roleText(old.role)} → ${roleText(o.role)}`);
+  }
+  for (const [k, o] of prevOverride) if (!nextOverride.has(k)) changes.push(`取消 ${o.name} 的单独授权`);
+
+  if (prev.settings.defaultRole !== next.settings.defaultRole) {
+    changes.push(`全局默认 ${roleText(prev.settings.defaultRole)} → ${roleText(next.settings.defaultRole)}`);
+  }
+  return changes;
+}
+
+export function listAudit(limit = 50) {
+  const raw = readJson(AUDIT_FILE, []);
+  return Array.isArray(raw) ? raw.slice(0, limit) : [];
+}
+
+function appendAudit(entry) {
+  try {
+    const list = readJson(AUDIT_FILE, []);
+    writeJsonAtomic(AUDIT_FILE, [entry, ...(Array.isArray(list) ? list : [])].slice(0, MAX_AUDIT));
+  } catch (e) {
+    console.warn('[access] 写审计日志失败:', e.message);
+  }
 }
 
 // ── 角色推导 ────────────────────────────────────────────────────────────────
@@ -458,6 +513,15 @@ export function createAccessControl() {
         admins: body.admins,
         settings: body.settings,
       });
+      const changes = diffConfig(current, next);
+      if (changes.length) {
+        appendAudit({
+          at: new Date().toISOString(),
+          actor: req.auth?.user?.displayName || req.auth?.user?.id || 'unknown',
+          changes: changes.slice(0, 20),
+          total: changes.length,
+        });
+      }
       res.json({ ok: true, config: next });
     } catch (err) {
       res.status(400).json({ ok: false, error: err.code || 'invalid_config', message: err.message });
@@ -466,6 +530,11 @@ export function createAccessControl() {
 
   router.get('/users', requireAdmin, (_req, res) => {
     res.json({ ok: true, users: listKnownUsers() });
+  });
+
+  router.get('/audit', requireAdmin, (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), MAX_AUDIT);
+    res.json({ ok: true, entries: listAudit(limit) });
   });
 
   router.get('/org/status', requireAdmin, (_req, res) => {
