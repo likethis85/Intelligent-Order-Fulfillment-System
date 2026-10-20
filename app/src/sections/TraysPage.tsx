@@ -5344,9 +5344,11 @@ export default function TraysPage({
             toast.error('请选择图片文件');
             return;
           }
-          const toastId = toast.loading('正在上传自传图…');
+          const toastId = toast.loading('准备上传自传图…');
           try {
-            const url = await uploadImage(file);
+            const url = await uploadImage(file, (status) => {
+              toast.loading(status, { id: toastId });
+            });
             setUserImg(coverMenu.sectionId, coverMenu.lookId, url);
             toast.success('自传图已替换', { id: toastId });
             setCoverMenu(null);

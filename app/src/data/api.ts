@@ -562,13 +562,130 @@ export function writeWeatherCache(payload: WeatherResult) {
   }
 }
 
+// 前端图片压缩（基于 Canvas / createImageBitmap）：
+// 1. 动图（GIF / SVG 等）跳过压缩以保留动图帧。
+// 2. 原始体积 <= 300KB 跳过压缩。
+// 3. 限制长边最大 1600px（保证在 Retina 高清屏全屏展示时依然非常细腻，且远小于 4K 原图）。
+// 4. 采用 0.85 质量 JPEG（带白底防透明通道变黑）。
+// 5. 若压缩后体积未减少（极罕见），自动回退原始文件。
+export async function compressImage(
+  file: File,
+  maxDimension = 1600,
+  quality = 0.85,
+): Promise<{ file: File; compressed: boolean; originalSize: number; compressedSize: number }> {
+  const originalSize = file.size;
+  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.type === 'image/svg+xml') {
+    return { file, compressed: false, originalSize, compressedSize: originalSize };
+  }
+  if (file.size <= 300 * 1024) {
+    return { file, compressed: false, originalSize, compressedSize: originalSize };
+  }
+
+  try {
+    let imgBitmap: ImageBitmap | null = null;
+    let width = 0;
+    let height = 0;
+
+    if (typeof createImageBitmap === 'function') {
+      try {
+        imgBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        width = imgBitmap.width;
+        height = imgBitmap.height;
+      } catch {
+        // createImageBitmap 不支持或解析失败时回退到 HTMLImageElement
+      }
+    }
+
+    let tempImgElement: HTMLImageElement | null = null;
+    if (!imgBitmap) {
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          width = img.naturalWidth || img.width;
+          height = img.naturalHeight || img.height;
+          tempImgElement = img;
+          resolve();
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('无法解析图片'));
+        };
+        img.src = url;
+      });
+    }
+
+    if (width <= 0 || height <= 0) {
+      return { file, compressed: false, originalSize, compressedSize: originalSize };
+    }
+
+    // 等比缩放
+    let targetWidth = width;
+    let targetHeight = height;
+    if (width > maxDimension || height > maxDimension) {
+      if (width > height) {
+        targetHeight = Math.round((height * maxDimension) / width);
+        targetWidth = maxDimension;
+      } else {
+        targetWidth = Math.round((width * maxDimension) / height);
+        targetHeight = maxDimension;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return { file, compressed: false, originalSize, compressedSize: originalSize };
+    }
+
+    // 默认输出 JPEG（白底填充，避免透明通道变黑，兼容性最好且体积小）
+    const outputType = 'image/jpeg';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+    if (imgBitmap) {
+      ctx.drawImage(imgBitmap, 0, 0, targetWidth, targetHeight);
+      imgBitmap.close();
+    } else if (tempImgElement) {
+      ctx.drawImage(tempImgElement, 0, 0, targetWidth, targetHeight);
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outputType, quality));
+    if (!blob || blob.size >= originalSize) {
+      return { file, compressed: false, originalSize, compressedSize: originalSize };
+    }
+
+    const newName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    const compressedFile = new File([blob], newName, { type: outputType, lastModified: Date.now() });
+    return { file: compressedFile, compressed: true, originalSize, compressedSize: blob.size };
+  } catch (err) {
+    console.warn('[compressImage] 压缩失败，回退原图:', err);
+    return { file, compressed: false, originalSize, compressedSize: originalSize };
+  }
+}
+
 // POST /api/upload → 上传用户自传图（货盘主图覆盖），返回可访问的 /uploads/... 路径
-export async function uploadImage(file: File): Promise<string> {
+export async function uploadImage(file: File, onStatus?: (status: string) => void): Promise<string> {
+  let fileToUpload = file;
+  if (file.size > 300 * 1024) {
+    onStatus?.('正在优化压缩图片…');
+    const { file: compressed, compressed: didCompress, originalSize, compressedSize } = await compressImage(file);
+    if (didCompress) {
+      const origMB = (originalSize / (1024 * 1024)).toFixed(1);
+      const compKB = Math.round(compressedSize / 1024);
+      onStatus?.(`已压缩 (${origMB}MB → ${compKB}KB)，正在上传…`);
+      fileToUpload = compressed;
+    }
+  }
+
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000); // 上传最长 60s（大图）
+  const timer = setTimeout(() => ctrl.abort(), 60000); // 上传最长 60s
   try {
     const fd = new FormData();
-    fd.append('file', file);
+    fd.append('file', fileToUpload);
     const res = await authenticatedFetch(BASE + '/upload', { method: 'POST', body: fd, signal: ctrl.signal });
     if (!res.ok) {
       let msg = `${res.status} ${res.statusText}`;
