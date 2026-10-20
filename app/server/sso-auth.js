@@ -74,6 +74,8 @@ function normalizeUser(user) {
     id: user.id, provider: user.provider, email,
     displayName: (typeof user.display_name === 'string' && user.display_name.trim() ? user.display_name.trim() : email || user.id).slice(0, 80),
     avatarUrl: typeof user.avatar_url === 'string' ? user.avatar_url : null,
+    // 钉钉 unionId：SSO 用它关联通讯录成员，命中后才知道这个人属于哪个部门
+    externalId: typeof user.external_id === 'string' && user.external_id ? user.external_id : null,
   };
 }
 

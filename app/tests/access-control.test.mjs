@@ -95,10 +95,61 @@ test('配置清洗：非法角色回落、重复 id 去重、空字段过滤', (
   });
   assert.equal(cfg.settings.defaultRole, 'view');
   assert.equal(cfg.departments.length, 2);
-  assert.equal(cfg.departments.find((d) => d.id === 'd2').role, 'view');
+  // 非法角色不再是硬性 view，而是留空表示继承上级
+  assert.equal(cfg.departments.find((d) => d.id === 'd2').role, null);
   assert.deepEqual(cfg.members[0].deptIds, ['d1']);
   assert.equal(cfg.members.length, 1);
   assert.equal(cfg.admins.length, 1);
+});
+
+test('子部门未设置角色时继承父部门', () => {
+  const cfg = normalizeConfig({
+    settings: { defaultRole: 'view' },
+    departments: [
+      { id: 'dt-1', name: '总部', role: null, parentId: null },
+      { id: 'dt-2', name: '供应链中心', role: 'edit', parentId: 'dt-1' },
+      { id: 'dt-3', name: '采购部', role: null, parentId: 'dt-2' },
+      { id: 'dt-4', name: '其他部门', role: null, parentId: 'dt-1' },
+    ],
+    members: [
+      { userId: 'u_purchase', name: '采购', deptIds: ['dt-3'] },
+      { userId: 'u_other', name: '其他', deptIds: ['dt-4'] },
+    ],
+  });
+  const purchase = resolveRole({ id: 'u_purchase' }, cfg);
+  assert.equal(purchase.role, 'edit');
+  assert.equal(purchase.reason, 'department');
+  assert.deepEqual(purchase.deptNames, ['采购部']);
+  // 上级没设角色，一路继承到全局默认
+  assert.equal(resolveRole({ id: 'u_other' }, cfg).role, 'view');
+});
+
+test('子部门显式设置可以覆盖父部门', () => {
+  const cfg = normalizeConfig({
+    settings: { defaultRole: 'view' },
+    departments: [
+      { id: 'dt-1', name: '供应链中心', role: 'edit' },
+      { id: 'dt-2', name: '外部协作', role: 'view', parentId: 'dt-1' },
+    ],
+    members: [{ userId: 'u_out', name: '外包', deptIds: ['dt-2'] }],
+  });
+  assert.equal(resolveRole({ id: 'u_out' }, cfg).role, 'view');
+});
+
+test('成员匹配优先用钉钉 unionId，SSO 用户 id 不同也能认出来', () => {
+  const cfg = normalizeConfig({
+    settings: { defaultRole: 'view' },
+    departments: [{ id: 'dt-1', name: '供应链中心', role: 'edit' }],
+    members: [
+      { userId: '011268023412643974', unionId: 'union-abc', name: '张三', deptIds: ['dt-1'] },
+    ],
+  });
+  // SSO 的 user.id 是 u_xxx，与钉钉 userid 完全不同，只能靠 unionId 关联
+  const r = resolveRole({ id: 'u_0ffdb08304f3479387a614eb4545002e', externalId: 'union-abc' }, cfg);
+  assert.equal(r.role, 'edit');
+  assert.equal(r.reason, 'department');
+  // 没带 unionId 时不能凭空匹配
+  assert.equal(resolveRole({ id: 'u_0ffdb08304f3479387a614eb4545002e' }, cfg).role, 'view');
 });
 
 test('空配置给出可用的默认结构', () => {
@@ -106,4 +157,31 @@ test('空配置给出可用的默认结构', () => {
   assert.deepEqual(cfg.departments.map((d) => d.name), ['商品部', '供应链']);
   assert.ok(cfg.departments.every((d) => d.role === 'edit'));
   assert.equal(cfg.settings.defaultRole, 'view');
+});
+
+test('没登录过的员工也能先加进管理员组，登录后按 unionId 生效', () => {
+  const cfg = normalizeConfig({
+    settings: { defaultRole: 'view' },
+    departments: [],
+    members: [{ userId: 'dingtalk-001', unionId: 'union-001', name: '张三', deptIds: [] }],
+    // 此时还不知道对方的 SSO 用户 id，只能记 unionId
+    admins: [{ userId: '', unionId: 'union-001', name: '张三' }],
+  });
+  assert.equal(cfg.admins.length, 1);
+  const r = resolveRole({ id: 'u_9', externalId: 'union-001' }, cfg);
+  assert.equal(r.role, 'admin');
+  assert.equal(r.reason, 'admin_group');
+});
+
+test('没登录过的员工也能单独授权，且优先于部门', () => {
+  const cfg = normalizeConfig({
+    settings: { defaultRole: 'view' },
+    departments: [{ id: 'dt-1', name: '商品部', role: 'edit' }],
+    members: [{ userId: 'dingtalk-002', unionId: 'union-002', name: '李四', deptIds: ['dt-1'] }],
+    overrides: [{ userId: '', unionId: 'union-002', name: '李四', role: 'view' }],
+  });
+  assert.equal(cfg.overrides.length, 1);
+  const r = resolveRole({ id: 'u_10', externalId: 'union-002' }, cfg);
+  assert.equal(r.role, 'view');
+  assert.equal(r.reason, 'account_override');
 });

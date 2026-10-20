@@ -604,13 +604,16 @@ export interface AccessMe {
 export interface AccessDepartment {
   id: string;
   name: string;
-  role: AccessRole;
+  // null 表示跟随父部门的角色，一直往上找，找不到就用全局默认
+  role: AccessRole | null;
   source: 'manual' | 'dingtalk';
+  parentId?: string | null;
   note?: string;
 }
 
 export interface AccessMember {
   userId: string;
+  unionId?: string | null;
   name: string;
   email: string | null;
   deptIds: string[];
@@ -619,12 +622,14 @@ export interface AccessMember {
 
 export interface AccessOverride {
   userId: string;
+  /** 对方还没登录过时只有钉钉 unionId，登录后自动生效 */
+  unionId?: string | null;
   name: string;
   role: AccessRole;
   note?: string;
 }
 
-export interface AccessAdmin { userId: string; name: string }
+export interface AccessAdmin { userId: string; unionId?: string | null; name: string }
 
 export interface AccessConfig {
   version: number;
@@ -641,6 +646,8 @@ export interface KnownUser {
   name: string;
   email: string | null;
   provider: string;
+  /** 钉钉 unionId，用来关联通讯录成员 */
+  externalId?: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
 }
@@ -666,12 +673,22 @@ export function saveAccessConfig(
   }, 20000);
 }
 
-// GET /api/access/dingtalk/status → 是否已配置钉钉通讯录同步
-export function fetchDingTalkStatus() {
-  return jsonFetch<{ ok: boolean; configured: boolean; appKey: string | null; hint: string | null }>('/access/dingtalk/status');
+// GET /api/access/org/status → 组织架构来源（统一登录服务）是否可用
+export function fetchAccessOrgStatus() {
+  return jsonFetch<{
+    ok: boolean;
+    configured: boolean;
+    baseUrl: string | null;
+    clientId: string | null;
+    lastSyncedAt: string | null;
+    departments: number;
+    members: number;
+    hint: string | null;
+    error: string | null;
+  }>('/access/org/status');
 }
 
-// POST /api/access/sync-dingtalk → 从钉钉通讯录同步部门与成员（仅管理员）
-export function syncDingTalkOrg() {
-  return jsonFetch<{ ok: boolean; departments: number; members: number }>('/access/sync-dingtalk', { method: 'POST' }, 120000);
+// POST /api/access/sync-org → 从统一登录服务同步部门与成员（仅管理员）
+export function syncAccessOrg() {
+  return jsonFetch<{ ok: boolean; departments: number; members: number; migrated: number }>('/access/sync-org', { method: 'POST' }, 120000);
 }

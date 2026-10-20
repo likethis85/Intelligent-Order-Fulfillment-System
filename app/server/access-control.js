@@ -12,6 +12,7 @@ import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fetchSsoOrg, ssoOrgStatus } from './sso-org.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -71,7 +72,8 @@ export function normalizeConfig(raw) {
     .map((d) => ({
       id: text(d?.id, 80),
       name: text(d?.name, 40),
-      role: isRole(d?.role) ? d.role : 'view',
+      // role 为 null 表示继承父部门的角色，一直往上找，找不到用全局默认
+      role: isRole(d?.role) ? d.role : null,
       source: d?.source === 'dingtalk' ? 'dingtalk' : 'manual',
       parentId: d?.parentId ? text(d.parentId, 80) : null,
       note: text(d?.note, 120),
@@ -82,6 +84,8 @@ export function normalizeConfig(raw) {
   const members = (Array.isArray(raw.members) ? raw.members : [])
     .map((m) => ({
       userId: text(m?.userId, 120),
+      // 钉钉 unionId，与 SSO 登录返回的 external_id 对应，重名也不会认错人
+      unionId: m?.unionId ? text(m.unionId, 120) : null,
       name: text(m?.name, 40),
       email: m?.email ? text(m.email, 120) : null,
       deptIds: Array.isArray(m?.deptIds) ? [...new Set(m.deptIds.map((id) => text(id, 80)).filter(Boolean))] : [],
@@ -93,21 +97,38 @@ export function normalizeConfig(raw) {
   const overrides = (Array.isArray(raw.overrides) ? raw.overrides : [])
     .map((o) => ({
       userId: text(o?.userId, 120),
+      // 还没登录过的人只有钉钉 unionId，先按 unionId 记下来，登录后自动生效
+      unionId: o?.unionId ? text(o.unionId, 120) : null,
       name: text(o?.name, 40),
       role: isRole(o?.role) ? o.role : 'view',
       note: text(o?.note, 120),
     }))
-    .filter((o) => o.userId && !seenOverride.has(o.userId) && seenOverride.add(o.userId));
+    .filter((o) => {
+      const key = o.userId || o.unionId;
+      if (!key || seenOverride.has(key)) return false;
+      seenOverride.add(key);
+      return true;
+    });
 
   const seenAdmin = new Set();
   const admins = (Array.isArray(raw.admins) ? raw.admins : [])
-    .map((a) => ({ userId: text(a?.userId, 120), name: text(a?.name, 40) }))
-    .filter((a) => a.userId && !seenAdmin.has(a.userId) && seenAdmin.add(a.userId));
+    .map((a) => ({
+      userId: text(a?.userId, 120),
+      unionId: a?.unionId ? text(a.unionId, 120) : null,
+      name: text(a?.name, 40),
+    }))
+    .filter((a) => {
+      const key = a.userId || a.unionId;
+      if (!key || seenAdmin.has(key)) return false;
+      seenAdmin.add(key);
+      return true;
+    });
 
   return {
     version: 1,
     updatedAt: raw.updatedAt ?? null,
     bootstrappedAt: raw.bootstrappedAt ?? null,
+    orgSyncedAt: raw.orgSyncedAt ?? null,
     settings: { defaultRole: isRole(settings.defaultRole) ? settings.defaultRole : 'view' },
     departments,
     members,
@@ -151,22 +172,52 @@ function matchesKey(user, keys) {
   return [user.id, user.email, user.displayName].filter(Boolean).some((v) => set.has(String(v).toLowerCase()));
 }
 
+// 登录身份 → 通讯录成员：优先用钉钉 unionId，退回归属的 SSO 用户 id
+export function findMember(user, config = getConfig()) {
+  if (!user) return null;
+  if (user.externalId) {
+    const byUnion = config.members.find((m) => m.unionId && m.unionId === user.externalId);
+    if (byUnion) return byUnion;
+  }
+  return config.members.find((m) => m.userId === user.id) || null;
+}
+
+// 部门角色沿 parentId 向上继承：子部门没单独设置时跟随父部门
+function inheritedRole(deptId, byId, depth = 0) {
+  const dept = byId.get(deptId);
+  if (!dept || depth > 32) return null;
+  if (dept.role) return dept.role;
+  return dept.parentId ? inheritedRole(dept.parentId, byId, depth + 1) : null;
+}
+
+// 授权条目可能只记了 unionId（对方还没登录过），登录后按 unionId 认人
+function samePerson(entry, user) {
+  if (!entry || !user) return false;
+  if (entry.userId && entry.userId === user.id) return true;
+  return Boolean(entry.unionId && user.externalId && entry.unionId === user.externalId);
+}
+
 export function resolveRole(user, config = getConfig()) {
   if (!user?.id) return { role: 'view', reason: 'anonymous', deptNames: [] };
   if (matchesKey(user, envAdminKeys())) return { role: 'admin', reason: 'env_admin', deptNames: [] };
-  if (config.admins.some((a) => a.userId === user.id)) return { role: 'admin', reason: 'admin_group', deptNames: [] };
+  if (config.admins.some((a) => samePerson(a, user))) return { role: 'admin', reason: 'admin_group', deptNames: [] };
 
-  const override = config.overrides.find((o) => o.userId === user.id);
+  const override = config.overrides.find((o) => samePerson(o, user));
   if (override) return { role: override.role, reason: 'account_override', deptNames: [] };
 
-  const member = config.members.find((m) => m.userId === user.id);
+  const member = findMember(user, config);
   const deptIds = member?.deptIds || [];
-  const depts = config.departments.filter((d) => deptIds.includes(d.id));
-  if (depts.length > 0) {
-    // 员工可能同时在多个部门：取权限最高的那个
-    const best = depts.reduce((a, b) => (ROLE_RANK[b.role] > ROLE_RANK[a.role] ? b : a), depts[0]);
-    return { role: best.role, reason: 'department', deptNames: depts.map((d) => d.name) };
+  const byId = new Map(config.departments.map((d) => [d.id, d]));
+  let best = null;
+  const deptNames = [];
+  for (const deptId of deptIds) {
+    const dept = byId.get(deptId);
+    if (dept) deptNames.push(dept.name);
+    const role = inheritedRole(deptId, byId);
+    if (role && (!best || ROLE_RANK[role] > ROLE_RANK[best])) best = role;
   }
+  // 员工可能同时在多个部门：取权限最高的那个
+  if (best) return { role: best, reason: 'department', deptNames };
   return { role: config.settings.defaultRole, reason: 'default', deptNames: [] };
 }
 
@@ -211,12 +262,14 @@ export function recordKnownUser(user) {
     name: user.displayName || user.email || user.id,
     email: user.email || null,
     provider: user.provider || 'dingtalk',
+    // 钉钉 unionId，用来把登录账号和通讯录成员对上
+    externalId: user.externalId || prev?.externalId || null,
     firstSeenAt: prev?.firstSeenAt || new Date(now).toISOString(),
     lastSeenAt: new Date(now).toISOString(),
     loginCount: (prev?.loginCount || 0) + 0,
   };
   // 6 小时内的重复访问不写盘，避免每个请求都落文件
-  if (prev && now - new Date(prev.lastSeenAt || 0).getTime() < 6 * 3600_000 && prev.name === next.name && prev.email === next.email) return;
+  if (prev && now - new Date(prev.lastSeenAt || 0).getTime() < 6 * 3600_000 && prev.name === next.name && prev.email === next.email && prev.externalId === next.externalId) return;
   users[user.id] = next;
   userDirty = true;
   if (!flushTimer) {
@@ -245,82 +298,82 @@ function bootstrapIfNeeded(user) {
   }
 }
 
-// ── 钉钉通讯录同步（可选，需要企业应用 AppKey/AppSecret）────────────────────
-const DINGTALK_API = 'https://oapi.dingtalk.com';
+// ── 组织架构同步（数据来自统一登录服务，不直连钉钉）────────────────────────
+// 老版本用代码预置了两个空壳部门，第一次同步时把它们的角色迁移到同名钉钉部门
+const LEGACY_DEPARTMENT_MAP = { 'dept-goods': '商品部', 'dept-supply': '供应链中心' };
 
-function dingtalkCreds() {
-  const key = process.env.DINGTALK_APP_KEY || process.env.DINGTALK_APPKEY || '';
-  const secret = process.env.DINGTALK_APP_SECRET || process.env.DINGTALK_APPSECRET || '';
-  return { key, secret, configured: Boolean(key && secret) };
-}
+export async function syncSsoOrg() {
+  const { departments, members, syncedAt, truncated } = await fetchSsoOrg();
+  const config = getConfig();
+  const previous = new Map(config.departments.map((d) => [d.id, d]));
 
-async function dingtalkToken() {
-  const { key, secret } = dingtalkCreds();
-  const url = `${DINGTALK_API}/gettoken?appkey=${encodeURIComponent(key)}&appsecret=${encodeURIComponent(secret)}`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  const j = await r.json();
-  if (!j.access_token) throw new Error(`获取钉钉令牌失败：${j.errmsg || r.status}`);
-  return j.access_token;
-}
-
-async function dingtalkPost(pathname, token, body) {
-  const r = await fetch(`${DINGTALK_API}${pathname}?access_token=${encodeURIComponent(token)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
-  });
-  const j = await r.json();
-  if (j.errcode && j.errcode !== 0) throw new Error(`钉钉接口 ${pathname} 失败：${j.errmsg}（${j.errcode}）`);
-  return j.result;
-}
-
-export async function syncDingTalkOrg() {
-  const token = await dingtalkToken();
-  const departments = [];
-  const members = new Map();
-  const queue = [{ id: 1, parentId: null }];
-  const seen = new Set();
-
-  while (queue.length && departments.length < 500) {
-    const current = queue.shift();
-    if (!current || seen.has(String(current.id))) continue;
-    seen.add(String(current.id));
-    const subs = await dingtalkPost('/topapi/v2/department/listsub', token, { dept_id: current.id });
-    for (const d of Array.isArray(subs) ? subs : []) {
-      const id = String(d.dept_id);
-      if (seen.has(id)) continue;
-      departments.push({ id: `dt-${id}`, name: text(d.name, 40) || `部门${id}`, parentId: current.parentId || (current.id === 1 ? null : `dt-${current.id}`), source: 'dingtalk', role: 'view', note: '' });
-      queue.push({ id: d.dept_id, parentId: `dt-${id}` });
-    }
-    // 同步拉取该部门成员
-    let cursor = 0;
-    for (let page = 0; page < 20; page++) {
-      const res = await dingtalkPost('/topapi/v2/user/list', token, { dept_id: current.id, cursor, size: 100 });
-      const list = Array.isArray(res?.list) ? res.list : [];
-      for (const u of list) {
-        if (!u?.userid) continue;
-        const prev = members.get(u.userid) || { userId: u.userid, name: text(u.name, 40) || u.userid, email: u.email || null, deptIds: [], source: 'dingtalk' };
-        if (!prev.deptIds.includes(`dt-${current.id}`)) prev.deptIds.push(`dt-${current.id}`);
-        members.set(u.userid, prev);
-      }
-      if (!res?.has_more) break;
-      cursor = res.next_cursor ?? 0;
-    }
+  const syncedDepartments = [];
+  const nameToId = new Map();
+  for (const item of departments) {
+    const rawId = text(item?.id, 40);
+    if (!rawId) continue;
+    const id = `dt-${rawId}`;
+    const name = text(item?.name, 40) || `部门${rawId}`;
+    const parent = item?.parent_id == null || item.parent_id === '' ? null : `dt-${text(item.parent_id, 40)}`;
+    const old = previous.get(id);
+    syncedDepartments.push({
+      id,
+      name,
+      parentId: parent,
+      role: old?.role ?? null,
+      source: 'dingtalk',
+      note: old?.note || '',
+    });
+    // 同名部门取第一个，用于老空壳部门的角色迁移
+    if (!nameToId.has(name)) nameToId.set(name, id);
   }
 
-  const config = getConfig();
   const manualDepartments = config.departments.filter((d) => d.source !== 'dingtalk');
   const manualMembers = config.members.filter((m) => m.source !== 'dingtalk');
-  const dtDeptMap = new Map(config.departments.filter((d) => d.source === 'dingtalk').map((d) => [d.id, d]));
-  // 保留管理员已设过的部门角色，新增部门沿用全局默认（查看）
-  const mergedDepartments = [
-    ...manualDepartments,
-    ...departments.map((d) => ({ ...d, role: dtDeptMap.get(d.id)?.role || 'view', note: dtDeptMap.get(d.id)?.note || '' })),
-  ];
-  const mergedMembers = [...manualMembers, ...[...members.values()]];
-  const next = saveConfig({ ...config, departments: mergedDepartments, members: mergedMembers });
-  return { departments: next.departments.filter((d) => d.source === 'dingtalk').length, members: members.size };
+  const keptManualDepartments = [];
+  let migrated = 0;
+  for (const dept of manualDepartments) {
+    const targetId = nameToId.get(LEGACY_DEPARTMENT_MAP[dept.id]);
+    const target = targetId ? syncedDepartments.find((d) => d.id === targetId) : null;
+    // 空壳部门只在还没被单独配置过角色时迁移，避免覆盖用户后面的调整
+    if (target && dept.role && !target.role) {
+      target.role = dept.role;
+      migrated += 1;
+      continue;
+    }
+    keptManualDepartments.push(dept);
+  }
+
+  const seen = new Set();
+  const syncedMembers = [];
+  for (const person of members) {
+    const userId = text(person?.userid, 120);
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    syncedMembers.push({
+      userId,
+      unionId: person?.union_id ? text(person.union_id, 120) : null,
+      name: text(person?.name, 40) || userId,
+      email: person?.email ? text(person.email, 120) : null,
+      deptIds: [...new Set((Array.isArray(person?.dept_ids) ? person.dept_ids : []).map((id) => `dt-${text(id, 40)}`))],
+      source: 'dingtalk',
+    });
+  }
+
+  const saved = saveConfig({
+    ...config,
+    departments: [...keptManualDepartments, ...syncedDepartments],
+    members: [...manualMembers, ...syncedMembers],
+    orgSyncedAt: new Date().toISOString(),
+  });
+
+  return {
+    departments: saved.departments.filter((d) => d.source === 'dingtalk').length,
+    members: syncedMembers.length,
+    migrated,
+    syncedAt,
+    truncated,
+  };
 }
 
 // ── Express 装配 ────────────────────────────────────────────────────────────
@@ -372,7 +425,7 @@ export function createAccessControl() {
   router.get('/me', (req, res) => {
     const config = getConfig();
     const access = ensure(req);
-    const member = config.members.find((m) => m.userId === req.auth?.user?.id);
+    const member = findMember(req.auth?.user, config);
     res.json({
       ...access,
       user: req.auth?.user || null,
@@ -406,17 +459,25 @@ export function createAccessControl() {
     res.json({ ok: true, users: listKnownUsers() });
   });
 
-  router.get('/dingtalk/status', requireAdmin, (_req, res) => {
-    const { key, secret, configured } = dingtalkCreds();
-    res.json({ ok: true, configured, appKey: configured ? `${key.slice(0, 4)}****` : null, hint: configured ? null : '未配置 DINGTALK_APP_KEY / DINGTALK_APP_SECRET，可先手动维护部门与成员' });
+  router.get('/org/status', requireAdmin, (_req, res) => {
+    const status = ssoOrgStatus();
+    const config = getConfig();
+    res.json({
+      ok: true,
+      ...status,
+      lastSyncedAt: config.orgSyncedAt || null,
+      departments: config.departments.filter((d) => d.source === 'dingtalk').length,
+      members: config.members.filter((m) => m.source === 'dingtalk').length,
+      hint: status.configured ? null : '统一登录服务未配置 client 凭证，暂时只能手动维护部门与成员',
+    });
   });
 
-  router.post('/sync-dingtalk', requireAdmin, async (_req, res) => {
-    if (!dingtalkCreds().configured) {
-      return res.status(400).json({ ok: false, error: 'not_configured', message: '未配置钉钉企业应用 AppKey/AppSecret，无法同步通讯录' });
+  router.post('/sync-org', requireAdmin, async (_req, res) => {
+    if (!ssoOrgStatus().configured) {
+      return res.status(400).json({ ok: false, error: 'not_configured', message: '统一登录服务未配置 client 凭证，无法读取通讯录' });
     }
     try {
-      const stats = await syncDingTalkOrg();
+      const stats = await syncSsoOrg();
       res.json({ ok: true, ...stats });
     } catch (err) {
       res.status(502).json({ ok: false, error: 'sync_failed', message: err.message });
