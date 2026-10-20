@@ -188,7 +188,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   const [access, setAccess] = useState<AccessMe | null>(null);
   const canEdit = access?.canEditTray === true;
   const canManage = access?.canManageAccess === true;
-  const canSync = access?.canSyncData === true;
+  const canSync = access?.canSyncData === true || access?.canEditTray === true;
 
   const goPage = (key: PageKey) => {
     if (key !== page && accessDirty && !window.confirm('权限管理里有未保存的修改，切换页面会丢失，确定离开吗？')) return;
@@ -500,7 +500,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
   const onSync = useCallback(async (kind: '商品' | '库存' | '成本及价格') => {
     if (!canSync) {
-      toast.error('仅管理员可执行数据同步');
+      toast.error('需要编辑或管理权限才可执行数据同步');
       return;
     }
     setSyncing(kind);

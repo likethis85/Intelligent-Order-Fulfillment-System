@@ -215,7 +215,7 @@ app.get('/api/weather', async (req, res) => {
 // POST /api/sync — 从源头重新拉数据
 //   kind='商品' → 领猫基础资料 + BI 款式卡（名称/小名/售价）+ 尺码 ETL
 //   kind='库存' → BI SKC 卡（现货/在途/占单/交期） + 尺码 ETL（聚水潭接入后改聚水潭）
-app.use('/api/sync', access.guardAdminWrites);
+app.use('/api/sync', access.guardSyncWrites);
 app.post('/api/sync', async (req, res) => {
   const kind = req.body?.kind === '库存' ? '库存' : '商品';
   try {

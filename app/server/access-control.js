@@ -284,7 +284,7 @@ export function accessFor(user, config = getConfig()) {
     deptNames,
     canEditTray: ROLE_RANK[role] >= ROLE_RANK.edit,
     canManageAccess: role === 'admin',
-    canSyncData: role === 'admin',
+    canSyncData: ROLE_RANK[role] >= ROLE_RANK.edit,
     canEditRules: role === 'admin',
   };
 }
@@ -471,8 +471,17 @@ export function createAccessControl() {
 
   const guardAdminWrites = (req, res, next) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+    if (!ensure(req).canEditRules) {
+      return res.status(403).json({ error: 'admin_required', message: '仅管理员可修改规则' });
+    }
+    next();
+  };
+
+  // 数据同步（商品/库存/钉钉成本等）：编辑及以上角色可用
+  const guardSyncWrites = (req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     if (!ensure(req).canSyncData) {
-      return res.status(403).json({ error: 'admin_required', message: '仅管理员可执行同步或修改规则' });
+      return res.status(403).json({ error: 'sync_forbidden', message: '需要编辑或管理权限才可执行数据同步' });
     }
     next();
   };
@@ -562,5 +571,5 @@ export function createAccessControl() {
     }
   });
 
-  return { router, attach, requireAdmin, guardWrites, guardAdminWrites, getConfig, saveConfig, accessFor };
+  return { router, attach, requireAdmin, guardWrites, guardAdminWrites, guardSyncWrites, getConfig, saveConfig, accessFor };
 }

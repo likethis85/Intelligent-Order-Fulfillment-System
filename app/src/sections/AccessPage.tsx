@@ -13,7 +13,7 @@ import type { AccessAuditEntry, AccessConfig, AccessDepartment, AccessMember, Ac
 const ROLE_LABEL: Record<AccessRole, string> = { admin: '管理员', edit: '可编辑', view: '仅查看' };
 const ROLE_HINT: Record<AccessRole, string> = {
   admin: '全部权限：后台 + 编辑货盘 + 数据同步 + 规则',
-  edit: '可编辑货盘内容（增删改、排品、面料数据）',
+  edit: '可编辑货盘内容（增删改、排品、面料数据）与同步数据（商品、库存、成本）',
   view: '只能查看与导出，不能修改',
 };
 const ROLE_BADGE: Record<AccessRole, string> = {
@@ -1156,7 +1156,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         <div className="flex items-center gap-1.5 font-semibold text-ink-primary"><UserCog size={13} /> 权限是怎么生效的</div>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>服务端每个写接口都会校验，只读账号即使绕过页面也改不了数据（含 WebSocket 协同编辑）。</li>
-          <li>数据同步与规则配置仅管理员可执行；查看权限的用户可以正常浏览、筛选、导出。</li>
+          <li>数据同步（商品/库存/成本）需编辑或管理权限；规则配置与权限管理仅管理员可操作；查看权限的用户可以正常浏览、筛选、导出。</li>
           <li>首次部署时，第一个登录的账号会自动成为管理员，可在上方管理员组里调整。</li>
           <li>保存后新权限对下一次请求立即生效，页面上的按钮状态在刷新后更新。</li>
         </ul>

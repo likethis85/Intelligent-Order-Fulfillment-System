@@ -54,7 +54,7 @@ test('权限位与角色一致', () => {
   const cfg = baseConfig();
   assert.deepEqual(
     (({ canEditTray, canManageAccess, canSyncData, canEditRules }) => ({ canEditTray, canManageAccess, canSyncData, canEditRules }))(accessFor({ id: 'u_goods' }, cfg)),
-    { canEditTray: true, canManageAccess: false, canSyncData: false, canEditRules: false },
+    { canEditTray: true, canManageAccess: false, canSyncData: true, canEditRules: false },
   );
   assert.deepEqual(
     (({ canEditTray, canManageAccess }) => ({ canEditTray, canManageAccess }))(accessFor({ id: 'u_new' }, cfg)),

@@ -45,7 +45,7 @@ app.use('/api', ac.attach);
 app.use('/api/access', ac.router);
 app.put('/api/trays', ac.guardWrites, (_req, res) => res.json({ ok: true }));
 app.get('/api/trays', (_req, res) => res.json({ ok: true }));
-app.post('/api/sync', ac.guardAdminWrites, (_req, res) => res.json({ ok: true }));
+app.post('/api/sync', ac.guardSyncWrites, (_req, res) => res.json({ ok: true }));
 app.put('/api/config/role-rules', ac.guardAdminWrites, (_req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
@@ -80,8 +80,9 @@ test('未匹配部门的人默认只读', async () => {
   assert.equal(res.status, 403);
 });
 
-test('同步与规则配置只有管理员能写', async () => {
-  assert.equal((await call('POST', '/api/sync', 'u_goods')).status, 403);
+test('同步允许编辑与管理员，规则配置只有管理员能写', async () => {
+  assert.equal((await call('POST', '/api/sync', 'u_ops')).status, 403);
+  assert.equal((await call('POST', '/api/sync', 'u_goods')).status, 200);
   assert.equal((await call('POST', '/api/sync', 'u_boss')).status, 200);
   assert.equal((await call('PUT', '/api/config/role-rules', 'u_goods')).status, 403);
   assert.equal((await call('PUT', '/api/config/role-rules', 'u_boss')).status, 200);
