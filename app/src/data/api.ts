@@ -205,7 +205,7 @@ export function fetchRestockStock(params: { pids?: string[]; skcs?: string[] } =
   const q = new URLSearchParams();
   if (params.pids?.length) q.set('pids', params.pids.join(','));
   if (params.skcs?.length) q.set('skcs', params.skcs.join(','));
-  return jsonFetch<RestockStockResult>(`/samples/calc-restock-stock?${q.toString()}`, undefined, 30_000);
+  return jsonFetch<RestockStockResult>(`/samples/calc-restock-stock?${q.toString()}`, undefined, 60_000);
 }
 
 export interface SalesSummary {

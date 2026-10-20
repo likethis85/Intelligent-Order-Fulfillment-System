@@ -290,25 +290,42 @@ function aggregateItemsToRows(allItems) {
 
 // 单款查询（带按款号缓存）：成功才写缓存（含空结果），失败抛出由调用方决定是否降级
 const RATE_LIMITED_TTL_MS = 5 * 60 * 1000; // 限流踩坑：短 TTL 空缓存，防止反复打开页面持续打满配额
+// 单飞合并（Inflight deduplication）：并发请求同一个款号时复用同一个 Promise，避免领猫配额被重复打满
+const inflightBomByCode = new Map();
+
 async function getSampleMaterialsOne(code) {
   const cached = sampleBomByCodeCache.get(code);
   if (isFresh(cached)) return cached.rows;
-  let items;
-  try {
-    items = await getSampleDevMaterialsForOne(code);
-  } catch (err) {
-    if (/频率限制|rate/i.test(err?.message || '')) {
-      // 限流：缓存空 5 分钟（不改 rows 数据语义，只是暂停回源），配额恢复后自动重试
-      sampleBomByCodeCache.set(code, { at: Date.now() - TTL_EMPTY_MS + RATE_LIMITED_TTL_MS, rows: [] });
-      scheduleBomCacheSave();
-    }
-    throw err;
+
+  if (inflightBomByCode.has(code)) {
+    return inflightBomByCode.get(code);
   }
-  const rows = aggregateItemsToRows(items);
-  sampleBomByCodeCache.set(code, { at: Date.now(), rows });
-  evictIfFull(sampleBomByCodeCache);
-  scheduleBomCacheSave();
-  return rows;
+
+  const p = (async () => {
+    let items;
+    try {
+      items = await getSampleDevMaterialsForOne(code);
+    } catch (err) {
+      if (/频率限制|rate/i.test(err?.message || '')) {
+        // 限流：缓存空 5 分钟（不改 rows 数据语义，只是暂停回源），配额恢复后自动重试
+        sampleBomByCodeCache.set(code, { at: Date.now() - TTL_EMPTY_MS + RATE_LIMITED_TTL_MS, rows: [] });
+        scheduleBomCacheSave();
+      }
+      throw err;
+    }
+    const rows = aggregateItemsToRows(items);
+    sampleBomByCodeCache.set(code, { at: Date.now(), rows });
+    evictIfFull(sampleBomByCodeCache);
+    scheduleBomCacheSave();
+    return rows;
+  })();
+
+  inflightBomByCode.set(code, p);
+  try {
+    return await p;
+  } finally {
+    inflightBomByCode.delete(code);
+  }
 }
 
 // ── 公开 API：批量查样衣 BOM，按 (smCode, skc) 聚合 fabricMt / liningMt / supplierShort ──

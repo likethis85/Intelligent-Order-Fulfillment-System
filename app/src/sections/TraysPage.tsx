@@ -162,29 +162,56 @@ function ColorLineEditor({ value, defaultText, onSave, onClear }: {
 // 样衣 SKC 物料面板：嵌入翻单面板（RestockPicker）顶部，按 smCode 分组列出 SKC + 面料/里料/供应商
 // 数据源：/api/samples/materials?codes=...（后端带 1h 缓存）
 // 显示策略：列出领猫 BOM 的全部 SKC（包括未转大货的样衣色如驼色），方便翻单时统一规划
+// ── 翻单计划面板模块级内存缓存（SWR 策略）：二次打开秒开，切换款号无需重复等待 ──
+const sampleMaterialsCache = new Map<string, { rows: SampleMaterialRow[]; at: number }>();
+const restockStockCache = new Map<string, { items: RestockStockFabric[]; at: number }>();
+const PANEL_CACHE_FRESH_MS = 5 * 60 * 1000; // 5 分钟新鲜度
+
 function SampleMaterialsPanel({
   pids,
 }: {
   pids: string[];
 }) {
   const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState<SampleMaterialRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const cacheKey = useMemo(() => (pids || []).map((p) => p.toUpperCase().trim()).filter(Boolean).sort().join(','), [pids]);
+  const cached = sampleMaterialsCache.get(cacheKey);
+
+  const [rows, setRows] = useState<SampleMaterialRow[]>(() => cached?.rows || []);
+  const [loading, setLoading] = useState(() => !cached);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!pids || pids.length === 0) {
+
+  const doFetch = (force = false) => {
+    if (!cacheKey) {
       setRows([]); setLoading(false); setError(null);
       return;
     }
-    setLoading(true);
+    const cur = sampleMaterialsCache.get(cacheKey);
+    if (!force && cur && Date.now() - cur.at < PANEL_CACHE_FRESH_MS) {
+      setRows(cur.rows);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    if (!cur) setLoading(true);
     setError(null);
     fetchSampleMaterials(pids)
-      .then((r) => { if (!cancelled) setRows(r.items || []); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [pids.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+      .then((r) => {
+        const items = r.items || [];
+        sampleMaterialsCache.set(cacheKey, { rows: items, at: Date.now() });
+        setRows(items);
+        setError(null);
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    doFetch(false);
+  }, [cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!pids || pids.length === 0) return null;
   // 不再按「products.colors」过滤驼色等未转大货 SKC：用户在货盘面板里需要看到所有 BOM SKC
@@ -209,7 +236,19 @@ function SampleMaterialsPanel({
           样衣 SKC 物料
           {!loading && (skcCount > 0 || error) && (
             <span className="ml-2 text-[11px] font-normal text-ink-muted">
-              {error ? `查询失败：${error}` : `${codeCount} 款号 · ${skcCount} 个 SKC`}
+              {error ? (
+                <span className="inline-flex items-center gap-1 text-stage-return-fg">
+                  <span>查询失败：{error}</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); doFetch(true); }}
+                    className="underline hover:opacity-80 font-medium ml-1 cursor-pointer"
+                  >
+                    重试
+                  </span>
+                </span>
+              ) : `${codeCount} 款号 · ${skcCount} 个 SKC`}
             </span>
           )}
           {loading && <span className="ml-2 text-[11px] font-normal text-ink-muted">查询中…</span>}
@@ -220,7 +259,16 @@ function SampleMaterialsPanel({
         <div className="max-h-[260px] overflow-auto px-5 pb-3">
           {loading && <div className="py-3 text-center text-[11.5px] text-ink-muted">加载中…</div>}
           {error && !loading && (
-            <div className="py-3 text-center text-[11.5px] text-stage-return-fg">查询失败：{error}</div>
+            <div className="py-3 text-center text-[11.5px] text-stage-return-fg">
+              查询失败：{error}
+              <button
+                type="button"
+                onClick={() => doFetch(true)}
+                className="ml-2 text-action-link underline font-medium cursor-pointer"
+              >
+                点击重试
+              </button>
+            </div>
           )}
           {!loading && !error && skcCount === 0 && (
             <div className="py-3 text-center text-[11.5px] text-ink-muted">
@@ -265,22 +313,46 @@ function SampleMaterialsPanel({
 // 顶部提示条保留核心信息（卷数、SKC数），需要对照面料库存/最大单量时可点「▼ 展开」
 function RestockStockPanel({ pids }: { pids: string[] }) {
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<RestockStockFabric[]>([]);
-  const [loading, setLoading] = useState(false);
+  const cacheKey = useMemo(() => (pids || []).map((p) => p.toUpperCase().trim()).filter(Boolean).sort().join(','), [pids]);
+  const cached = restockStockCache.get(cacheKey);
+
+  const [items, setItems] = useState<RestockStockFabric[]>(() => cached?.items || []);
+  const [loading, setLoading] = useState(() => !cached);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!pids || pids.length === 0) {
+
+  const doFetch = (force = false) => {
+    if (!cacheKey) {
       setItems([]); setLoading(false); setError(null);
       return;
     }
-    setLoading(true); setError(null);
+    const cur = restockStockCache.get(cacheKey);
+    if (!force && cur && Date.now() - cur.at < PANEL_CACHE_FRESH_MS) {
+      setItems(cur.items);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    if (!cur) setLoading(true);
+    setError(null);
     fetchRestockStock({ pids })
-      .then((r) => { if (!cancelled) setItems(r.items || []); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [pids.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+      .then((r) => {
+        const resItems = r.items || [];
+        restockStockCache.set(cacheKey, { items: resItems, at: Date.now() });
+        setItems(resItems);
+        setError(null);
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    doFetch(false);
+  }, [cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!pids || pids.length === 0) return null;
   const fabCount = items.length;
   const skcSet = new Set();
@@ -297,7 +369,19 @@ function RestockStockPanel({ pids }: { pids: string[] }) {
           <span>面料信息已更新（在仓/在途/工厂现货/可订货 已重算最大单量）</span>
           {!loading && (fabCount > 0 || error) && (
             <span className="text-[11px] font-normal text-orange-700 whitespace-nowrap">
-              {error ? `查询失败：${error}` : `${fabCount} 卷面料 · ${skcSet.size} 个 SKC`}
+              {error ? (
+                <span className="inline-flex items-center gap-1 text-stage-return-fg">
+                  <span>查询失败：{error}</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); doFetch(true); }}
+                    className="underline hover:opacity-80 font-medium ml-1 cursor-pointer"
+                  >
+                    重试
+                  </span>
+                </span>
+              ) : `${fabCount} 卷面料 · ${skcSet.size} 个 SKC`}
             </span>
           )}
           {loading && <span className="text-[11px] font-normal text-orange-700">查询中…</span>}
@@ -308,7 +392,16 @@ function RestockStockPanel({ pids }: { pids: string[] }) {
         <div className="max-h-[220px] overflow-auto bg-surface-card px-5 pb-3">
           {loading && <div className="py-3 text-center text-[11.5px] text-ink-muted">加载中…</div>}
           {error && !loading && (
-            <div className="py-3 text-center text-[11.5px] text-stage-return-fg">查询失败：{error}</div>
+            <div className="py-3 text-center text-[11.5px] text-stage-return-fg">
+              查询失败：{error}
+              <button
+                type="button"
+                onClick={() => doFetch(true)}
+                className="ml-2 text-action-link underline font-medium cursor-pointer"
+              >
+                点击重试
+              </button>
+            </div>
           )}
           {!loading && !error && fabCount === 0 && (
             <div className="py-3 text-center text-[11.5px] text-ink-muted">
@@ -3811,7 +3904,8 @@ export default function TraysPage({
       .then((r) => {
         if (cancelled) return;
         const byCode: Record<string, string[]> = {};
-        for (const it of r.items || []) {
+        const items = r.items || [];
+        for (const it of items) {
           const pid = it.smCode.toLowerCase();
           const color = (it.colorName || '').trim();
           if (!color) continue;
@@ -3819,9 +3913,40 @@ export default function TraysPage({
           if (!byCode[pid].includes(color)) byCode[pid].push(color);
         }
         setSampleColorsByCode((prev) => ({ ...prev, ...byCode }));
+
+        // 同步存入单款级内存缓存：弹窗点开任一款时秒开
+        for (const pid of activeTrayPids) {
+          const up = pid.toUpperCase().trim();
+          const matched = items.filter((it) => it.smCode.toUpperCase() === up);
+          if (matched.length > 0) {
+            sampleMaterialsCache.set(up, { rows: matched, at: Date.now() });
+          }
+        }
       })
       .catch(() => { /* 失败保留旧值，不清空（限流恢复后下次进页自动补上） */ });
     return () => { cancelled = true; };
+  }, [activeTrayPids, dataVersion]);
+
+  // ── 翻单计划面板后台静默预热：对当前激活货盘预拉面料最大单量，打开弹窗 0ms 秒开 ──
+  useEffect(() => {
+    if (activeTrayPids.length === 0) return;
+    const timer = setTimeout(() => {
+      fetchRestockStock({ pids: activeTrayPids })
+        .then((r) => {
+          const items = r.items || [];
+          if (items.length > 0) {
+            for (const pid of activeTrayPids) {
+              const up = pid.toUpperCase().trim();
+              const matched = items.filter((f) => f.skcs.some((s) => s.skc.toUpperCase().startsWith(up)));
+              if (matched.length > 0) {
+                restockStockCache.set(up, { items: matched, at: Date.now() });
+              }
+            }
+          }
+        })
+        .catch(() => {});
+    }, 1200);
+    return () => clearTimeout(timer);
   }, [activeTrayPids, dataVersion]);
 
   // 尺码范围：拉取当前激活货盘里出现的款号，从 BI ETL 数据集聚合 "S~XL"

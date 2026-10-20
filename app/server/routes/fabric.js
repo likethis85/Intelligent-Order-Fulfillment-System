@@ -36,24 +36,57 @@ function saveHistory(records) {
   }
 }
 
+// ── 内存缓存与单飞防击穿：60s TTL，写操作主动失效 ──
+let fabricDataCache = { data: null, at: 0 };
+let fabricDataInflight = null;
+const FABRIC_CACHE_TTL_MS = 60_000;
+
+export function invalidateFabricDataCache() {
+  fabricDataCache = { data: null, at: 0 };
+}
+
 /**
  * 直接读取 Supabase 的 fabric_data 记录（供内部其它模块如 samples.js 复用）
  */
 export async function getFabricDataRows() {
   if (!isSupabaseReady() || !supabase) return [];
-  const { data, error } = await supabase
-    .from('fabric_data')
-    .select('*')
-    .order('submitted_at', { ascending: false });
 
-  if (error) {
-    console.error('[getFabricDataRows] 读取失败:', error.message);
-    throw error;
+  const now = Date.now();
+  if (fabricDataCache.data && (now - fabricDataCache.at < FABRIC_CACHE_TTL_MS)) {
+    return fabricDataCache.data;
   }
-  return (data || []).filter((r) => {
-    const w = String(r.warehouse || '');
-    return !(w.includes('恒隆') || w.includes('工厂物料'));
-  });
+
+  if (fabricDataInflight) {
+    return fabricDataInflight;
+  }
+
+  fabricDataInflight = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('fabric_data')
+        .select('*')
+        .order('submitted_at', { ascending: false });
+
+      if (error) {
+        console.error('[getFabricDataRows] 读取失败:', error.message);
+        if (fabricDataCache.data) {
+          console.warn('[getFabricDataRows] Supabase 暂不可用，降级使用上一份内存缓存');
+          return fabricDataCache.data;
+        }
+        throw error;
+      }
+      const filtered = (data || []).filter((r) => {
+        const w = String(r.warehouse || '');
+        return !(w.includes('恒隆') || w.includes('工厂物料'));
+      });
+      fabricDataCache = { data: filtered, at: Date.now() };
+      return filtered;
+    } finally {
+      fabricDataInflight = null;
+    }
+  })();
+
+  return fabricDataInflight;
 }
 
 // ── GET /api/fabric-data ──
@@ -188,6 +221,7 @@ router.post('/fabric-data', async (req, res) => {
         failCount: errors.length,
       });
     }
+    invalidateFabricDataCache();
     res.json({ success: true, count: results.length });
   } catch (error) {
     console.error('[POST /api/fabric-data] exception:', error);
@@ -202,6 +236,7 @@ router.delete('/fabric-data/:id', async (req, res) => {
     const { id } = req.params;
     const { error } = await supabase.from('fabric_data').delete().eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
+    invalidateFabricDataCache();
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -276,6 +311,7 @@ router.post('/fabric-data/force-add', async (req, res) => {
 
     const { data, error } = await supabase.from('fabric_data').insert(records).select();
     if (error) return res.status(500).json({ error: error.message });
+    invalidateFabricDataCache();
     res.json({ success: true, data, count: records.length });
   } catch (error) {
     console.error('[POST /api/fabric-data/force-add] exception:', error);
@@ -351,6 +387,7 @@ router.post('/fabric-data/fill-skcs', async (req, res) => {
         .from('fabric_data')
         .upsert(allNewRecords, { onConflict: 'pdt_code,sku_code,mt_code,mt_spec_name,warehouse', ignoreDuplicates: true });
     }
+    invalidateFabricDataCache();
     res.json({ success: true, inserted: allNewRecords.length });
   } catch (error) {
     console.error('[POST /api/fabric-data/fill-skcs] exception:', error);
@@ -382,6 +419,7 @@ router.put('/fabric-data/:id/sales', async (req, res) => {
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
+    invalidateFabricDataCache();
     res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -409,6 +447,7 @@ router.post('/fabric-data/clear-supplementary', async (_req, res) => {
       .select('id');
 
     if (error) return res.status(500).json({ error: error.message });
+    invalidateFabricDataCache();
     res.json({ success: true, count: data?.length || 0 });
   } catch (error) {
     res.status(500).json({ error: error.message });

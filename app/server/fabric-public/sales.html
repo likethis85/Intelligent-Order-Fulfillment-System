@@ -751,11 +751,14 @@
           // fillMissingSkcs();
           // 样衣 BOM 按需合并（不再对全部款号拉取——全量会触发领猫限流，被限的款号拿不到驼色等样衣色）：
           // 只在 URL pids 指定 / 用户手动勾选 时才调主仓 /api/samples/materials
+          // 改为非阻塞异步执行，绝不阻断界面秒级渲染与表单呈现
           const urlParamsEarly = new URLSearchParams(window.location.search);
           const pidsParamEarly = urlParamsEarly.get('pids');
           if (pidsParamEarly) {
             const earlyCodes = pidsParamEarly.split(/[,，、\s;；\n]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
-            await mergeSampleBomForCodes(earlyCodes);
+            mergeSampleBomForCodes(earlyCodes).then((hasNew) => {
+              if (hasNew) renderFabricList();
+            }).catch(e => console.warn('[sales.html] mergeSampleBomForCodes 异步提示:', e.message));
           }
           // URL 参数 pids：自动勾选对应款号
           const urlParams = new URLSearchParams(window.location.search);
@@ -772,7 +775,7 @@
                   forceAddPdtCode(code);
                 }
               });
-            }, 500);
+            }, 100);
           }
         }
       } catch (err) {
