@@ -41,7 +41,7 @@ function readLog({ trayId, limit = 200 } = {}) {
 
 export { appendLog, readLog };
 
-export function attachTrayWs(server, auth) {
+export function attachTrayWs(server, auth, accessControl = null) {
   const wss = new WebSocketServer({
     server, path: '/ws/trays',
     verifyClient: ({ req, origin }, done) => {
@@ -86,6 +86,12 @@ export function attachTrayWs(server, auth) {
     ws._sessionKey = req.auth.key;
     ws._user = req.auth.user.displayName.slice(0, 30);
     ws._room = null;
+    // 只读账号仍可接收广播，但不能通过 WS 写货盘
+    try {
+      ws._canEdit = accessControl ? accessControl.accessFor(req.auth.user).canEditTray : true;
+    } catch {
+      ws._canEdit = false;
+    }
     ws.on('message', (raw) => {
       if (!auth.getSession(req)) { ws.close(1008, 'Session ended'); return; }
       let msg;
@@ -93,8 +99,12 @@ export function attachTrayWs(server, auth) {
       if (msg.type === 'hello') {
         joinRoom(ws, msg.trayId || null);
         broadcast(ws._room, { type: 'users', users: roomUsers(ws._room) }, ws);
-        ws.send(JSON.stringify({ type: 'users', users: roomUsers(ws._room) }));
+        ws.send(JSON.stringify({ type: 'users', users: roomUsers(ws._room), canEdit: ws._canEdit }));
       } else if (msg.type === 'tray-update') {
+        if (!ws._canEdit) {
+          ws.send(JSON.stringify({ type: 'error', code: 'edit_forbidden', message: '当前账号只有查看权限，不能修改货盘内容' }));
+          return;
+        }
         const tray = msg.tray;
         if (!tray || !tray.id) return;
         // 整盘保存（沿用现有 store，自动留快照），异步，不阻塞广播

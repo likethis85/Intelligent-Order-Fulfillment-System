@@ -583,3 +583,95 @@ export async function uploadImage(file: File): Promise<string> {
     clearTimeout(timer);
   }
 }
+
+// ── 权限中心（部门 / 账号 / 管理员组）────────────────────────────────────────
+export type AccessRole = 'admin' | 'edit' | 'view';
+
+export interface AccessMe {
+  role: AccessRole;
+  reason: 'admin_group' | 'env_admin' | 'account_override' | 'department' | 'default' | 'anonymous';
+  deptNames: string[];
+  canEditTray: boolean;
+  canManageAccess: boolean;
+  canSyncData: boolean;
+  canEditRules: boolean;
+  departments: string[];
+  defaultRole: AccessRole;
+  bootstrapped: boolean;
+  user: { id: string; displayName: string; email: string | null } | null;
+}
+
+export interface AccessDepartment {
+  id: string;
+  name: string;
+  role: AccessRole;
+  source: 'manual' | 'dingtalk';
+  note?: string;
+}
+
+export interface AccessMember {
+  userId: string;
+  name: string;
+  email: string | null;
+  deptIds: string[];
+  source: 'manual' | 'dingtalk';
+}
+
+export interface AccessOverride {
+  userId: string;
+  name: string;
+  role: AccessRole;
+  note?: string;
+}
+
+export interface AccessAdmin { userId: string; name: string }
+
+export interface AccessConfig {
+  version: number;
+  updatedAt: string | null;
+  settings: { defaultRole: AccessRole };
+  departments: AccessDepartment[];
+  members: AccessMember[];
+  overrides: AccessOverride[];
+  admins: AccessAdmin[];
+}
+
+export interface KnownUser {
+  id: string;
+  name: string;
+  email: string | null;
+  provider: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+// GET /api/access/me → 当前登录人的角色与权限位
+export function fetchAccessMe() {
+  return jsonFetch<AccessMe>('/access/me', undefined, 15000);
+}
+
+// GET /api/access/config → 权限配置 + 登录过的用户目录（仅管理员）
+export function fetchAccessConfig() {
+  return jsonFetch<{ ok: boolean; config: AccessConfig; users: KnownUser[] }>('/access/config', undefined, 20000);
+}
+
+// PUT /api/access/config → 覆盖式保存权限配置（仅管理员）
+export function saveAccessConfig(
+  patch: Pick<AccessConfig, 'departments' | 'members' | 'overrides' | 'admins' | 'settings'>,
+) {
+  return jsonFetch<{ ok: boolean; config: AccessConfig }>('/access/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }, 20000);
+}
+
+// GET /api/access/dingtalk/status → 是否已配置钉钉通讯录同步
+export function fetchDingTalkStatus() {
+  return jsonFetch<{ ok: boolean; configured: boolean; appKey: string | null; hint: string | null }>('/access/dingtalk/status');
+}
+
+// POST /api/access/sync-dingtalk → 从钉钉通讯录同步部门与成员（仅管理员）
+export function syncDingTalkOrg() {
+  return jsonFetch<{ ok: boolean; departments: number; members: number }>('/access/sync-dingtalk', { method: 'POST' }, 120000);
+}

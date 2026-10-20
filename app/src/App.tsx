@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut } from 'lucide-react';
+import { Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import BoardPage from '@/sections/BoardPage';
@@ -8,26 +8,28 @@ import TraysPage from '@/sections/TraysPage';
 import ProfilePage from '@/sections/ProfilePage';
 import WeatherPage from '@/sections/WeatherPage';
 import ConfigPage from '@/sections/ConfigPage';
+import AccessPage from '@/sections/AccessPage';
 import { ProductsProvider } from '@/data/ProductsContext';
-import { fetchProducts, syncProducts, syncHengjiCost, readProductsCache } from '@/data/api';
+import { fetchProducts, syncProducts, syncHengjiCost, readProductsCache, fetchAccessMe } from '@/data/api';
+import type { AccessMe } from '@/data/api';
 import { useTraySync, diffTray } from '@/lib/traySync';
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
 import type { AuthUser } from '@/lib/api-client';
 import type { Look, Product, Tray, TraySection, TrayType } from '@/data/products';
 
-type PageKey = 'trays' | 'sequence' | 'board' | 'profile' | 'weather' | 'config';
+type PageKey = 'trays' | 'sequence' | 'board' | 'profile' | 'weather' | 'config' | 'access';
 
-const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid }[] = [
+const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid; adminOnly?: boolean }[] = [
   { key: 'trays', label: '货盘', icon: Layers },
   { key: 'sequence', label: '直播排品', icon: ListOrdered },
   { key: 'board', label: '选款看板', icon: LayoutGrid },
   { key: 'profile', label: '画像卡片', icon: BarChart3 },
   { key: 'weather', label: '天气面板', icon: CloudSun },
   { key: 'config', label: '配置后台', icon: Settings2 },
+  { key: 'access', label: '权限管理', icon: ShieldCheck, adminOnly: true },
 ];
 
 const MOBILE_NAV = NAV.filter((n) => n.key !== 'config');
-
 const TRAYS_KEY = 'marius:trays:v2';
 const ACTIVE_KEY = 'marius:activeTrayId';
 const TRAYS_UPDATED_AT_KEY = 'marius:trays:updatedAt';
@@ -179,6 +181,19 @@ const buildInitialTrays = (products: Product[]): Tray[] => {
 
 export default function App({ user, onLogout, logoutPending }: { user: AuthUser; onLogout: () => Promise<void>; logoutPending: boolean }) {
   const [page, setPage] = useState<PageKey>('trays');
+  // 权限：登录后从服务端取一次角色（部门/账号/管理员组），未取到前按“只读”处理，避免误放开
+  const [access, setAccess] = useState<AccessMe | null>(null);
+  const canEdit = access?.canEditTray === true;
+  const canManage = access?.canManageAccess === true;
+  const canSync = access?.canSyncData === true;
+
+  useEffect(() => {
+    let alive = true;
+    fetchAccessMe()
+      .then((info) => { if (alive) setAccess(info); })
+      .catch(() => { if (alive) toast.error('读取权限失败，货盘暂按只读处理'); });
+    return () => { alive = false; };
+  }, []);
   // 立刻从 localStorage 同步读，零延迟渲染上次数据
   const initialCache = typeof window !== 'undefined' ? readProductsCache() : null;
   const [products, setProducts] = useState<Product[]>(initialCache?.items ?? []);
@@ -368,7 +383,11 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
       });
   };
 
-  const updateTray = (id: string, fn: (t: Tray) => Tray) =>
+  const updateTray = (id: string, fn: (t: Tray) => Tray) => {
+    if (!canEdit) {
+      toast.error('当前账号只有查看权限，不能修改货盘内容');
+      return;
+    }
     setTrays((ts) => {
       const prev = ts.find((t) => t.id === id);
       if (!prev) return ts;
@@ -378,6 +397,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
       if (ops.length > 0) collabRef.current?.broadcast(next, ops);
       return ts.map((t) => (t.id === id ? next : t));
     });
+  };
 
   // 治本：tray 数据加载完后，对每个 tray 的 plannedRestockItems 去重（多次同步累积的同批次会丢）
   //   这样无论用户是否重新点过 sales.html 的"确认翻单"按钮，旧残留都会被清掉
@@ -406,6 +426,10 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
   // 删除货盘：本地 + 云端同步走 useEffect 里的自动写盘（debounced PUT /api/trays）
   const deleteTray = (id: string) => {
+    if (!canEdit) {
+      toast.error('当前账号只有查看权限，不能删除货盘');
+      return;
+    }
     const t = trays.find((x) => x.id === id);
     if (t) {
       collabRef.current?.broadcast(t, [{ action: '删除货盘', detail: t.name }]);
@@ -419,6 +443,10 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   };
 
   const createTray = (name: string, type: TrayType, date: string) => {
+    if (!canEdit) {
+      toast.error('当前账号只有查看权限，不能新建货盘');
+      return (trays.find((t) => t.id === activeTrayId) || trays[0] || { id: activeTrayId }) as Tray;
+    }
     const now = new Date().toISOString();
     // 模块级 seq 会在 HMR / 刷新后重置，必须从现有 trays 取最大后缀 +1，
     // 否则新建货盘会重复已存在的 id（如 t-101），导致旧货盘被覆盖。
@@ -461,6 +489,10 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   const [dataVersion, setDataVersion] = useState(0);
 
   const onSync = useCallback(async (kind: '商品' | '库存' | '成本及价格') => {
+    if (!canSync) {
+      toast.error('仅管理员可执行数据同步');
+      return;
+    }
     setSyncing(kind);
     try {
       let message: string;
@@ -497,7 +529,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     } finally {
       setSyncing(null);
     }
-  }, []);
+  }, [canSync]);
 
   const activeTray = useMemo(() => trays.find((t) => t.id === activeTrayId) ?? trays[0], [trays, activeTrayId]);
 
@@ -550,7 +582,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
           <span className="app-brand-mobile">智慧货盘</span>
         </div>
         <nav aria-label="主导航" className="desktop-nav flex items-center gap-1">
-          {NAV.map((n) => {
+          {NAV.filter((n) => !n.adminOnly || canManage).map((n) => {
             const active = page === n.key;
             return (
               <button
@@ -652,6 +684,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
                 onSync={onSync}
                 syncing={syncing}
                 dataVersion={dataVersion}
+                readOnly={!canEdit}
+                canSync={canSync}
               />
             )}
             {page === 'sequence' && (
@@ -660,6 +694,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
                 activeTrayId={activeTrayId}
                 onSwitchTray={setActiveTrayId}
                 onUpdateTray={(t) => updateTray(t.id, () => t)}
+                readOnly={!canEdit}
               />
             )}
             {page === 'board' && (
@@ -673,12 +708,18 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             )}
             {page === 'profile' && <ProfilePage />}
             {page === 'weather' && <WeatherPage />}
-            {page === 'config' && <ConfigPage />}
+            {page === 'config' && <ConfigPage canEditRules={access?.canEditRules === true} />}
+            {page === 'access' && canManage && (
+              <AccessPage
+                me={access}
+                onChanged={() => { fetchAccessMe().then(setAccess).catch(() => {}); }}
+              />
+            )}
           </ProductsProvider>
         )}
       </main>
       <nav aria-label="移动端主导航" className="mobile-nav print:hidden">
-        {MOBILE_NAV.map((n) => (
+        {MOBILE_NAV.filter((n) => !n.adminOnly || canManage).map((n) => (
           <button
             key={n.key}
             type="button"

@@ -26,6 +26,7 @@ import remainingInventoryRouter from './routes/remaining-inventory.js';
 import { getWeather } from './weather-client.js';
 import { attachTrayWs } from './ws-trays.js';
 import { createSsoAuth, readSsoConfig } from './sso-auth.js';
+import { createAccessControl } from './access-control.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,6 +46,11 @@ app.use(cors({
 app.use(express.json({ limit: '512kb' }));
 app.use('/api/auth', ssoAuth.router);
 app.use('/api', ssoAuth.requireSession);
+
+// 权限中心：登录后先算角色，再挂权限管理接口
+const access = createAccessControl();
+app.use('/api', access.attach);
+app.use('/api/access', access.router);
 
 // 用户自传图静态托管（GET /uploads/<uuid>.<ext>）
 app.use('/uploads', ssoAuth.requireSession, express.static(UPLOAD_DIR, {
@@ -116,17 +122,26 @@ app.use('/api/products', productsRouter);
 app.use('/api/profiles', profilesRouter);
 
 // 用户自传图上传（POST /api/upload，返回 { url }）
-app.use('/api/upload', uploadRouter);
+app.use('/api/upload', access.guardWrites, uploadRouter);
 
 // 样衣资源（独立端点；样衣阶段款号只在这里 / 经 /api/products/:id fallback 查到）
 app.use('/api/samples', samplesRouter);
-app.use('/api/trays', traysRouter);
+// 货盘写操作（PUT /api/trays、POST /api/trays/log）需要编辑权限
+app.use('/api/trays', access.guardWrites, traysRouter);
 
 // 销量：直播当天 + 累计总销量（数据源 e106807e，宽表关联后数据源）
 app.use('/api/sales', salesRouter);
 
 // 面料与翻单相关 API（/api/fabric-data, /api/query 等）
+// 面料数据的增删改属于货盘内容编辑；查询类 GET/POST /api/query 不受影响
+app.use('/api/fabric-data', access.guardWrites);
+app.use('/api/history', access.guardWrites);
+// 排单同步会真实写入钉钉，属于业务写操作，只读账号不得触发
+app.use('/api/dingtalk-sync', access.guardWrites);
 app.use('/api', fabricRouter);
+
+// 规则配置（写）与数据同步仅管理员
+app.use('/api/config', access.guardAdminWrites);
 
 // 排品角色判定规则（配置后台读写；商品映射时实时生效）
 app.get('/api/config/role-rules', (_req, res) => {
@@ -184,7 +199,7 @@ app.put('/api/config/weather-rules', (req, res) => {
 app.use('/api/ai', aiRouter);
 
 // 剩余库存推荐（BI 卡片 j93dcdbbe10994fc1a708939）
-app.use('/api/remaining-inventory', remainingInventoryRouter);
+app.use('/api/remaining-inventory', access.guardAdminWrites, remainingInventoryRouter);
 
 // 天气（Open-Meteo 免费 API，移植自 weather 项目；1h 缓存；?fresh=true 强制重拉）
 app.get('/api/weather', async (req, res) => {
@@ -199,6 +214,7 @@ app.get('/api/weather', async (req, res) => {
 // POST /api/sync — 从源头重新拉数据
 //   kind='商品' → 领猫基础资料 + BI 款式卡（名称/小名/售价）+ 尺码 ETL
 //   kind='库存' → BI SKC 卡（现货/在途/占单/交期） + 尺码 ETL（聚水潭接入后改聚水潭）
+app.use('/api/sync', access.guardAdminWrites);
 app.post('/api/sync', async (req, res) => {
   const kind = req.body?.kind === '库存' ? '库存' : '商品';
   try {
@@ -337,7 +353,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const server = http.createServer(app);
-attachTrayWs(server, ssoAuth);
+attachTrayWs(server, ssoAuth, access);
 server.on('close', () => ssoAuth.close());
 
 server.listen(PORT, () => {

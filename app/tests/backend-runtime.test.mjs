@@ -114,6 +114,8 @@ async function isolatedBackend(t) {
       VSCM_BASE_URL: upstreamOrigin, VSCM_APP_ID: 'fixture', VSCM_APP_SECRET: 'fixture', VSCM_LOOKBACK_DAYS: '1',
       SSO_BASE_URL: upstreamOrigin, SSO_CLIENT_ID: 'app_fixture', SSO_CLIENT_SECRET: 'sso-fixture-secret',
       SSO_REDIRECT_URI: origin + '/api/auth/sso/callback', SSO_REDIRECT_URIS: '',
+      // 数据同步类接口现在仅管理员可用，夹具用户需要管理员身份才能覆盖该分支
+      ACCESS_ADMIN_IDS: 'runtime_test',
     },
   });
   let output = '';

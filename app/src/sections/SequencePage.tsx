@@ -134,12 +134,13 @@ function aiSort(entries: SeqEntry[], tray: Tray, mode: string, byId: (id: string
 }
 
 export default function SequencePage({
-  trays, activeTrayId, onSwitchTray, onUpdateTray,
+  trays, activeTrayId, onSwitchTray, onUpdateTray, readOnly = false,
 }: {
   trays: Tray[];
   activeTrayId: string;
   onSwitchTray: (id: string) => void;
   onUpdateTray: (t: Tray) => void;
+  readOnly?: boolean;
 }) {
   const isMobile = useIsMobile();
   const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
@@ -285,6 +286,12 @@ export default function SequencePage({
 
   return (
     <div className="responsive-page sequence-page px-12 py-10">
+      {readOnly && (
+        <div className="mb-5 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-800">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+          当前账号仅有查看权限，排品调整不会保存
+        </div>
+      )}
       {/* 页面 header */}
       <div className="page-heading flex items-end justify-between border-b border-edge pb-6">
         <div>

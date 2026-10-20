@@ -3189,7 +3189,7 @@ function DeletePidDialog({
 // ── 主页面 ──
 export default function TraysPage({
   trays, activeTrayId, onOpenTray, onCreateTray, onUpdateTray, onDeleteTray, onSync,
-  syncing, dataVersion,
+  syncing, dataVersion, readOnly = false, canSync = true,
 }: {
   trays: Tray[];
   activeTrayId: string;
@@ -3200,6 +3200,8 @@ export default function TraysPage({
   onSync: (kind: '商品' | '库存' | '成本及价格') => void;
   syncing: '商品' | '库存' | '成本及价格' | null;
   dataVersion: number;
+  readOnly?: boolean;
+  canSync?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -4241,6 +4243,12 @@ export default function TraysPage({
 
   return (
     <div className="responsive-page trays-page px-10 py-8">
+      {readOnly && (
+        <div className="mb-5 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-800 print:hidden">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+          当前账号仅有查看权限：可查看与导出货盘，修改不会被保存
+        </div>
+      )}
       <div className="page-heading flex items-end justify-between border-b border-edge pb-6">
         <div>
           <div className="text-[12px] font-light tracking-[0.3em] text-ink-faint">01 /</div>
@@ -4319,7 +4327,7 @@ export default function TraysPage({
         <div className="tray-actions flex items-center gap-2 print:hidden">
           <button
             onClick={() => onSync('商品')}
-            disabled={syncing !== null}
+            disabled={syncing !== null || !canSync}
             className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <RefreshCw size={13} className={syncing === '商品' ? 'animate-spin' : ''} />
@@ -4327,7 +4335,7 @@ export default function TraysPage({
           </button>
           <button
             onClick={() => onSync('库存')}
-            disabled={syncing !== null}
+            disabled={syncing !== null || !canSync}
             className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <RefreshCw size={13} className={syncing === '库存' ? 'animate-spin' : ''} />
@@ -4335,7 +4343,7 @@ export default function TraysPage({
           </button>
           <button
             onClick={() => onSync('成本及价格')}
-            disabled={syncing !== null}
+            disabled={syncing !== null || !canSync}
             className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge disabled:opacity-60 disabled:cursor-not-allowed"
             title={hengjiStatus && !hengjiStatus.loggedIn
               ? `钉钉文档登录态失效（${hengjiStatus.reason || hengjiStatus.error || '未知'}），请在本地跑 npm run dingtalk:auth 登录后重新导出`

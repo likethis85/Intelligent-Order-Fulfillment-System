@@ -31,7 +31,7 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   );
 }
 
-export default function ConfigPage() {
+export default function ConfigPage({ canEditRules = true }: { canEditRules?: boolean }) {
   const [rules, setRules] = useState<RoleRules | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -157,7 +157,7 @@ export default function ConfigPage() {
           <div className="text-[11px] font-medium tracking-widest text-ink-muted">排品角色判定规则（引流 / 利润 / 库存）</div>
           <button
             onClick={save}
-            disabled={!rules || saving}
+            disabled={!rules || saving || !canEditRules}
             className="rounded-md bg-action-primary px-4 py-1.5 text-[12px] text-surface-card hover:opacity-90 disabled:opacity-40"
           >
             {saving ? '保存中…' : '保存规则'}
@@ -274,7 +274,7 @@ export default function ConfigPage() {
           <div className="text-[11px] font-medium tracking-widest text-ink-muted">场景规则库（按天气 API / 日历自动激活，参数可改）</div>
           <button
             onClick={saveScenes}
-            disabled={!sceneRules || sceneSaving}
+            disabled={!sceneRules || sceneSaving || !canEditRules}
             className="rounded-md bg-action-primary px-4 py-1.5 text-[12px] text-surface-card hover:opacity-90 disabled:opacity-40"
           >
             {sceneSaving ? '保存中…' : '保存场景规则'}
@@ -331,7 +331,7 @@ export default function ConfigPage() {
           <div className="text-[11px] font-medium tracking-widest text-ink-muted">AI 选款策略口径（system prompt 引用，业务阈值在此可调）</div>
           <button
             onClick={saveStrategy}
-            disabled={!strategyRules || strategySaving}
+            disabled={!strategyRules || strategySaving || !canEditRules}
             className="rounded-md bg-action-primary px-4 py-1.5 text-[12px] text-surface-card hover:opacity-90 disabled:opacity-40"
           >
             {strategySaving ? '保存中…' : '保存策略口径'}
@@ -410,7 +410,7 @@ export default function ConfigPage() {
           <div className="text-[11px] font-medium tracking-widest text-ink-muted">天气选款规则（温度档 / 降雨 / 节气，移植自 weather 项目）</div>
           <button
             onClick={saveWeather}
-            disabled={!weatherRules || weatherSaving}
+            disabled={!weatherRules || weatherSaving || !canEditRules}
             className="rounded-md bg-action-primary px-4 py-1.5 text-[12px] text-surface-card hover:opacity-90 disabled:opacity-40"
           >
             {weatherSaving ? '保存中…' : '保存天气规则'}

@@ -10,6 +10,8 @@ export default defineConfig({
   server: {
     host: true,
     port: 3700,
+    // 端口被占用时直接报错，避免静默切到 3701 导致统一登录回调地址对不上
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3737',
