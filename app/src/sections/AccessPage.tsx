@@ -196,6 +196,16 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
 
   type RosterRow = (typeof roster)[number];
 
+  // 搜索匹配：姓名、邮箱、账号 id 都算，且忽略大小写
+  // （邮箱登录的人显示名可能只是邮箱前缀，只按姓名搜很容易搜不到）
+  const matchesQuery = (row: RosterRow, query: string) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return row.name.toLowerCase().includes(q)
+      || (row.email || '').toLowerCase().includes(q)
+      || row.userId.toLowerCase().includes(q);
+  };
+
   // 登录身份和通讯录成员是两套 id：优先用钉钉 unionId 关联，其次退回 userId
   const memberFor = (row: RosterRow): AccessMember | undefined => {
     if (row.unionId) {
@@ -246,7 +256,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
     if (adminDeptId) {
       list = list.filter((r) => (memberFor(r)?.deptIds || []).some((id) => ancestorsOf(id).has(adminDeptId)));
     }
-    if (query) list = list.filter((r) => r.name.includes(query));
+    if (query) list = list.filter((r) => matchesQuery(r, query));
     return list.slice(0, 40);
   }, [roster, adminDeptId, adminQuery, draft]);
 
@@ -424,7 +434,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
   const checkMatches = useMemo(() => {
     const query = checkQuery.trim();
     if (!query) return [];
-    return roster.filter((r) => r.name.includes(query)).slice(0, 8);
+    return roster.filter((r) => matchesQuery(r, query)).slice(0, 8);
   }, [roster, checkQuery]);
   const checkedPerson = roster.find((r) => r.key === checkKey) || null;
 
@@ -1005,6 +1015,9 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                       </td>
                       <td className="px-3 py-1.5 text-ink-muted">
                         {(memberFor(u)?.deptIds || []).map(deptName).join('、') || '未分配'}
+                        {(u.email || u.userId) && (
+                          <div className="text-[10.5px] text-ink-faint">{u.email || u.userId}</div>
+                        )}
                       </td>
                       <td className="px-3 py-1.5">
                         <div className="flex justify-end gap-1">
