@@ -83,47 +83,77 @@ if (!hasStorage && !hasProfile) {
 
 const isLinux = process.platform === 'linux';
 const isHeadless = isLinux || process.env.HEADLESS === 'true';
-const launchArgs = [
+const baseArgs = [
   '--disable-blink-features=AutomationControlled',
   ...(isLinux ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : []),
 ];
 
-let browser = null;
-let ctx;
-if (hasStorage) {
-  console.log('使用 storageState 登录:', STORAGE_STATE, `(headless: ${isHeadless})`);
-  browser = await chromium.launch({
+// 打开浏览器会话。useDirect=true 时加 --no-proxy-server 绕过系统代理：
+// 本机常见情况是系统代理（Clash 等）把钉钉文档拦成 ERR_TIMED_OUT，而直连正常。
+async function openSession(useDirect) {
+  const args = [...baseArgs, ...(useDirect ? ['--no-proxy-server'] : [])];
+  if (hasStorage) {
+    const b = await chromium.launch({ channel: 'chrome', headless: isHeadless, args });
+    const c = await b.newContext({
+      storageState: STORAGE_STATE,
+      viewport: isHeadless ? { width: 1440, height: 900 } : null,
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
+    return { ctx: c, close: async () => { try { await c.close(); } catch {} try { await b.close(); } catch {} } };
+  }
+  const c = await chromium.launchPersistentContext(PROFILE, {
     channel: 'chrome',
     headless: isHeadless,
-    args: launchArgs,
-  });
-  ctx = await browser.newContext({
-    storageState: STORAGE_STATE,
+    args,
     viewport: isHeadless ? { width: 1440, height: 900 } : null,
     permissions: ['clipboard-read', 'clipboard-write'],
   });
-} else {
-  console.log('使用 persistent profile 登录:', PROFILE, `(headless: ${isHeadless})`);
-  ctx = await chromium.launchPersistentContext(PROFILE, {
-    channel: 'chrome',
-    headless: isHeadless,
-    args: launchArgs,
-    viewport: isHeadless ? { width: 1440, height: 900 } : null,
-    permissions: ['clipboard-read', 'clipboard-write'],
-  });
+  return { ctx: c, close: async () => { try { await c.close(); } catch {} } };
 }
 
+async function loadSheet(useDirect) {
+  const s = await openSession(useDirect);
+  const p = s.ctx.pages()[0] || await s.ctx.newPage();
+  console.log(`打开钉钉核价表…（${useDirect ? '直连，绕过系统代理' : '跟随系统代理'}）`);
+  await p.goto(DINGTALK_URL, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+  await p.waitForTimeout(useDirect ? 9000 : 10000);
+  const body = await p.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
+  const failed = !body.trim() || /无法访问此网站|ERR_|响应时间过长|检查代理服务器/.test(body);
+  return { ...s, page: p, body, ok: !failed };
+}
+
+let session = null;
 try {
-  const page = ctx.pages()[0] || await ctx.newPage();
-  console.log('打开钉钉核价表…', DINGTALK_URL);
-  await page.goto(DINGTALK_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
-  await page.waitForTimeout(10000);
+  // DINGTALK_PROXY=system 强制走系统代理；=direct 强制直连；默认先系统代理、失败自动改直连
+  const forced = process.env.DINGTALK_PROXY;
+  session = await loadSheet(forced === 'direct');
+  if (forced !== 'system' && !session.ok) {
+    console.log('⚠ 系统代理下页面未加载成功，改用直连重试…');
+    await session.close();
+    session = await loadSheet(true);
+  }
+  const page = session.page;
+
+  if (!session.ok) {
+    console.error('❌ 钉钉文档页面加载失败（网络/代理问题），当前地址:', page.url().slice(0, 120));
+    console.error('   可试：DINGTALK_PROXY=direct npm run sync:hengji');
+    process.exit(4);
+  }
 
   const finalUrl = page.url();
   if (/login|challenge|passport/i.test(finalUrl)) {
     console.error('❌ 钉钉登录态已失效（URL:', finalUrl, '）');
     console.error('   请重新运行：npm run dingtalk:auth 重新扫码登录');
     process.exit(2);
+  }
+
+  // 登录了但没有文档权限时，页面会是「暂无权限访问」申请页，此时绝不能继续写盘
+  if (/暂无权限|无权限访问|申请权限|切换账号/.test(session.body)) {
+    const who = (session.body.match(/当前账号[:：]\s*([^\n]+)/) || [])[1] || '未知';
+    console.error('❌ 当前登录账号没有该核价表的访问权限');
+    console.error('   账号:', who);
+    console.error('   解决：让文档所有者开通权限，或换有权限的账号重跑 npm run dingtalk:auth');
+    process.exit(5);
   }
 
   const byCode = {};
@@ -176,7 +206,13 @@ try {
     } catch {}
 
     if (!tsv || !tsv.trim()) {
-      tsv = getSystemClipboard();
+      // 系统剪贴板兜底：只接受看起来像表格的内容，避免把上一份无关文本当成表格数据
+      const sys = getSystemClipboard();
+      if (sys && (/款号|商品编码|样衣款号/.test(sys) || sys.includes('\t'))) {
+        tsv = sys;
+      } else {
+        if (sys && sys.trim()) console.log(`⚠ ${sheet.name}: 页面未复制到内容，系统剪贴板不像表格，已忽略`);
+      }
     }
 
     if (!tsv || !tsv.trim()) {
@@ -298,6 +334,12 @@ try {
     console.log(`✓ ${sheet.name}: ${n} 行有效`);
   }
 
+  // 空结果保护：一个款号都没解析出来时绝不覆盖原文件，避免把线上数据清空
+  if (Object.keys(byCode).length === 0) {
+    console.error('❌ 未解析到任何款号，已中止写盘，原 hengji-cost.json 保持不变');
+    process.exit(3);
+  }
+
   fs.mkdirSync(path.dirname(OUT_JSON), { recursive: true });
   fs.writeFileSync(OUT_JSON, JSON.stringify({
     updatedAt: new Date().toISOString(),
@@ -309,7 +351,6 @@ try {
   console.log(`完成: ${Object.keys(byCode).length} 个款号 → ${OUT_JSON}（多行取大 ${dup} 次，无效 ${bad} 行）`);
   console.log(`销售价: ${Object.keys(salesPriceByCode).length} 个款号（多行取大 ${dupSales} 次，无效 ${badSales} 行）`);
 } finally {
-  try { if (ctx) await ctx.close(); } catch {}
-  try { if (browser) await browser.close(); } catch {}
+  try { if (session) await session.close(); } catch {}
 }
 process.exit(0);

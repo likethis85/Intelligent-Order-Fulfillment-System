@@ -17,15 +17,32 @@ const url = process.argv[2] || process.env.DINGTALK_COST_URL || DEFAULT_URL;
 console.log('🚀 正在启动 Chrome 浏览器登录钉钉文档...');
 console.log('目标地址:', url);
 
-const ctx = await chromium.launchPersistentContext(PROFILE, {
-  channel: 'chrome',
-  headless: false,
-  viewport: null,
-  permissions: ['clipboard-read', 'clipboard-write'],
-});
+// 系统代理（Clash 等）常把钉钉文档拦成白屏，失败时自动改用直连重试一次
+async function boot(useDirect) {
+  const c = await chromium.launchPersistentContext(PROFILE, {
+    channel: 'chrome',
+    headless: false,
+    viewport: null,
+    permissions: ['clipboard-read', 'clipboard-write'],
+    ...(useDirect ? { args: ['--no-proxy-server'] } : {}),
+  });
+  const p = c.pages()[0] || await c.newPage();
+  await p.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  return { ctx: c, page: p };
+}
 
-const page = ctx.pages()[0] || await ctx.newPage();
-await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
+const forcedProxy = process.env.DINGTALK_PROXY; // 'system' | 'direct'
+let booted = await boot(forcedProxy === 'direct');
+await booted.page.waitForTimeout(6000);
+const firstBody = await booted.page.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
+if (!firstBody.trim() && forcedProxy !== 'system') {
+  console.log('⚠ 页面未能加载（可能是系统代理拦截），改用直连重试…');
+  try { await booted.ctx.close(); } catch {}
+  booted = await boot(true);
+}
+
+const ctx = booted.ctx;
+const page = booted.page;
 
 console.log('\n======================================================');
 console.log('📱 请在弹出的 Chrome 窗口中完成钉钉登录（扫码或账号登录）。');

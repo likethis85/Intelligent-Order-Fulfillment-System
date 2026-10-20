@@ -43,37 +43,57 @@ if (!hasStorage && !hasProfile) {
 }
 
 const isLinux = process.platform === 'linux';
-const launchArgs = [
+const baseArgs = [
   '--disable-blink-features=AutomationControlled',
   ...(isLinux ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : []),
 ];
 
-let browser = null;
-let ctx = null;
-try {
-  if (hasStorage) {
-    browser = await chromium.launch({ channel: 'chrome', headless: true, args: launchArgs });
-    ctx = await browser.newContext({ storageState: STORAGE_STATE });
-  } else {
-    ctx = await chromium.launchPersistentContext(PROFILE, { channel: 'chrome', headless: true, args: launchArgs });
+// 探测一次；系统代理常把钉钉文档拦成白屏/超时，失败时再用 --no-proxy-server 直连重试
+async function probe(useDirect) {
+  const args = [...baseArgs, ...(useDirect ? ['--no-proxy-server'] : [])];
+  let browser = null;
+  let ctx = null;
+  try {
+    if (hasStorage) {
+      browser = await chromium.launch({ channel: 'chrome', headless: true, args });
+      ctx = await browser.newContext({ storageState: STORAGE_STATE });
+    } else {
+      ctx = await chromium.launchPersistentContext(PROFILE, { channel: 'chrome', headless: true, args });
+    }
+    const page = ctx.pages()[0] || await ctx.newPage();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(6000);
+    const finalUrl = page.url();
+    const body = await page.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
+    const loaded = !!body.trim() && !/无法访问此网站|ERR_|响应时间过长/.test(body);
+    return { finalUrl, body, loaded };
+  } catch (err) {
+    return { error: err.message, loaded: false };
+  } finally {
+    try { if (ctx) await ctx.close(); } catch {}
+    try { if (browser) await browser.close(); } catch {}
   }
+}
 
-  const page = ctx.pages()[0] || await ctx.newPage();
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-  await page.waitForTimeout(6000);
+try {
+  const forced = process.env.DINGTALK_PROXY;
+  let r = await probe(forced === 'direct');
+  if (!r.loaded && forced !== 'system') r = await probe(true);
 
-  const finalUrl = page.url();
-  if (/login|challenge|passport/i.test(finalUrl)) {
-    emit({ ok: true, loggedIn: false, reason: 'redirected_to_login', finalUrl });
-  } else if (finalUrl.includes('alidocs.dingtalk.com/i/nodes/')) {
-    emit({ ok: true, loggedIn: true, finalUrl });
+  if (r.error) {
+    emit({ ok: false, error: r.error });
+  } else if (!r.loaded) {
+    emit({ ok: true, loggedIn: false, reason: 'page_load_failed', finalUrl: r.finalUrl });
+  } else if (/login|challenge|passport/i.test(r.finalUrl)) {
+    emit({ ok: true, loggedIn: false, reason: 'redirected_to_login', finalUrl: r.finalUrl });
+  } else if (/暂无权限|无权限访问|申请权限/.test(r.body)) {
+    emit({ ok: true, loggedIn: true, noPermission: true, finalUrl: r.finalUrl });
+  } else if (r.finalUrl.includes('alidocs.dingtalk.com/i/nodes/')) {
+    emit({ ok: true, loggedIn: true, finalUrl: r.finalUrl });
   } else {
-    emit({ ok: true, loggedIn: false, reason: 'unknown_page', finalUrl });
+    emit({ ok: true, loggedIn: false, reason: 'unknown_page', finalUrl: r.finalUrl });
   }
 } catch (err) {
   emit({ ok: false, error: err.message });
-} finally {
-  try { if (ctx) await ctx.close(); } catch {}
-  try { if (browser) await browser.close(); } catch {}
 }
 process.exit(0);
