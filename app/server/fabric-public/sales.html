@@ -33,6 +33,10 @@
       justify-content: space-between;
       align-items: center;
     }
+    /* 嵌入弹窗模式 (iframe) 优化：隐藏独立的退出登录 */
+    body.iframe-mode .logout-section {
+      display: none !important;
+    }
     .user-email {
       font-size: 13px;
       color: #666;
@@ -659,6 +663,17 @@
 
   <script src="/fabric/vendor/supabase.min.js"></script>
   <script>
+    // 检测是否作为 iframe 嵌入弹窗
+    (function detectIframeMode() {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const inIframe = window.self !== window.top || urlParams.get('iframe') === '1';
+        if (inIframe) document.body.classList.add('iframe-mode');
+      } catch (e) {
+        document.body.classList.add('iframe-mode');
+      }
+    })();
+
     let supabaseClient = null;
     let currentUser = null;
     let accessToken = null;
