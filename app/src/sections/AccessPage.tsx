@@ -4,7 +4,7 @@
 //   管理员组：加入后拥有全部权限（管理后台 + 编辑货盘 + 同步 + 规则）
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Building2, ChevronDown, ChevronRight, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserCog, Users } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, Plus, RefreshCw, RotateCcw, Save, ShieldCheck, Trash2, UserCog, Users } from 'lucide-react';
 import {
   fetchAccessConfig, fetchAccessOrgStatus, saveAccessConfig, syncAccessOrg,
 } from '@/data/api';
@@ -30,8 +30,14 @@ const REASON_LABEL: Record<string, string> = {
   anonymous: '未登录',
 };
 
-export default function AccessPage({ me, onChanged }: { me: AccessMe | null; onChanged: () => void }) {
+export default function AccessPage({ me, onChanged, onDirtyChange }: {
+  me: AccessMe | null;
+  onChanged: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const [draft, setDraft] = useState<AccessConfig | null>(null);
+  // 上一次从服务端读到的版本，用于「重置」和乐观锁
+  const [savedSnapshot, setSavedSnapshot] = useState<AccessConfig | null>(null);
   const [users, setUsers] = useState<KnownUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,6 +64,7 @@ export default function AccessPage({ me, onChanged }: { me: AccessMe | null; onC
     try {
       const res = await fetchAccessConfig();
       setDraft(res.config);
+      setSavedSnapshot(res.config);
       setUsers(res.users || []);
       setDirty(false);
     } catch (e) {
@@ -69,6 +76,20 @@ export default function AccessPage({ me, onChanged }: { me: AccessMe | null; onC
   };
 
   useEffect(() => { void load(); }, []);
+
+  // 未保存状态同步给外层，切换页面时据此确认
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
+  // 刷新或关标签页时拦一下
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
 
   const patch = (next: Partial<AccessConfig>) => {
     setDraft((d) => (d ? { ...d, ...next } : d));
@@ -327,10 +348,19 @@ export default function AccessPage({ me, onChanged }: { me: AccessMe | null; onC
   };
 
   const removeDepartment = (id: string) => {
+    const name = draft?.departments.find((d) => d.id === id)?.name || id;
+    if (!window.confirm(`删除部门「${name}」？\n归属该部门的人不会删除，只是不再有它的权限。`)) return;
     patch({
       departments: (draft?.departments || []).filter((d) => d.id !== id),
       members: (draft?.members || []).map((m) => ({ ...m, deptIds: m.deptIds.filter((x) => x !== id) })),
     });
+  };
+
+  const resetDraft = () => {
+    if (!savedSnapshot) return;
+    if (!window.confirm('放弃本次所有未保存的修改，恢复到上次保存的状态？')) return;
+    setDraft(savedSnapshot);
+    setDirty(false);
   };
 
   const setOverride = (row: RosterRow, role: AccessRole | '') => {
@@ -359,13 +389,20 @@ export default function AccessPage({ me, onChanged }: { me: AccessMe | null; onC
         overrides: draft.overrides,
         admins: draft.admins,
         settings: draft.settings,
-      });
+      }, draft.updatedAt);
       setDraft(res.config);
+      setSavedSnapshot(res.config);
       setDirty(false);
       toast.success('权限已保存，最迟下次刷新页面生效');
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败');
+      if ((e as { status?: number }).status === 409) {
+        toast.error('权限配置已被其他人修改，你的改动没有保存', {
+          action: { label: '加载最新', onClick: () => { void load(); } },
+        });
+      } else {
+        toast.error(e instanceof Error ? e.message : '保存失败');
+      }
     } finally {
       setSaving(false);
     }
@@ -405,13 +442,23 @@ export default function AccessPage({ me, onChanged }: { me: AccessMe | null; onC
             按钉钉部门授权，也可为单个账号单独设置；管理员组拥有全部权限
           </p>
         </div>
-        <button
-          onClick={() => { void save(); }}
-          disabled={!dirty || saving}
-          className="flex items-center gap-1.5 rounded-md bg-action-primary px-4 py-2 text-[12px] text-surface-card hover:opacity-90 disabled:opacity-40"
-        >
-          <Save size={13} /> {saving ? '保存中…' : dirty ? '保存权限' : '已保存'}
-        </button>
+        <div className="flex items-center gap-2">
+          {dirty && (
+            <button
+              onClick={resetDraft}
+              className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] text-ink-secondary hover:border-edge"
+            >
+              <RotateCcw size={13} /> 重置
+            </button>
+          )}
+          <button
+            onClick={() => { void save(); }}
+            disabled={!dirty || saving}
+            className="flex items-center gap-1.5 rounded-md bg-action-primary px-4 py-2 text-[12px] text-surface-card hover:opacity-90 disabled:opacity-40"
+          >
+            <Save size={13} /> {saving ? '保存中…' : dirty ? '保存权限' : '已保存'}
+          </button>
+        </div>
       </div>
 
       {/* 当前登录人的权限 */}

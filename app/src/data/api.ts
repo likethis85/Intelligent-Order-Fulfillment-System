@@ -26,7 +26,10 @@ async function jsonFetch<T>(path: string, init?: RequestInit, timeoutMs = DEFAUL
       } catch {
         // ignore body parse errors
       }
-      throw new Error(msg);
+      // 带上状态码，调用方据此区分 409 冲突这类可恢复的错误
+      const err = new Error(msg) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
     }
     return (await res.json()) as T;
   } catch (err) {
@@ -663,13 +666,15 @@ export function fetchAccessConfig() {
 }
 
 // PUT /api/access/config → 覆盖式保存权限配置（仅管理员）
+// expectedUpdatedAt 用于乐观锁：与服务器当前版本不一致时返回 409，避免互相覆盖
 export function saveAccessConfig(
   patch: Pick<AccessConfig, 'departments' | 'members' | 'overrides' | 'admins' | 'settings'>,
+  expectedUpdatedAt?: string | null,
 ) {
   return jsonFetch<{ ok: boolean; config: AccessConfig }>('/access/config', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
+    body: JSON.stringify({ ...patch, expectedUpdatedAt }),
   }, 20000);
 }
 

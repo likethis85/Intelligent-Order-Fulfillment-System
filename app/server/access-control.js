@@ -442,6 +442,15 @@ export function createAccessControl() {
   router.put('/config', requireAdmin, (req, res) => {
     try {
       const body = req.body || {};
+      const current = getConfig();
+      // 乐观锁：调用方带上自己看到的版本，服务器已被别人改过就拒绝，避免整份覆盖
+      if (body.expectedUpdatedAt && current.updatedAt && body.expectedUpdatedAt !== current.updatedAt) {
+        return res.status(409).json({
+          ok: false,
+          error: 'config_conflict',
+          message: '权限配置已被其他人修改，请加载最新配置后再保存',
+        });
+      }
       const next = saveConfig({
         departments: body.departments,
         members: body.members,

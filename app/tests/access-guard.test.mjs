@@ -114,3 +114,47 @@ test('保存管理员组为空会被拒绝', async () => {
   const body = await res.json();
   assert.equal(body.error, 'no_admin_left');
 });
+
+test('带上过期的版本号保存会返回 409，避免覆盖别人的修改', async () => {
+  const headers = { 'Content-Type': 'application/json', 'x-test-user': 'u_boss' };
+
+  // 先正常保存一次，拿到新的 updatedAt
+  const first = await fetch(base + '/api/access/config', {
+    method: 'PUT', headers,
+    body: JSON.stringify({
+      departments: [{ id: 'dept-goods', name: '商品部', role: 'edit' }],
+      members: [{ userId: 'u_goods', name: '张三', deptIds: ['dept-goods'] }],
+      admins: [{ userId: 'u_boss', name: '老板' }],
+      settings: { defaultRole: 'view' },
+    }),
+  });
+  assert.equal(first.status, 200);
+  const fresh = (await first.json()).config;
+
+  // 第二个管理员拿着旧版本号来保存，必须被拒
+  const stale = await fetch(base + '/api/access/config', {
+    method: 'PUT', headers,
+    body: JSON.stringify({
+      expectedUpdatedAt: '2000-01-01T00:00:00.000Z',
+      departments: fresh.departments,
+      members: fresh.members,
+      admins: fresh.admins,
+      settings: fresh.settings,
+    }),
+  });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).error, 'config_conflict');
+
+  // 带上正确版本号就能保存
+  const ok = await fetch(base + '/api/access/config', {
+    method: 'PUT', headers,
+    body: JSON.stringify({
+      expectedUpdatedAt: fresh.updatedAt,
+      departments: fresh.departments,
+      members: fresh.members,
+      admins: fresh.admins,
+      settings: fresh.settings,
+    }),
+  });
+  assert.equal(ok.status, 200);
+});

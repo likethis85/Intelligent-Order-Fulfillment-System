@@ -181,11 +181,20 @@ const buildInitialTrays = (products: Product[]): Tray[] => {
 
 export default function App({ user, onLogout, logoutPending }: { user: AuthUser; onLogout: () => Promise<void>; logoutPending: boolean }) {
   const [page, setPage] = useState<PageKey>('trays');
+  // 权限页有未保存的改动时，切页面前先确认，避免静默丢失
+  const [accessDirty, setAccessDirty] = useState(false);
   // 权限：登录后从服务端取一次角色（部门/账号/管理员组），未取到前按“只读”处理，避免误放开
   const [access, setAccess] = useState<AccessMe | null>(null);
   const canEdit = access?.canEditTray === true;
   const canManage = access?.canManageAccess === true;
   const canSync = access?.canSyncData === true;
+
+  const goPage = (key: PageKey) => {
+    if (key !== page && accessDirty && !window.confirm('权限管理里有未保存的修改，切换页面会丢失，确定离开吗？')) return;
+    if (key !== 'access') setAccessDirty(false);
+    setPage(key);
+    window.scrollTo({ top: 0 });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -588,7 +597,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
               <button
                 key={n.key}
                 aria-current={active ? 'page' : undefined}
-                onClick={() => { setPage(n.key); window.scrollTo({ top: 0 }); }}
+                onClick={() => goPage(n.key)}
                 className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-[13px] transition-colors ${
                   active ? 'bg-surface-muted font-semibold' : 'text-ink-secondary hover:bg-surface-subtle'
                 }`}
@@ -608,7 +617,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
           <button
             type="button"
             aria-current={page === 'config' ? 'page' : undefined}
-            onClick={() => { setPage('config'); window.scrollTo({ top: 0 }); }}
+            onClick={() => goPage('config')}
             aria-label="配置后台"
             title="配置后台"
             className={`mobile-config-btn flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-ink-secondary hover:bg-surface-subtle transition-colors ${
@@ -712,6 +721,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             {page === 'access' && canManage && (
               <AccessPage
                 me={access}
+                onDirtyChange={setAccessDirty}
                 onChanged={() => { fetchAccessMe().then(setAccess).catch(() => {}); }}
               />
             )}
@@ -724,7 +734,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             key={n.key}
             type="button"
             aria-current={page === n.key ? 'page' : undefined}
-            onClick={() => { setPage(n.key); window.scrollTo({ top: 0 }); }}
+            onClick={() => goPage(n.key)}
           >
             <n.icon size={20} strokeWidth={page === n.key ? 2 : 1.7} aria-hidden="true" />
             <span>{n.label}</span>
