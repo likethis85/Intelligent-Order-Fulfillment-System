@@ -156,9 +156,16 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         provider: u.provider,
       });
     }
+    // 已有行里出现过的身份键：授权条目若指向同一个人，就不再单独占一行。
+    // （首次登录自动生成的管理员条目只带 userId，通讯录那行按 unionId 建行，
+    //  不比对这两套 id 的话同一个人会显示成两行）
+    const seenUserIds = new Set([...rows.values()].map((r) => r.userId).filter(Boolean));
+    const seenUnionIds = new Set([...rows.values()].map((r) => r.unionId).filter(Boolean) as string[]);
     for (const entry of [...(draft?.overrides || []), ...(draft?.admins || [])]) {
       const key = entry.unionId || entry.userId;
       if (!key || rows.has(key)) continue;
+      if ((entry.userId && seenUserIds.has(entry.userId))
+        || (entry.unionId && seenUnionIds.has(entry.unionId))) continue;
       rows.set(key, {
         key, userId: entry.userId || '', unionId: entry.unionId || null,
         name: entry.name, email: null, deptIds: [], loggedIn: false,
