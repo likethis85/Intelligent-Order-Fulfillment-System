@@ -586,9 +586,9 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     <div className="min-h-screen bg-surface-bg text-ink-primary">
       {/* 顶栏 */}
       <header className="app-header fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-8 border-b border-edge bg-surface-bg/95 px-10 backdrop-blur print:hidden">
-        <div className="app-brand flex items-baseline gap-2.5">
+        <div className="app-brand flex items-baseline gap-2.5 whitespace-nowrap">
           <span className="text-[22px] font-extrabold tracking-[0.18em] text-ink-primary">Marius</span>
-          <span className="app-brand-title text-[15px] font-bold tracking-wide">智慧货盘选款系统</span>
+          <span className="app-brand-title text-[15px] font-bold tracking-wide">智慧货盘</span>
           <span className="app-brand-mobile">智慧货盘</span>
         </div>
         <nav aria-label="主导航" className="desktop-nav flex items-center gap-1">

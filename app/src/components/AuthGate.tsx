@@ -100,7 +100,7 @@ export default function AuthGate() {
       <section className="w-full max-w-[420px] rounded-2xl border border-edge bg-white p-6 shadow-sm sm:p-8" aria-labelledby="login-title">
         <div className="mb-7 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-subtle"><Layers size={23} aria-hidden="true" /></div>
-          <div><div className="text-xl font-extrabold tracking-[0.12em]">Marius</div><p className="text-xs text-ink-muted">智慧货盘选款系统</p></div>
+          <div><div className="text-xl font-extrabold tracking-[0.12em]">Marius</div><p className="text-xs text-ink-muted">智慧货盘</p></div>
         </div>
         <h1 id="login-title" className="text-xl font-semibold">登录工作台</h1>
         <p className="mt-3 text-sm leading-6 text-ink-secondary">使用钉钉或公司统一账号，继续管理货盘与直播排品。</p>
