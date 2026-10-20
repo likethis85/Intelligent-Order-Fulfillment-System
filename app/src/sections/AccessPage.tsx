@@ -21,6 +21,15 @@ const ROLE_BADGE: Record<AccessRole, string> = {
   edit: 'bg-sky-50 text-sky-700 border-sky-200',
   view: 'bg-surface-subtle text-ink-secondary border-edge',
 };
+// 账号来源徽标：钉钉账号 / 邮箱账号。邮箱账号同样可以加管理员或单独授权。
+function ProviderTag({ provider }: { provider: string | null }) {
+  if (!provider) return null;
+  if (provider === 'dingtalk') {
+    return <span className="ml-1.5 rounded border border-sky-200 bg-sky-50 px-1 text-[10px] text-sky-700">钉钉</span>;
+  }
+  return <span className="ml-1.5 rounded border border-violet-200 bg-violet-50 px-1 text-[10px] text-violet-700">邮箱</span>;
+}
+
 const REASON_LABEL: Record<string, string> = {
   admin_group: '来自管理员组',
   env_admin: '来自环境变量白名单',
@@ -111,7 +120,10 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
   const roster = useMemo(() => {
     type Row = {
       key: string; userId: string; unionId: string | null;
-      name: string; email: string | null; deptIds: string[]; loggedIn: boolean;
+      name: string; email: string | null; deptIds: string[];
+      loggedIn: boolean;
+      // 账号来源：dingtalk = 钉钉账号，其余（supabase/邮箱）= 邮箱账号
+      provider: string | null;
     };
     const rows = new Map<string, Row>();
     const knownByUnion = new Map<string, KnownUser>();
@@ -131,6 +143,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         email: known?.email || m.email,
         deptIds: m.deptIds,
         loggedIn: Boolean(known),
+        provider: known?.provider || 'dingtalk',
       });
     }
     for (const u of users) {
@@ -140,6 +153,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
       rows.set(key, {
         key, userId: u.id, unionId: u.externalId || null,
         name: u.name, email: u.email, deptIds: own?.deptIds || [], loggedIn: true,
+        provider: u.provider,
       });
     }
     for (const entry of [...(draft?.overrides || []), ...(draft?.admins || [])]) {
@@ -148,6 +162,8 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
       rows.set(key, {
         key, userId: entry.userId || '', unionId: entry.unionId || null,
         name: entry.name, email: null, deptIds: [], loggedIn: false,
+        // 只有 unionId 说明来自通讯录，必然钉钉；否则来源未知
+        provider: entry.unionId && !entry.userId ? 'dingtalk' : null,
       });
     }
     // 同一个人可能有两套身份键：登录账号（u_xxx）和钉钉 unionId 各占一行。
@@ -169,6 +185,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         userId: withUser.userId,
         email: withUnion.email || withUser.email,
         loggedIn: true,
+        provider: withUser.provider || withUnion.provider,
       });
     }
     return [...rows.values()].sort((a, b) => {
@@ -645,6 +662,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
             <div className="mt-3 rounded border border-edge bg-surface-subtle px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
                 <span className="font-medium">{checkedPerson.name}</span>
+                <ProviderTag provider={checkedPerson.provider} />
                 <span className={`rounded border px-2 py-0.5 text-[11.5px] ${ROLE_BADGE[info.role]}`}>{ROLE_LABEL[info.role]}</span>
                 <span className="text-ink-muted">判定链路：</span>
                 <span className="text-ink-secondary">{info.chain.join(' → ')}</span>
@@ -980,6 +998,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                     <tr key={u.key} className="border-b border-edge last:border-0">
                       <td className="px-3 py-1.5">
                         <span className="font-medium">{u.name}</span>
+                        <ProviderTag provider={u.provider} />
                         {!u.loggedIn && (
                           <span className="ml-1.5 rounded border border-edge bg-surface-subtle px-1 text-[10px] text-ink-faint">未登录</span>
                         )}
@@ -1029,10 +1048,11 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                   <tr key={u.key} className="border-t border-edge">
                     <td className="px-3 py-2">
                       <span className="font-medium">{u.name}</span>
+                      <ProviderTag provider={u.provider} />
                       {!u.loggedIn && (
                         <span className="ml-1.5 rounded border border-edge bg-surface-subtle px-1 text-[10px] text-ink-faint">未登录</span>
                       )}
-                      {u.loggedIn && u.userId && !u.unionId && (
+                      {u.loggedIn && u.userId && !u.unionId && u.provider === 'dingtalk' && (
                         <span
                           title="该账号没关联到钉钉身份，按部门分配的权限对它不生效，只能用管理员组或单独授权"
                           className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] text-amber-700"
@@ -1082,6 +1102,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         <p className="mt-2 text-[11.5px] leading-5 text-ink-faint">
           优先级：管理员组 &gt; 账号单独设置 &gt; 所属部门 &gt; 全局默认（{ROLE_LABEL[draft.settings.defaultRole]}）。
           通讯录里的人即使还没登录过，也可以先加进管理员组或单独授权，登录后按钉钉身份自动生效。
+          邮箱账号不在钉钉通讯录里、没有部门归属，只能靠管理员组或单独授权赋权。
         </p>
       </section>
 
