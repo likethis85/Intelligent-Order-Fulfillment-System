@@ -432,16 +432,21 @@ button:focus-visible,
     min-width: var(--tray-table-width);
   }
 
-  .tray-sheet :is(td, th) button {
-    min-width: 44px;
+  .tray-sheet :is(td, th) {
+    text-align: center;
   }
 
   .tray-sheet .group.relative.w-full {
     min-height: 44px;
-    padding-right: 44px;
+    padding-right: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    text-align: center;
+  }
+
+  .tray-cell-action {
+    display: none !important;
   }
 
   .product-picker,
@@ -836,6 +841,14 @@ button:focus-visible,
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .tray-cell-action {
+    display: none !important;
+  }
+
+  .tray-sheet .group.relative.w-full {
+    padding-right: 0 !important;
   }
 }
 

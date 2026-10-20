@@ -2661,18 +2661,18 @@ const FIELDS: FieldRow[] = [
       const hasAnyContent = visibleRows.length > 0;
       return (
         <div
-          className={`group relative w-full min-h-[28px] flex items-center justify-center text-center ${!hasAnyContent ? 'cursor-pointer' : ''}`}
-          onClick={!hasAnyContent ? () => ctx.onPickRestock?.(ctx.lookId) : undefined}
-          title={!hasAnyContent ? `查询翻单（${pids.map((p) => p.toUpperCase()).join('、')}）` : undefined}
+          className="group relative w-full min-h-[28px] flex items-center justify-center text-center cursor-pointer"
+          onClick={() => ctx.onPickRestock?.(ctx.lookId)}
+          title={hasAnyContent ? `编辑翻单（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询翻单（${pids.map((p) => p.toUpperCase()).join('、')}）`}
         >
-          <div className={`${RED} leading-5 w-full`}>
+          <div className={`${RED} leading-5 w-full text-center`}>
             {hasAnyContent ? visibleRows.map(({ pid, text }) => (
-              <div key={pid} className="text-[14px] font-bold mb-0.5 last:mb-0 whitespace-pre-line">{text}</div>
+              <div key={pid} className="text-[14px] font-bold mb-0.5 last:mb-0 whitespace-pre-line text-center">{text}</div>
             )) : (
-              <div className="text-[11px] leading-5 whitespace-pre-line text-ink-faint min-h-[20px]" />
+              <div className="text-[11px] leading-5 whitespace-pre-line text-ink-faint min-h-[20px] text-center" />
             )}
           </div>
-          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
+          <div className="tray-cell-action absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -2828,16 +2828,21 @@ const FIELDS: FieldRow[] = [
           }
         : {};
       return (
-        <div className="group relative w-full text-center" {...hoverHandlers}>
-          <div className="space-y-1">
+        <div
+          className="group relative w-full text-center cursor-pointer"
+          {...hoverHandlers}
+          onClick={() => ctx.onPickFabric?.(ctx.pid)}
+          title={hasAnyContent ? `编辑面料（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询面料（${pids.map((p) => p.toUpperCase()).join('、')}）`}
+        >
+          <div className="space-y-1 w-full text-center">
             {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, note }) => (
-              <div key={pid} className="group/row w-full leading-4 whitespace-pre-line">
+              <div key={pid} className="group/row w-full leading-4 whitespace-pre-line text-center">
                 {base && (
-                  <span className="group/base inline-block max-w-full whitespace-pre-line align-top">
+                  <span className="group/base inline-block max-w-full whitespace-pre-line align-top text-center">
                     {base.split('\n').map((line, li) => {
                       const isNoFabricLine = line.includes('无面料');
                       return (
-                        <span key={li} className={isNoFabricLine ? RED : BLUE} style={{ display: 'block' }}>
+                        <span key={li} className={`${isNoFabricLine ? RED : BLUE} text-center`} style={{ display: 'block' }}>
                           {line}
                         </span>
                       );
@@ -2871,7 +2876,8 @@ const FIELDS: FieldRow[] = [
                 )}
                 {hasNote && (
                   <div
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       const v = window.prompt(`编辑款号 ${pid.toUpperCase()} 的面料注脚（留空删除）`, note);
                       if (v === null) return;
                       const trimmed = v.trim();
@@ -2896,11 +2902,14 @@ const FIELDS: FieldRow[] = [
                 )}
               </div>
             )) : (
-              <div className={`${BLUE} w-full leading-4 whitespace-pre-line`} />)}
+              <div className={`${BLUE} w-full leading-4 whitespace-pre-line text-center`} />)}
           </div>
-          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
+          <div className="tray-cell-action absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
             <button
-              onClick={() => ctx.onPickFabric?.(ctx.pid)}
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.onPickFabric?.(ctx.pid);
+              }}
               className="rounded-md p-1.5 text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
               title={hasAnyContent ? `编辑面料（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询面料（${pids.map((p) => p.toUpperCase()).join('、')}）`}
             >
@@ -4843,7 +4852,10 @@ export default function TraysPage({
                                       onHoverFabricQuick(codes, el);
                                     } : undefined,
                                     onLeaveFabric: f.label === '面料情况' ? onLeaveFabricQuick : undefined,
-                                    onPickFabric: (p) => setFabricPicker({ sectionId: s.id, lookId: l.id, pid: p }),
+                                    onPickFabric: (p) => {
+                                      setFabricTip(null);
+                                      setFabricPicker({ sectionId: s.id, lookId: l.id, pid: p });
+                                    },
                                     onClearFabric: (p) => {
                                       upd((t) => {
                                         // 把 fabricOverrides[p] 置为空字符串以「隐藏」BI / 旧 override 的面料信息
@@ -4854,7 +4866,10 @@ export default function TraysPage({
                                       });
                                       toast.success('已隐藏面料信息');
                                     },
-                                    onPickRestock: () => setRestockPicker({ sectionId: s.id, lookId: l.id }),
+                                    onPickRestock: () => {
+                                      setFabricTip(null);
+                                      setRestockPicker({ sectionId: s.id, lookId: l.id });
+                                    },
                                     priceOverrides: tray.priceOverrides,
                                     priceSuffixOverrides: tray.priceSuffixOverrides,
                                     onSavePriceSuffix: savePriceSuffix,
@@ -4912,7 +4927,10 @@ export default function TraysPage({
                                       noRestockItems: tray.noRestockItems,
                                       skcsByCode,
                                       sampleColorsByPid: sampleColorsByCode,
-                                      onPickFabric: (p) => setFabricPicker({ sectionId: s.id, lookId: l.id, pid: p }),
+                                      onPickFabric: (p) => {
+                                       setFabricTip(null);
+                                       setFabricPicker({ sectionId: s.id, lookId: l.id, pid: p });
+                                     },
                                       onClearFabric: (p) => {
                                         upd((t) => {
                                           // 把 fabricOverrides[p] 置为空字符串以「隐藏」BI / 旧 override 的面料信息
@@ -5057,7 +5075,7 @@ export default function TraysPage({
       })()}
 
       {/* 面料悬停快查：500ms 后自动查（内存缓存秒显），移到卡片上不关，移走 180ms 后关 */}
-      {fabricTip && (
+      {fabricTip && !fabricPicker && !restockPicker && (
         <FabricQuickTooltip
           rect={fabricTip.rect}
           codes={fabricTip.codes}
