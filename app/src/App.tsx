@@ -29,7 +29,8 @@ const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid; adminOnly?: b
   { key: 'access', label: '权限管理', icon: ShieldCheck, adminOnly: true },
 ];
 
-const MOBILE_NAV = NAV.filter((n) => n.key !== 'config');
+// 移动端底部导航：配置与权限管理都是低频管理入口，改放右上角图标
+const MOBILE_NAV = NAV.filter((n) => n.key !== 'config' && n.key !== 'access');
 const TRAYS_KEY = 'marius:trays:v2';
 const ACTIVE_KEY = 'marius:activeTrayId';
 const TRAYS_UPDATED_AT_KEY = 'marius:trays:updatedAt';
@@ -614,6 +615,20 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             <span className="auth-refresh-stamp" title={cacheStamp}>上次刷新 {fmtStamp(cacheStamp)}</span>
           )}
           <span className="app-target">当前选款目标：<span className="font-medium text-ink-primary">{activeTray?.name} · {activeTray?.date}</span></span>
+          {canManage && (
+            <button
+              type="button"
+              aria-current={page === 'access' ? 'page' : undefined}
+              onClick={() => goPage('access')}
+              aria-label="权限管理"
+              title="权限管理"
+              className={`mobile-config-btn flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-ink-secondary hover:bg-surface-subtle transition-colors ${
+                page === 'access' ? 'bg-surface-muted font-semibold text-ink-primary' : ''
+              }`}
+            >
+              <ShieldCheck size={16} strokeWidth={page === 'access' ? 2 : 1.7} aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             aria-current={page === 'config' ? 'page' : undefined}
