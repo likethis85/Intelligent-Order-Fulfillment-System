@@ -2804,7 +2804,7 @@ const FIELDS: FieldRow[] = [
   {
     label: '面料情况',
     labelCls: BLUE,
-    show: (t) => t === 'mazong',
+    show: (t) => t !== 'talent',
     aggregate: true,
     render: (p, _t, ctx) => {
       // 单 pid 兜底（理论上不会再走到，因为面料情况已 aggregate）
@@ -3046,13 +3046,15 @@ const FIELDS: FieldRow[] = [
   {
     label: '直播当天销量',
     labelCls: 'text-action-primary',
-    show: (t) => t === 'mazong',
+    show: (t) => t !== 'talent',
     aggregate: true,
     aggregateRender: (ps, _tpl, ctx) => {
-      // 未播完（future / today）不显示
-      if (!ctx.pastDate) return null;
+      // 未播完（future / today）显示占位符
+      if (!ctx.pastDate) {
+        return <span className="text-ink-faint text-[12px]" title="直播尚未结束，播完后次日自动统计当天销量">—</span>;
+      }
       const total = ps.reduce((sum, p) => sum + ((ctx.salesByPid?.daily || {})[p.id] || 0), 0);
-      if (total === 0) return null;
+      if (total === 0) return <span className="text-ink-muted text-[12px]">0 件</span>;
       return (
         <span className="text-action-primary" title={`直播当天 (${ctx.pastDate}) 销量`}>
           <strong className="font-semibold">{total}</strong> 件
@@ -3060,21 +3062,25 @@ const FIELDS: FieldRow[] = [
       );
     },
     render: (p, _t, ctx) => {
-      if (!ctx.pastDate) return null;
+      if (!ctx.pastDate) {
+        return <span className="text-ink-faint text-[12px]">—</span>;
+      }
       const qty = (ctx.salesByPid?.daily || {})[p.id] || 0;
-      if (qty === 0) return null;
+      if (qty === 0) return <span className="text-ink-muted text-[12px]">0 件</span>;
       return <span className="text-action-primary"><strong className="font-semibold">{qty}</strong> 件</span>;
     },
   },
   {
     label: '累计销量',
     labelCls: 'text-ink-secondary',
-    show: (t) => t === 'mazong',
+    show: (t) => t !== 'talent',
     aggregate: true,
     aggregateRender: (ps, _tpl, ctx) => {
-      if (!ctx.pastDate) return null;
+      if (!ctx.pastDate) {
+        return <span className="text-ink-faint text-[12px]" title="直播尚未结束，播完后自动统计累计销量">—</span>;
+      }
       const total = ps.reduce((sum, p) => sum + ((ctx.salesByPid?.cumulative || {})[p.id] || 0), 0);
-      if (total === 0) return null;
+      if (total === 0) return <span className="text-ink-muted text-[12px]">0 件</span>;
       return (
         <span className="text-ink-secondary" title="累计总销量（款级，来自 BI 宽表）">
           <strong className="font-semibold">{total}</strong> 件
@@ -3082,9 +3088,11 @@ const FIELDS: FieldRow[] = [
       );
     },
     render: (p, _t, ctx) => {
-      if (!ctx.pastDate) return null;
+      if (!ctx.pastDate) {
+        return <span className="text-ink-faint text-[12px]">—</span>;
+      }
       const qty = (ctx.salesByPid?.cumulative || {})[p.id] || 0;
-      if (qty === 0) return null;
+      if (qty === 0) return <span className="text-ink-muted text-[12px]">0 件</span>;
       return <span className="text-ink-secondary"><strong className="font-semibold">{qty}</strong> 件</span>;
     },
   },
@@ -4068,13 +4076,7 @@ export default function TraysPage({
   // 每次渲染刷新引用，保证 postMessage 回写基于最新货盘
   trayRef.current = tray;
   const visible = tray.sections.filter((s) => s.visible);
-  const fields = FIELDS.filter((f) => f.show(tray.template));
-  // 销量字段：仅「已播完」（tray.date < 今天）的货盘才显示；未开播/今天开播的过滤掉整行
-  const isPastTray = Boolean(tray.date && tray.date < todayStr);
-  const visibleFields = fields.filter((f) => {
-    if (f.label === '直播当天销量' || f.label === '累计销量') return isPastTray;
-    return true;
-  });
+  const visibleFields = FIELDS.filter((f) => f.show(tray.template));
 
   // 用户自传主图：per-look，键值 lookup。在主图 SafeImg 处直接读取（不进 fullById）。
   // 必须在 const tray 声明之后（依赖 tray.sections），否则触发 TDZ ReferenceError → 白屏
@@ -4478,7 +4480,27 @@ export default function TraysPage({
                 </button>
               </>
             )}
-            <span className={`rounded-sm px-2 py-1 text-[11px] font-medium ${TYPE_COLOR[tray.type]}`}>{tray.type}</span>
+            {!readOnly ? (
+              <select
+                value={tray.type}
+                onChange={(e) => {
+                  const newType = e.target.value as TrayType;
+                  const newTpl = newType === '达人货盘' ? 'talent' : newType === '马总直播货盘' ? 'mazong' : 'normal';
+                  upd((t) => ({ ...t, type: newType, template: newTpl }));
+                  toast.success(`货盘类型已切换为「${newType}」`);
+                }}
+                className={`cursor-pointer rounded-sm border border-edge-strong bg-transparent px-2 py-0.5 text-[11px] font-medium outline-none ${TYPE_COLOR[tray.type]}`}
+                title="点击切换货盘类型/模板"
+              >
+                {TRAY_TYPES.map((t) => (
+                  <option key={t} value={t} className="bg-surface-card text-ink-primary">
+                    {t}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className={`rounded-sm px-2 py-1 text-[11px] font-medium ${TYPE_COLOR[tray.type]}`}>{tray.type}</span>
+            )}
           </div>
           <p className="mt-3 text-[13px] text-ink-muted">
             {tray.template === 'mazong'

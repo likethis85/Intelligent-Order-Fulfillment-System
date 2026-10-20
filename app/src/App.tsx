@@ -686,7 +686,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
               商品池为空，示例货盘未能生成。请先同步商品数据，或直接新建一个货盘。
             </div>
             <button
-              onClick={() => createTray('新货盘', '店播直播货盘', new Date().toISOString().slice(0, 10))}
+              onClick={() => createTray('新货盘', '马总直播货盘', new Date().toISOString().slice(0, 10))}
               className="mt-2 rounded-md bg-action-primary px-4 py-2 text-[12.5px] font-medium text-white hover:bg-action-primary-hover"
             >
               新建货盘
