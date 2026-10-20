@@ -5,7 +5,8 @@ import {
   Camera, History, CircleAlert, Printer,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx-js-style';
+// xlsx-js-style 与 exceljs 只在导出时用到，改成点击导出时再动态加载，
+// 否则首屏要多下近 1.5MB（见下方 export* 函数里的 await import）
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 import {
@@ -839,10 +840,26 @@ const LOOKS_PER_BAND = 8;
 // - 翻单周期：批次的 days（fabric_Q 填的 N 天之内）
 // - 直播日期：Tray.date
 // - 登记时间：Tray.updatedAt ?? Tray.createdAt
-function exportRestockExcel(
+// CJS 包在不同打包器下 default/esModule 的形状不一样，这里统一兜一层，
+// 免得导出按钮在生产环境因为取错导出而静默失败
+async function loadXlsx() {
+  const mod = await import('xlsx-js-style');
+  const m = mod as unknown as { utils?: unknown; default?: { utils?: unknown } };
+  return (m.utils ? mod : m.default) as typeof import('xlsx-js-style');
+}
+
+async function loadExcelJS() {
+  type ExcelJSModule = typeof import('exceljs');
+  const mod = await import('exceljs');
+  const m = mod as unknown as { Workbook?: unknown; default?: ExcelJSModule };
+  return (m.Workbook ? mod : m.default) as unknown as ExcelJSModule;
+}
+
+async function exportRestockExcel(
   t: Tray,
   byId: (pid: string) => Product, // Sheet 2 不可翻单的面料判定用
 ) {
+  const XLSX = await loadXlsx();
   console.log('[exportRestockExcel] tray=', t.id, 'plannedRestockItems=', (t.plannedRestockItems || []).length);
   const wb = XLSX.utils.book_new();
 
@@ -929,7 +946,8 @@ function exportRestockExcel(
 
 // ── 导出款号维度 Excel ──
 // 纯函数：接收 tray + 当前组件里的 byId 查表函数，避免模块级 byId 引用未定义
-function exportSkuExcel(t: Tray, byId: (pid: string) => Product) {
+async function exportSkuExcel(t: Tray, byId: (pid: string) => Product) {
+  const XLSX = await loadXlsx();
   const rows: (string | number)[][] = [['货盘', '版块', '坑位', '款号', '名称', '颜色', '售价', '现货', '在途', '翻单', '计划放量', '已下单放量', '货值']];
   t.sections.forEach((s) =>
     s.looks.forEach((l, li) =>
@@ -956,7 +974,7 @@ function exportSkuExcel(t: Tray, byId: (pid: string) => Product) {
 //   主图行高 230 / 图片 180x224（对齐 HTML 货盘 h-56 w-[180px]）
 //   主推版块字段：主图 / 商品名称 / 款号 / 尺码 / 售价 / 成本倍率 / 库存 / 翻单周期 / 面料 / 单耗 / 货值 / [已播完+ 当天销量 / 累计销量]
 //   搭配版块字段：主图 / 商品名称 / 款号 / 尺码 / 售价 / 库存 / 货值
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 
 interface TrayById { (pid: string): Product }
 interface TraySalesSnap { daily: Record<string, number>; cumulative: Record<string, number> }
@@ -1232,6 +1250,8 @@ async function exportTrayLayoutExcel(
   todayStr: string,
   sampleColorsByPid?: Record<string, string[]>,
 ) {
+  // 只有真正导出时才加载 exceljs（约 1MB），首屏不为它买单
+  const ExcelJSWorkbook = await loadExcelJS();
   const visible = t.sections.filter((s) => s.visible);
   const isMazong = t.template === 'mazong';
   const isPast = Boolean(t.date && t.date < todayStr);
@@ -1316,7 +1336,7 @@ async function exportTrayLayoutExcel(
   };
 
   // 用 exceljs 构建
-  const wb = new ExcelJS.Workbook();
+  const wb = new ExcelJSWorkbook.Workbook();
   const ws = wb.addWorksheet('货盘');
   // 列宽：标签 26，坑位 26（Excel 列宽单位 ≈ 7px/单位 → 26 ≈ 182px，刚好容纳 180px 图）
   ws.columns = [{ width: 26 }, ...Array(SLOT_DATA_COLS).fill({ width: 26 })];
@@ -4384,7 +4404,7 @@ export default function TraysPage({
                   货盘布局（同款盘格式）
                 </button>
                 <button
-                  onMouseDown={(e) => { e.preventDefault(); exportSkuExcel(tray, fullByIdWithSize); setExportMenuOpen(false); }}
+                  onMouseDown={(e) => { e.preventDefault(); void exportSkuExcel(tray, fullByIdWithSize); setExportMenuOpen(false); }}
                   className="block w-full px-3 py-2 text-left text-[12px] hover:bg-surface-subtle"
                 >
                   款号明细（一行一款）
@@ -4392,7 +4412,7 @@ export default function TraysPage({
               </div>
             )}
           </div>
-          <button onClick={() => exportRestockExcel(tray, fullByIdWithSize)} className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge" title="导出计划翻单量 + 不可翻单清单">
+          <button onClick={() => { void exportRestockExcel(tray, fullByIdWithSize); }} className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12px] hover:border-edge" title="导出计划翻单量 + 不可翻单清单">
             <FileText size={13} /> 导出翻单信息
           </button>
           <button
