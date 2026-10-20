@@ -2856,7 +2856,7 @@ const FIELDS: FieldRow[] = [
         >
           <div className="w-full text-center space-y-0.5">
             {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, note }) => (
-              <div key={pid} className="w-full text-center">
+              <div key={pid} className="group/row w-full text-center">
                 {base && (
                   <div className="w-full text-center">
                     {base.split('\n').map((line, li) => {
@@ -2872,7 +2872,7 @@ const FIELDS: FieldRow[] = [
                     })}
                   </div>
                 )}
-                {hasNote && (
+                {hasNote ? (
                   <div
                     onClick={(e) => {
                       e.stopPropagation();
@@ -2897,6 +2897,25 @@ const FIELDS: FieldRow[] = [
                       ✕
                     </button>
                   </div>
+                ) : (
+                  ctx.onSaveFabricNote && (
+                    <div className="mt-0.5 flex items-center justify-center print:hidden">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const v = window.prompt(`为款号 ${pid.toUpperCase()} 添加面料注脚`, '');
+                          if (v == null) return;
+                          const trimmed = v.trim();
+                          if (!trimmed) return;
+                          ctx.onSaveFabricNote?.(pid, trimmed);
+                        }}
+                        className="hidden group-hover/cell:inline-flex group-hover/row:inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10.5px] font-medium text-ink-secondary bg-surface-card/90 hover:bg-surface-card hover:text-ink-primary border border-dashed border-edge-strong shadow-2xs transition-colors cursor-pointer"
+                        title={visibleRows.length > 1 ? `为款号 ${pid.toUpperCase()} 添加面料注脚` : '添加面料注脚'}
+                      >
+                        ＋注脚
+                      </button>
+                    </div>
+                  )
                 )}
               </div>
             )) : (
@@ -2904,23 +2923,6 @@ const FIELDS: FieldRow[] = [
             )}
           </div>
           <div className="tray-cell-action absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
-            {hasAnyContent && !visibleRows.some((r) => r.hasNote) && ctx.onSaveFabricNote && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const targetPid = visibleRows[0]?.pid || ctx.pid;
-                  const v = window.prompt(`为款号 ${targetPid.toUpperCase()} 添加面料注脚`, '');
-                  if (v == null) return;
-                  const trimmed = v.trim();
-                  if (!trimmed) return;
-                  ctx.onSaveFabricNote?.(targetPid, trimmed);
-                }}
-                className="rounded px-1.5 py-1 text-[11px] text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
-                title="添加面料注脚"
-              >
-                ＋注脚
-              </button>
-            )}
             {hasAnyContent && ctx.onClearFabric && (
               <button
                 onClick={(e) => {
