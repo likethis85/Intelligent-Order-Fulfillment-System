@@ -150,6 +150,27 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
         name: entry.name, email: null, deptIds: [], loggedIn: false,
       });
     }
+    // 同一个人可能有两套身份键：登录账号（u_xxx）和钉钉 unionId 各占一行。
+    // 只要名字相同、且两边各自只出现一次，就合并成一行，避免列表出现两条。
+    const byName = new Map<string, Row[]>();
+    for (const row of rows.values()) {
+      const list = byName.get(row.name) || [];
+      list.push(row);
+      byName.set(row.name, list);
+    }
+    for (const list of byName.values()) {
+      if (list.length !== 2) continue;
+      const withUser = list.find((r) => r.userId && !r.unionId);
+      const withUnion = list.find((r) => r.unionId && !r.userId);
+      if (!withUser || !withUnion) continue;
+      rows.delete(withUser.key);
+      rows.set(withUnion.key, {
+        ...withUnion,
+        userId: withUser.userId,
+        email: withUnion.email || withUser.email,
+        loggedIn: true,
+      });
+    }
     return [...rows.values()].sort((a, b) => {
       if (a.loggedIn !== b.loggedIn) return a.loggedIn ? -1 : 1;
       return a.name.localeCompare(b.name, 'zh-CN');
@@ -482,7 +503,8 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
     patch({
       admins: has
         ? (draft?.admins || []).filter((a) => !sameEntry(a, row))
-        : [...(draft?.admins || []), { userId: row.userId, unionId: row.unionId, name: row.name }],
+        // 加入前先去掉同一个人可能存在的另一条记录，避免重复
+        : [...(draft?.admins || []).filter((a) => !sameEntry(a, row)), { userId: row.userId, unionId: row.unionId, name: row.name }],
     });
   };
 
@@ -1009,6 +1031,14 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
                       <span className="font-medium">{u.name}</span>
                       {!u.loggedIn && (
                         <span className="ml-1.5 rounded border border-edge bg-surface-subtle px-1 text-[10px] text-ink-faint">未登录</span>
+                      )}
+                      {u.loggedIn && u.userId && !u.unionId && (
+                        <span
+                          title="该账号没关联到钉钉身份，按部门分配的权限对它不生效，只能用管理员组或单独授权"
+                          className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] text-amber-700"
+                        >
+                          未关联钉钉
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-ink-muted">
