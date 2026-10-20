@@ -2849,50 +2849,28 @@ const FIELDS: FieldRow[] = [
         : {};
       return (
         <div
-          className="group relative w-full text-center cursor-pointer"
+          className="group relative w-full min-h-[28px] flex flex-col items-center justify-center text-center cursor-pointer"
           {...hoverHandlers}
           onClick={() => ctx.onPickFabric?.(ctx.pid)}
           title={hasAnyContent ? `编辑面料（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询面料（${pids.map((p) => p.toUpperCase()).join('、')}）`}
         >
-          <div className="space-y-1 w-full text-center">
+          <div className="w-full text-center space-y-0.5">
             {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, note }) => (
-              <div key={pid} className="group/row w-full leading-4 whitespace-pre-line text-center">
+              <div key={pid} className="w-full text-center">
                 {base && (
-                  <span className="group/base inline-block max-w-full whitespace-pre-line align-top text-center">
+                  <div className="w-full text-center">
                     {base.split('\n').map((line, li) => {
                       const isNoFabricLine = line.includes('无面料');
                       return (
-                        <span key={li} className={`${isNoFabricLine ? RED : BLUE} text-center`} style={{ display: 'block' }}>
+                        <div
+                          key={li}
+                          className={`${isNoFabricLine ? RED : BLUE} w-full text-center text-[13px] leading-5 font-normal`}
+                        >
                           {line}
-                        </span>
+                        </div>
                       );
                     })}
-                    {ctx.onClearFabric && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); ctx.onClearFabric?.(pid); }}
-                        className="ml-1 hidden rounded px-1 align-middle text-[10px] text-ink-faint hover:bg-action-danger/10 hover:text-action-danger-fg group-hover/base:inline"
-                        title="隐藏面料信息"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </span>
-                )}
-                {!hasNote && ctx.onSaveFabricNote && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const v = window.prompt(`为款号 ${pid.toUpperCase()} 添加面料注脚`, '');
-                      if (v == null) return;
-                      const trimmed = v.trim();
-                      if (!trimmed) return;
-                      ctx.onSaveFabricNote?.(pid, trimmed);
-                    }}
-                    className="ml-1 hidden rounded px-1 align-middle text-[10px] text-ink-faint hover:bg-surface-subtle hover:text-ink-primary group-hover/row:inline"
-                    title="添加面料注脚"
-                  >
-                    ＋注脚
-                  </button>
+                  </div>
                 )}
                 {hasNote && (
                   <div
@@ -2904,10 +2882,10 @@ const FIELDS: FieldRow[] = [
                       if (!trimmed) ctx.onClearFabricNote?.(pid);
                       else ctx.onSaveFabricNote?.(pid, trimmed);
                     }}
-                    className="group/note mt-0.5 inline-block max-w-full cursor-text whitespace-pre-line rounded italic text-ink-muted hover:bg-surface-subtle hover:text-ink-primary"
+                    className="group/note mt-0.5 inline-flex items-center justify-center cursor-text whitespace-pre-line rounded italic text-[11px] text-ink-muted hover:bg-surface-subtle hover:text-ink-primary px-1 text-center"
                     title="点击编辑 / 留空删除"
                   >
-                    ※ {note}
+                    <span>※ {note}</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2922,9 +2900,39 @@ const FIELDS: FieldRow[] = [
                 )}
               </div>
             )) : (
-              <div className={`${BLUE} w-full leading-4 whitespace-pre-line text-center`} />)}
+              <div className={`${BLUE} w-full text-[11px] leading-5 whitespace-pre-line text-ink-faint min-h-[20px] text-center`} />
+            )}
           </div>
           <div className="tray-cell-action absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
+            {hasAnyContent && !visibleRows.some((r) => r.hasNote) && ctx.onSaveFabricNote && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const targetPid = visibleRows[0]?.pid || ctx.pid;
+                  const v = window.prompt(`为款号 ${targetPid.toUpperCase()} 添加面料注脚`, '');
+                  if (v == null) return;
+                  const trimmed = v.trim();
+                  if (!trimmed) return;
+                  ctx.onSaveFabricNote?.(targetPid, trimmed);
+                }}
+                className="rounded px-1.5 py-1 text-[11px] text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
+                title="添加面料注脚"
+              >
+                ＋注脚
+              </button>
+            )}
+            {hasAnyContent && ctx.onClearFabric && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  pids.forEach((p) => ctx.onClearFabric?.(p));
+                }}
+                className="rounded-md p-1.5 text-ink-faint hover:bg-action-danger/10 hover:text-action-danger-fg transition-colors"
+                title="隐藏面料信息"
+              >
+                <X size={12} />
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -4919,7 +4927,7 @@ export default function TraysPage({
                               if (aggNode === null) return null;
                               return (
                                 <td key={l.id} className={cell}>
-                                  <div className="text-center">{aggNode}</div>
+                                  <div className="w-full text-center flex flex-col items-center justify-center">{aggNode}</div>
                                 </td>
                               );
                             }
