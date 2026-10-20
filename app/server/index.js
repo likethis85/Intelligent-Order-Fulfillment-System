@@ -16,6 +16,7 @@ import { clearBiCache, clearBiSkcCache } from './bi-client.js';
 import { clearProfileCache } from './profile-client.js';
 import { clearSizeCache } from './size-client.js';
 import { clearCostCache } from './cost-client.js';
+import { clearSalesCache } from './daysales-client.js';
 import salesRouter from './routes/sales.js';
 import { getRoleRules, saveRoleRules } from './role-rules.js';
 import { getSceneRules, saveSceneRules } from './scene-rules.js';
@@ -227,12 +228,13 @@ app.post('/api/sync', async (req, res) => {
       });
     }
     if (kind === '商品') {
-      // 清掉所有商品相关缓存：领猫基础资料 + BI 款式卡 + BI SKC 卡 + 尺码 / 成本 ETL + 画像/主播
+      // 清掉所有商品相关缓存：领猫基础资料 + BI 款式卡 + BI SKC 卡 + 尺码 / 成本 ETL + 画像/主播 + 销量
       clearProductsCache({ hard: true });
       clearBiCache();
       clearSizeCache();
       clearCostCache();
       clearProfileCache();
+      clearSalesCache({ hard: true });
     } else {
       // 库存：只清 BI SKC 卡（现货/在途/占单/交期）、尺码 / 成本 ETL，保留款式卡基础资料
       clearBiSkcCache();

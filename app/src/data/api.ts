@@ -219,7 +219,7 @@ export interface SalesSummary {
 export function fetchSalesSummary(date: string, pids: string[]): Promise<SalesSummary> {
   if (pids.length === 0) return Promise.resolve({ date, daily: {}, cumulative: {} });
   const q = new URLSearchParams({ date, pids: pids.join(',') });
-  return jsonFetch<SalesSummary>(`/sales/summary?${q.toString()}`);
+  return jsonFetch<SalesSummary>(`/sales/summary?${q.toString()}`, {}, 150_000);
 }
 
 // POST /api/sync → 重新拉数据（首次冷启可能 >30s，给 180s 超时）
