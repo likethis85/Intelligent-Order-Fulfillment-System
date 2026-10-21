@@ -866,9 +866,9 @@
     let forceAddedPdts = new Set();
     let sectionCollapsed = { filled: window.innerWidth <= 768, unfilled: false };
 
-    // 带认证的fetch函数（已移除登录检查，直接请求）
+    // 带认证的fetch函数（已移除登录检查，直接请求，带 cookie 保证 iframe 模式正常鉴权）
     async function authFetch(url, options = {}) {
-      return fetch(url, options);
+      return fetch(url, { credentials: 'include', ...options });
     }
 
     // 页面初始化
@@ -895,26 +895,15 @@
 
         // 异步处理：先 forceAddPdtCode（如果需要），等完成后再 toggleGroup
         (async () => {
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 400));
           for (const code of codes) {
             // 1) 没记录就强制添加
             if (!allPdtCodes.includes(code) && !forceAddedPdts.has(code)) {
               await forceAddPdtCode(code);
-              await new Promise(r => setTimeout(r, 400));
+              await new Promise(r => setTimeout(r, 300));
             }
-            // 2) 等列表重新渲染后，查找 DOM
-            let el = document.querySelector(`.pdt-card[data-pdt="${code}"]`);
-            if (!el) {
-              await new Promise(r => setTimeout(r, 400));
-              el = document.querySelector(`.pdt-card[data-pdt="${code}"]`);
-            }
-            // 3) 勾选（这时 selectedFabrics 没这个款号，toggleGroup 会走 addGroupToSelection 路径）
-            if (el) {
-              const cb = el.querySelector('input[type="checkbox"]');
-              if (cb && !cb.checked) {
-                toggleGroup(code, true);
-              }
-            }
+            // 2) 勾选该款号
+            toggleGroup(code, true);
           }
         })();
       }
@@ -1006,33 +995,49 @@
       if (code && code.trim()) forceAddPdtCode(code.trim().toUpperCase());
     }
 
+    const forceAddInflight = new Map();
+
     async function forceAddPdtCode(code) {
       if (!code) return;
       code = code.toUpperCase().trim();
-      if (allPdtCodes.includes(code)) {
-        const existingRows = fabricData.filter(r => r.pdt_code === code);
-        const hasReal = existingRows.some(r => (r.mt_code || '') !== '_forced_');
-        if (hasReal) { alert('此款号已存在'); return; }
+
+      if (forceAddInflight.has(code)) {
+        return forceAddInflight.get(code);
       }
+
+      const promise = (async () => {
+        if (allPdtCodes.includes(code)) {
+          const existingRows = fabricData.filter(r => r.pdt_code === code);
+          const hasReal = existingRows.some(r => (r.mt_code || '') !== '_forced_');
+          if (hasReal) { alert('此款号已存在'); return; }
+        }
+        try {
+          const res = await authFetch('/api/fabric-data/force-add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdt_code: code })
+          });
+          const result = await res.json();
+          if (!result.success) { alert(result.error || '添加失败'); return; }
+          fabricData = fabricData.filter(r => r.pdt_code !== code);
+          if (result.data) fabricData.push(...(Array.isArray(result.data) ? result.data : [result.data]));
+          if (!allPdtCodes.includes(code)) allPdtCodes.push(code);
+          allPdtCodes.sort();
+          forceAddedPdts.add(code);
+          document.getElementById('forceAddHint').style.display = 'none';
+          document.getElementById('fabricSearch').value = code;
+          renderFabricList();
+        } catch (err) {
+          console.error('强制添加款号失败:', err);
+          alert('添加失败: ' + err.message);
+        }
+      })();
+
+      forceAddInflight.set(code, promise);
       try {
-        const res = await authFetch('/api/fabric-data/force-add', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdt_code: code })
-        });
-        const result = await res.json();
-        if (!result.success) { alert(result.error || '添加失败'); return; }
-        fabricData = fabricData.filter(r => r.pdt_code !== code);
-        if (result.data) fabricData.push(...(Array.isArray(result.data) ? result.data : [result.data]));
-        if (!allPdtCodes.includes(code)) allPdtCodes.push(code);
-        allPdtCodes.sort();
-        forceAddedPdts.add(code);
-        document.getElementById('forceAddHint').style.display = 'none';
-        document.getElementById('fabricSearch').value = code;
-        renderFabricList();
-      } catch (err) {
-        console.error('强制添加款号失败:', err);
-        alert('添加失败: ' + err.message);
+        return await promise;
+      } finally {
+        forceAddInflight.delete(code);
       }
     }
 
@@ -2056,7 +2061,12 @@
         group.classList.toggle('selected', checked);
       }
       if (checked) {
-        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) { forceAddPdtCode(pdtCode); return; }
+        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) {
+          forceAddPdtCode(pdtCode).then(() => {
+            toggleGroup(pdtCode, true);
+          });
+          return;
+        }
         const selectedItems = Object.values(selectedFabrics);
         const sharedFabrics = detectSharedFabrics(selectedItems, pdtItems);
         if (sharedFabrics.length > 0) {

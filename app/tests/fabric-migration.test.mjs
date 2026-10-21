@@ -99,3 +99,33 @@ test('products route and sync handler incorporate sample clothings into the unif
   assert.ok(indexCode.includes('clearSamplesCache({ hard: true })'), 'index.js must clear sample cache on product sync');
 });
 
+test('fabric-data force-add uses upsert and frontend has inflight deduplication', () => {
+  const fabricRouteCode = fs.readFileSync(path.join(appDir, 'server', 'routes', 'fabric.js'), 'utf8');
+  assert.ok(fabricRouteCode.includes(".upsert(records, { onConflict: 'pdt_code,sku_code,mt_code,mt_spec_name,warehouse' })"), 'force-add must use upsert with conflict specification');
+  assert.ok(fabricRouteCode.includes('dedupMap'), 'fill-skcs must deduplicate batch items before upsert');
+
+  const salesHtml = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'sales.html'), 'utf8');
+  assert.ok(salesHtml.includes('forceAddInflight'), 'sales.html must guard forceAddPdtCode with forceAddInflight map');
+
+  const salesMobileHtml = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'sales-mobile.html'), 'utf8');
+  assert.ok(salesMobileHtml.includes('forceAddInflight'), 'sales-mobile.html must guard forceAddPdtCode with forceAddInflight map');
+});
+
+test('restock plan optimizations and iframe credential inclusion are in place', () => {
+  const salesHtml = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'sales.html'), 'utf8');
+  assert.ok(salesHtml.includes("fetch(url, { credentials: 'include', ...options })"), 'sales.html authFetch must include credentials');
+  assert.ok(salesHtml.includes('forceAddPdtCode(pdtCode).then('), 'sales.html toggleGroup must chain toggleGroup after forceAddPdtCode');
+
+  const salesMobileHtml = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'sales-mobile.html'), 'utf8');
+  assert.ok(salesMobileHtml.includes("fetch(url, { credentials: 'include', ...options })"), 'sales-mobile.html authFetch must include credentials');
+  assert.ok(salesMobileHtml.includes('forceAddPdtCode(pdtCode).then('), 'sales-mobile.html toggleGroup must chain toggleGroup after forceAddPdtCode');
+
+  const samplesRoute = fs.readFileSync(path.join(appDir, 'server', 'routes', 'samples.js'), 'utf8');
+  assert.ok(samplesRoute.includes('getFabricDataCacheInMemory'), 'samples route must use in-memory fabric cache if available');
+  assert.ok(samplesRoute.includes(".in('pdt_code', pids)"), 'samples route must use targeted Supabase query by pdt_code');
+
+  const scmBomCode = fs.readFileSync(path.join(appDir, 'server', 'scm-sample-bom.js'), 'utf8');
+  assert.ok(scmBomCode.includes('Promise.all(windows.map'), 'scm-sample-bom must parallelize window queries with Promise.all');
+});
+
+

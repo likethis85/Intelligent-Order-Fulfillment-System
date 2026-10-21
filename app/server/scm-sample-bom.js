@@ -156,11 +156,11 @@ async function getSampleDevMaterialsForOne(smCode) {
     return json;
   }
 
-  // 第一步：找 smDevCode（每个窗口只取第 1 页）
+  // 第一步：找 smDevCode（并行查询各窗口第 1 页，单次往返秒回）
   let smDevCode;
-  for (const win of windows) {
-    const json = await fetchWindowPage(win, 1);
-    if ((json.code !== 200 && json.code !== 0) || !json.data) continue;
+  const step1Results = await Promise.all(windows.map((win) => fetchWindowPage(win, 1).catch(() => null)));
+  for (const json of step1Results) {
+    if (!json || (json.code !== 200 && json.code !== 0) || !json.data) continue;
     const datas = json.data.datas || [];
     const match = datas.find((it) => (it.smCode || '').toUpperCase() === upperCode);
     if (match?.smDevCode) {
@@ -170,22 +170,43 @@ async function getSampleDevMaterialsForOne(smCode) {
   }
 
   // 第二步：拉全窗口
-  // 找到 smDevCode：按 devCodes 精确过滤拉全（便宜）；
-  // 没找到：无过滤深扫兜底（ME14FF036 的 BOM 记录埋在全公司窗口的第 2 页以后，浅扫会漏）——
-  // 调用方已用 getsampleclothings 预筛过样衣款，能走到这里的款号很少，深扫成本可控
+  // 找到 smDevCode：按 devCodes 精确过滤并发拉全（快速）；
+  // 没找到：复用 step 1 已拿到的第 1 页，最多浅扫第 2 页，避免打满配额与引发超时
   const allDatas = [];
-  // 无 smDevCode 的兜底深扫限制每窗 6 页（600 条），平衡命中率与配额消耗
-  const maxPages = smDevCode ? 20 : 6;
-  for (const win of windows) {
-    let pageIndex = 1;
-    while (pageIndex <= maxPages) {
-      const json = await fetchWindowPage(win, pageIndex, smDevCode ? [smDevCode] : undefined);
-      if (json.code !== 200 && json.code !== 0) break;
-      const datas = json.data?.datas || [];
-      allDatas.push(...datas);
-      if (!json.data?.hasNext || datas.length === 0) break;
-      pageIndex++;
-    }
+  if (smDevCode) {
+    const fetchPromises = windows.map(async (win) => {
+      const winDatas = [];
+      let pageIndex = 1;
+      while (pageIndex <= 10) {
+        const json = await fetchWindowPage(win, pageIndex, [smDevCode]).catch(() => null);
+        if (!json || (json.code !== 200 && json.code !== 0)) break;
+        const datas = json.data?.datas || [];
+        winDatas.push(...datas);
+        if (!json.data?.hasNext || datas.length === 0) break;
+        pageIndex++;
+      }
+      return winDatas;
+    });
+    const results = await Promise.all(fetchPromises);
+    for (const res of results) allDatas.push(...res);
+  } else {
+    // 没找到 smDevCode：直接使用 step1 各窗口第 1 页
+    const scanPromises = windows.map(async (win, idx) => {
+      const winDatas = [];
+      const firstJson = step1Results[idx];
+      if (firstJson && (firstJson.code === 200 || firstJson.code === 0) && firstJson.data?.datas) {
+        winDatas.push(...firstJson.data.datas);
+        if (firstJson.data.hasNext) {
+          const secondJson = await fetchWindowPage(win, 2).catch(() => null);
+          if (secondJson && (secondJson.code === 200 || secondJson.code === 0) && secondJson.data?.datas) {
+            winDatas.push(...secondJson.data.datas);
+          }
+        }
+      }
+      return winDatas;
+    });
+    const results = await Promise.all(scanPromises);
+    for (const res of results) allDatas.push(...res);
   }
 
   // 第三步：查主数据，过滤面料/里料

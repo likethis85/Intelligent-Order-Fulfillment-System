@@ -45,6 +45,14 @@ export function invalidateFabricDataCache() {
   fabricDataCache = { data: null, at: 0 };
 }
 
+export function getFabricDataCacheInMemory() {
+  const now = Date.now();
+  if (fabricDataCache.data && (now - fabricDataCache.at < FABRIC_CACHE_TTL_MS)) {
+    return fabricDataCache.data;
+  }
+  return null;
+}
+
 /**
  * 直接读取 Supabase 的 fabric_data 记录（供内部其它模块如 samples.js 复用）
  */
@@ -309,8 +317,23 @@ router.post('/fabric-data/force-add', async (req, res) => {
       submitted_by: userId,
     }));
 
-    const { data, error } = await supabase.from('fabric_data').insert(records).select();
-    if (error) return res.status(500).json({ error: error.message });
+    let data = [];
+    const upsertRes = await supabase
+      .from('fabric_data')
+      .upsert(records, { onConflict: 'pdt_code,sku_code,mt_code,mt_spec_name,warehouse' })
+      .select();
+
+    if (upsertRes.error) {
+      if (upsertRes.error.code === '23505' || upsertRes.error.message?.includes('duplicate key') || upsertRes.error.message?.includes('violates unique constraint')) {
+        console.warn('[POST /api/fabric-data/force-add] caught concurrent conflict, returning existing:', upsertRes.error.message);
+        const { data: existingRows } = await supabase.from('fabric_data').select().eq('pdt_code', pdt_code);
+        data = existingRows || [];
+      } else {
+        return res.status(500).json({ error: upsertRes.error.message });
+      }
+    } else {
+      data = upsertRes.data;
+    }
     invalidateFabricDataCache();
     res.json({ success: true, data, count: records.length });
   } catch (error) {
@@ -383,9 +406,15 @@ router.post('/fabric-data/fill-skcs', async (req, res) => {
     }
 
     if (allNewRecords.length > 0) {
+      const dedupMap = new Map();
+      for (const rec of allNewRecords) {
+        const k = `${rec.pdt_code}|${rec.sku_code || ''}|${rec.mt_code}|${rec.mt_spec_name || ''}|${rec.warehouse || ''}`;
+        if (!dedupMap.has(k)) dedupMap.set(k, rec);
+      }
+      const dedupRecords = Array.from(dedupMap.values());
       await supabase
         .from('fabric_data')
-        .upsert(allNewRecords, { onConflict: 'pdt_code,sku_code,mt_code,mt_spec_name,warehouse', ignoreDuplicates: true });
+        .upsert(dedupRecords, { onConflict: 'pdt_code,sku_code,mt_code,mt_spec_name,warehouse', ignoreDuplicates: true });
     }
     invalidateFabricDataCache();
     res.json({ success: true, inserted: allNewRecords.length });

@@ -687,9 +687,9 @@
     // 区域折叠状态（手机端默认折叠"已填"区，优先展示"未填"）
     let sectionCollapsed = { filled: window.innerWidth <= 768, unfilled: false };
 
-    // 带认证的fetch函数（已移除登录检查，直接请求）
+    // 带认证的fetch函数（已移除登录检查，直接请求，带 cookie 保证 iframe 模式正常鉴权）
     async function authFetch(url, options = {}) {
-      return fetch(url, options);
+      return fetch(url, { credentials: 'include', ...options });
     }
 
     // 页面初始化
@@ -715,26 +715,15 @@
 
         // 异步处理：先 forceAddPdtCode（如果需要），等完成后再 toggleGroup
         (async () => {
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 400));
           for (const code of codes) {
             // 1) 没记录就强制添加
             if (!allPdtCodes.includes(code) && !forceAddedPdts.has(code)) {
               await forceAddPdtCode(code);
-              await new Promise(r => setTimeout(r, 400));
+              await new Promise(r => setTimeout(r, 300));
             }
-            // 2) 等列表重新渲染后，查找 DOM
-            let el = document.querySelector(`.fabric-group[data-pdt="${code}"]`);
-            if (!el) {
-              await new Promise(r => setTimeout(r, 400));
-              el = document.querySelector(`.fabric-group[data-pdt="${code}"]`);
-            }
-            // 3) 勾选（这时 selectedFabrics 没这个款号，toggleGroup 会走 addGroupToSelection 路径）
-            if (el) {
-              const cb = el.querySelector('input[type="checkbox"]');
-              if (cb && !cb.checked) {
-                toggleGroup(code, true);
-              }
-            }
+            // 2) 勾选该款号（toggleGroup 会自动同步 checkbox、合并 sample BOM 并渲染右侧编辑区）
+            toggleGroup(code, true);
           }
         })();
       }
@@ -775,7 +764,7 @@
               if (hasNew) renderFabricList();
             }).catch(e => console.warn('[sales.html] mergeSampleBomForCodes 异步提示:', e.message));
           }
-          // URL 参数 pids：自动勾选对应款号
+          // URL 参数 pids：自动勾选对应款号（未入库的款由上方的有序异步循环统一添加，此处仅勾选已存在的元素）
           const urlParams = new URLSearchParams(window.location.search);
           const pidsParam = urlParams.get('pids');
           if (pidsParam) {
@@ -786,8 +775,6 @@
                 if (group) {
                   const cb = group.querySelector('input[type="checkbox"]');
                   if (cb && !cb.checked) toggleGroup(code, true);
-                } else if (!allPdtCodes.includes(code) && !forceAddedPdts.has(code)) {
-                  forceAddPdtCode(code);
                 }
               });
             }, 100);
@@ -891,62 +878,78 @@
       }
     }
 
-    // 强制添加款号（用于无面料信息的情况）
+    const forceAddInflight = new Map();
+
+    // 强制添加款号（用于无面料信息的情况，带并发请求去重锁）
     async function forceAddPdtCode(code) {
       if (!code) return;
       code = code.toUpperCase().trim();
 
-      console.log('[forceAddPdtCode] starting for:', code);
-
-      // 检查是否已存在：仅当该款已有【真实面料数据】（非 _forced_ 占位）时拦截；
-      // 若只是旧版占位记录（mt_code='_forced_'），仍需调用 API 重建正确的 SKC
-      if (allPdtCodes.includes(code)) {
-        const existingRows = fabricData.filter(r => r.pdt_code === code);
-        const hasReal = existingRows.some(r => (r.mt_code || '') !== '_forced_');
-        if (hasReal) {
-          alert('此款号已存在');
-          return;
-        }
-        // 全是占位记录 → 继续走 API 重建
-        console.log('[forceAddPdtCode] 该款只有占位记录，重建 SKC');
+      if (forceAddInflight.has(code)) {
+        console.log('[forceAddPdtCode] already in flight for:', code);
+        return forceAddInflight.get(code);
       }
 
+      const promise = (async () => {
+        console.log('[forceAddPdtCode] starting for:', code);
+
+        // 检查是否已存在：仅当该款已有【真实面料数据】（非 _forced_ 占位）时拦截；
+        // 若只是旧版占位记录（mt_code='_forced_'），仍需调用 API 重建正确的 SKC
+        if (allPdtCodes.includes(code)) {
+          const existingRows = fabricData.filter(r => r.pdt_code === code);
+          const hasReal = existingRows.some(r => (r.mt_code || '') !== '_forced_');
+          if (hasReal) {
+            alert('此款号已存在');
+            return;
+          }
+          // 全是占位记录 → 继续走 API 重建
+          console.log('[forceAddPdtCode] 该款只有占位记录，重建 SKC');
+        }
+
+        try {
+          console.log('[forceAddPdtCode] calling API...');
+          // 调用后端 API：查 SKU → 按 SKC 建记录（自动清旧占位）
+          const res = await authFetch('/api/fabric-data/force-add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdt_code: code })
+          });
+          console.log('[forceAddPdtCode] response status:', res.status);
+          const result = await res.json();
+          console.log('[forceAddPdtCode] result:', result);
+
+          if (!result.success) {
+            alert(result.error || '添加失败');
+            return;
+          }
+
+          // 重建成功：先从本地数据移除该款旧占位记录，再并入新的（按 SKC）
+          fabricData = fabricData.filter(r => r.pdt_code !== code);
+          if (result.data) {
+            const newRows = Array.isArray(result.data) ? result.data : [result.data];
+            fabricData.push(...newRows);
+          }
+          if (!allPdtCodes.includes(code)) {
+            allPdtCodes.push(code);
+          }
+          allPdtCodes.sort();
+
+          forceAddedPdts.add(code);
+          document.getElementById('forceAddHint').style.display = 'none';
+          document.getElementById('fabricSearch').value = code;
+          console.log('[forceAddPdtCode] success, fabricData now has:', fabricData.length, 'items');
+          renderFabricList();
+        } catch (err) {
+          console.error('强制添加款号失败:', err);
+          alert('添加失败: ' + err.message);
+        }
+      })();
+
+      forceAddInflight.set(code, promise);
       try {
-        console.log('[forceAddPdtCode] calling API...');
-        // 调用后端 API：查 SKU → 按 SKC 建记录（自动清旧占位）
-        const res = await authFetch('/api/fabric-data/force-add', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdt_code: code })
-        });
-        console.log('[forceAddPdtCode] response status:', res.status);
-        const result = await res.json();
-        console.log('[forceAddPdtCode] result:', result);
-
-        if (!result.success) {
-          alert(result.error || '添加失败');
-          return;
-        }
-
-        // 重建成功：先从本地数据移除该款旧占位记录，再并入新的（按 SKC）
-        fabricData = fabricData.filter(r => r.pdt_code !== code);
-        if (result.data) {
-          const newRows = Array.isArray(result.data) ? result.data : [result.data];
-          fabricData.push(...newRows);
-        }
-        if (!allPdtCodes.includes(code)) {
-          allPdtCodes.push(code);
-        }
-        allPdtCodes.sort();
-
-        forceAddedPdts.add(code);
-        document.getElementById('forceAddHint').style.display = 'none';
-        document.getElementById('fabricSearch').value = code;
-        console.log('[forceAddPdtCode] success, fabricData now has:', fabricData.length, 'items');
-        renderFabricList();
-      } catch (err) {
-        console.error('强制添加款号失败:', err);
-        alert('添加失败: ' + err.message);
+        return await promise;
+      } finally {
+        forceAddInflight.delete(code);
       }
     }
 
@@ -2434,7 +2437,7 @@
       todo.forEach(c => sampleBomMergedCodes.add(c)); // 先占位防重入；失败时移除允许重试
       try {
         const sampleUrl = '/api/samples/materials?codes=' + encodeURIComponent(todo.join(','));
-        const sResp = await fetch(sampleUrl);
+        const sResp = await authFetch(sampleUrl);
         const sJson = await sResp.json();
         const sampleItems = (sJson && sJson.items) || [];
         const sampleRows = [];
@@ -2504,7 +2507,9 @@
         }
         // 若是该款没有任何面料记录（批量搜出来的待强制添加占位）→ 自动强制添加创建真实记录
         if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) {
-          forceAddPdtCode(pdtCode);
+          forceAddPdtCode(pdtCode).then(() => {
+            toggleGroup(pdtCode, true);
+          });
           return;
         }
         // 收集所有已选中的面料数据

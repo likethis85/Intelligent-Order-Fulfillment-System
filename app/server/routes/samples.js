@@ -3,7 +3,8 @@ import { hasCredentials, listSamplesCached, listSampleByCodes } from '../vscm-cl
 import { applyHengjiSalesPriceFallback, applyHengjiCostFallback } from '../hengji-client.js';
 import { getSampleMaterials, getMaterialBaseInfo } from '../scm-sample-bom.js';
 
-import { getFabricDataRows } from './fabric.js';
+import { getFabricDataRows, getFabricDataCacheInMemory } from './fabric.js';
+import { supabase, isSupabaseReady } from '../supabase-client.js';
 
 const router = Router();
 
@@ -110,7 +111,36 @@ router.get('/calc-restock-stock', async (req, res) => {
   try {
     let rows = [];
     try {
-      rows = await getFabricDataRows();
+      const memRows = getFabricDataCacheInMemory();
+      if (memRows && Array.isArray(memRows)) {
+        rows = memRows;
+      } else if (isSupabaseReady() && supabase && (pids.length > 0 || skcs.length > 0)) {
+        // 精准查询：直接按 pids / skcs 过滤，避免全表 1800+ 条扫描耗时
+        const queries = [];
+        if (pids.length > 0) {
+          queries.push(supabase.from('fabric_data').select('*').in('pdt_code', pids));
+        }
+        if (skcs.length > 0) {
+          queries.push(supabase.from('fabric_data').select('*').in('sku_code', skcs));
+        }
+        const results = await Promise.all(queries);
+        const dedup = new Map();
+        for (const res of results) {
+          if (res.data) {
+            for (const r of res.data) {
+              const k = r.id || `${r.pdt_code}|${r.sku_code}|${r.mt_code}|${r.warehouse}`;
+              dedup.set(k, r);
+            }
+          }
+        }
+        rows = Array.from(dedup.values());
+        if (rows.length === 0) {
+          // 兜底查一次全量（防止个别字段大小写或无命中）
+          rows = await getFabricDataRows();
+        }
+      } else {
+        rows = await getFabricDataRows();
+      }
     } catch (err) {
       console.warn('[samples/calc-restock-stock] 读取内置面料数据异常:', err.message);
     }
