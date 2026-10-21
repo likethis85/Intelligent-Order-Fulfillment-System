@@ -11,7 +11,7 @@ import traysRouter from './routes/trays.js';
 import profilesRouter from './routes/profiles.js';
 import fabricRouter from './routes/fabric.js';
 import { router as uploadRouter, UPLOAD_DIR } from './uploads.js';
-import { hasCredentials, clearProductsCache } from './vscm-client.js';
+import { hasCredentials, clearProductsCache, clearSamplesCache } from './vscm-client.js';
 import { clearBiCache, clearBiSkcCache } from './bi-client.js';
 import { clearProfileCache } from './profile-client.js';
 import { clearSizeCache } from './size-client.js';
@@ -228,8 +228,9 @@ app.post('/api/sync', async (req, res) => {
       });
     }
     if (kind === '商品') {
-      // 清掉所有商品相关缓存：领猫基础资料 + BI 款式卡 + BI SKC 卡 + 尺码 / 成本 ETL + 画像/主播 + 销量
+      // 清掉所有商品相关缓存：领猫基础资料 + 样衣库 + BI 款式卡 + BI SKC 卡 + 尺码 / 成本 ETL + 画像/主播 + 销量
       clearProductsCache({ hard: true });
+      clearSamplesCache({ hard: true });
       clearBiCache();
       clearSizeCache();
       clearCostCache();

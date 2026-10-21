@@ -89,3 +89,13 @@ test('prefill-listener debounces rapid repeated prefill invocations', () => {
   assert.ok(listenerCode.includes('lastAppliedTime'), 'prefill listener must have deduplication timer');
 });
 
+test('products route and sync handler incorporate sample clothings into the unified product pool', () => {
+  const productsCode = fs.readFileSync(path.join(appDir, 'server', 'routes', 'products.js'), 'utf8');
+  assert.ok(productsCode.includes('listSamplesCached'), 'products router must import and use listSamplesCached');
+  assert.ok(productsCode.includes('sampleOnlyItems'), 'products router must merge sampleOnlyItems into unified pool');
+
+  const indexCode = fs.readFileSync(path.join(appDir, 'server', 'index.js'), 'utf8');
+  assert.ok(indexCode.includes('clearSamplesCache'), 'index.js must import clearSamplesCache');
+  assert.ok(indexCode.includes('clearSamplesCache({ hard: true })'), 'index.js must clear sample cache on product sync');
+});
+

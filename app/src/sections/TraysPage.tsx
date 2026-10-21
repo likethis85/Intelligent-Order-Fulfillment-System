@@ -1863,6 +1863,10 @@ function LookPicker({
           }
         }
         list = filtered;
+      } else if (/^[A-Za-z0-9_-]{4,15}$/.test(q)) {
+        // 用户直接在 AI 指令框输入款号（如 ME15FW033）时，作为款号搜索兜底匹配
+        const upperQ = q.toUpperCase();
+        list = list.filter((p) => p.id.toUpperCase().includes(upperQ) || p.name.toLowerCase().includes(q.toLowerCase()));
       }
     }
     // 排序：根据 AI 指令意图，把最相关的维度放在最前面

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { hasCredentials, listProductsCached, mapProduct, clearProductsCache, listSampleByCodes } from '../vscm-client.js';
+import { hasCredentials, listProductsCached, mapProduct, clearProductsCache, listSampleByCodes, listSamplesCached } from '../vscm-client.js';
 import { loadBiProducts, biOverrides, biOnlyProduct, biOnlyProductFromMaster, loadBiProductMaster, biProductOverrides, getSkcsForCode } from '../bi-client.js';
 import { deriveRoles } from '../role-rules.js';
 import { loadSizeRange, getSizeRangeForCode } from '../size-client.js';
@@ -70,10 +70,10 @@ function enrichWithBi(product, biRow, productMasterRow) {
   return product;
 }
 
-// 把领猫 + BI 一起加载（幂等，cache 复用）
-// 集合语义：领猫基础资料 ∪ BI 卡片（去重按 id）——union，不是交集
+// 把领猫 + BI + 样衣 一起加载（幂等，cache 复用）
+// 集合语义：领猫大货 ∪ BI 卡片 ∪ 研发样衣（去重按 id）
 async function loadAllProducts() {
-  const [{ items, totalCount }, bi, productMaster] = await Promise.all([
+  const [{ items, totalCount }, bi, productMaster, samplesResult] = await Promise.all([
     listProductsCached(),
     loadBiProducts().catch((err) => {
       console.error('[products] BI SKC 加载失败:', err.message);
@@ -83,13 +83,17 @@ async function loadAllProducts() {
       console.error('[products] BI 款式 加载失败:', err.message);
       return { byPdtCode: new Map(), totalRows: 0 };
     }),
+    listSamplesCached().catch((err) => {
+      console.error('[products] 样衣列表加载失败:', err.message);
+      return { items: [], totalCount: 0 };
+    }),
   ]);
-  // 1) 领猫有的款号：mapProduct + BI 款式覆盖 + BI SKC 覆盖
+  // 1) 领猫大货有的款号：mapProduct + BI 款式覆盖 + BI SKC 覆盖
   const vscmItems = items.map((dto) => {
     const p = mapProduct(dto);
     return enrichWithBi(p, bi.byCode.get(p.id), productMaster.byPdtCode.get(p.id));
   });
-  // 2) BI 独有（领猫没有）：用 BI 行合成 product（用款式卡兜底款级字段）
+  // 2) BI 独有（领猫大货没有）：用 BI 行合成 product（用款式卡兜底款级字段）
   const vscmIds = new Set(vscmItems.map((p) => p.id));
   const biOnlyItems = [];
   for (const [code, row] of bi.byCode.entries()) {
@@ -107,20 +111,31 @@ async function loadAllProducts() {
     if (p) productOnlyItems.push(p);
   }
   productOnlyItems.sort((a, b) => a.id.localeCompare(b.id));
-  // 4) union：领猫在前，BI-only 在后（按款号排序）
-  const all = [...vscmItems, ...biOnlyItems, ...productOnlyItems];
-  // BI 独有款没走 enrichWithBi，这里补钉钉核价表兜底（销售价 + 总成本）
-  for (const p of [...biOnlyItems, ...productOnlyItems]) {
+
+  // 4) 研发样衣独有（领猫研发阶段、尚未转大货生产、BI 未收录的款式，如 ME15FW033）
+  const allCoveredIds = new Set([...coveredIds, ...productMaster.byPdtCode.keys()]);
+  const sampleOnlyItems = [];
+  for (const s of (samplesResult?.items || [])) {
+    if (allCoveredIds.has(s.id)) continue;
+    sampleOnlyItems.push(s);
+  }
+  sampleOnlyItems.sort((a, b) => a.id.localeCompare(b.id));
+
+  // 5) union：领猫大货在前，BI-only 居中，研发样衣款号在后
+  const all = [...vscmItems, ...biOnlyItems, ...productOnlyItems, ...sampleOnlyItems];
+  // BI 独有款与样衣款补钉钉核价表兜底（销售价 + 总成本）
+  for (const p of [...biOnlyItems, ...productOnlyItems, ...sampleOnlyItems]) {
     applyHengjiSalesPriceFallback(p);
     applyHengjiCostFallback(p);
   }
-  // BI 独有款在合成时 roles 为 []，这里统一按 BI 打标推导
+  // 统一按 BI 打标/属性推导角色
   for (const p of all) p.roles = deriveRoles(p);
   return {
     items: all,
-    totalCount,
+    totalCount: totalCount + sampleOnlyItems.length,
     vscmCount: vscmItems.length,
     biOnlyCount: biOnlyItems.length + productOnlyItems.length,
+    sampleOnlyCount: sampleOnlyItems.length,
     bi,
     productMaster,
   };
