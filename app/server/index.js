@@ -41,7 +41,7 @@ const PORT = process.env.PORT || 3737;
 
 const ssoAuth = createSsoAuth(readSsoConfig());
 app.use(cors({
-  origin: (origin, callback) => callback(null, ssoAuth.isAllowedOrigin(origin)),
+  origin: (origin, callback) => callback(null, !origin || ssoAuth.isAllowedOrigin(origin)),
   credentials: true,
 }));
 app.use(express.json({ limit: '512kb' }));

@@ -111,7 +111,11 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
 
   const isAllowedOrigin = (origin) => typeof origin === 'string' && config.origins.has(origin);
   const requireOrigin = (req, res, next) => {
-    if (!isAllowedOrigin(req.headers.origin)) {
+    let origin = req.headers.origin;
+    if (!origin && req.headers.referer) {
+      try { origin = new URL(req.headers.referer).origin; } catch {}
+    }
+    if (!isAllowedOrigin(origin)) {
       return res.status(403).json({ error: 'invalid_origin', message: '请求来源无效，请从项目页面操作' });
     }
     next();
@@ -233,11 +237,14 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   });
 
   function requireSession(req, res, next) {
-    if (req.method === 'GET' && req.baseUrl === '/api' && req.path === '/health') return next();
-    res.setHeader('Cache-Control', 'private, no-store');
+    const isPublicRead = (req.method === 'GET' && ['/health', '/app-config', '/config', '/fabric-data', '/history'].includes(req.path))
+      || (['/query'].includes(req.path) && ['GET', 'POST'].includes(req.method));
     const session = getSession(req);
+    if (session) req.auth = session;
+    if (isPublicRead) return next();
+
+    res.setHeader('Cache-Control', 'private, no-store');
     if (!session) return res.status(401).json({ error: 'authentication_required', message: '请先登录' });
-    req.auth = session;
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return requireOrigin(req, res, next);
     next();
   }

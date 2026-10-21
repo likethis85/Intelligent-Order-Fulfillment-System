@@ -513,6 +513,19 @@
       color: #999;
     }
     .empty-state h2 { font-size: 16px; color: #666; margin-bottom: 8px; }
+    .error-state {
+      background: #fff;
+      border: 1px solid #fee2e2;
+      border-radius: 8px;
+      margin: 40px auto;
+      max-width: 520px;
+      padding: 40px 24px;
+      box-shadow: 0 2px 12px rgba(239, 68, 68, 0.08);
+    }
+    .error-state h2 { font-size: 17px; font-weight: 600; color: #dc2626; margin-bottom: 8px; }
+    .error-state p { font-size: 13px; color: #666; margin-bottom: 16px; line-height: 1.6; }
+    .error-actions { display: inline-flex; gap: 10px; align-items: center; justify-content: center; }
+    body.iframe-mode .iframe-empty-actions { display: block !important; }
     .header-row {
       display: flex;
       justify-content: space-between;
@@ -913,6 +926,19 @@
       <div class="empty-state" id="emptyState">
         <h2>暂无查询结果</h2>
         <p>在左侧输入款式编码开始查询</p>
+        <div class="iframe-empty-actions" style="margin-top: 14px; display: none;">
+          <button type="button" class="btn-primary btn-sm" onclick="toggleMobileLeftPanel()">🔍 输入款式编码</button>
+        </div>
+      </div>
+
+      <div class="empty-state error-state" id="errorState" style="display: none;">
+        <div style="font-size: 32px; margin-bottom: 12px;">⚠️</div>
+        <h2 id="errorTitle">查询未成功</h2>
+        <p id="errorMsg"></p>
+        <div class="error-actions">
+          <button type="button" class="btn-primary btn-sm" onclick="handleQuery()">重新查询</button>
+          <button type="button" class="btn-outline btn-sm mobile-panel-toggle" onclick="toggleMobileLeftPanel()">🔍 修改款号</button>
+        </div>
       </div>
 
       <div class="result-card" id="resultSection" style="display: none;">
@@ -1185,10 +1211,12 @@
     async function authFetch(url, options = {}) {
       // 获取最新的token
       if (supabaseClient) {
-        const { data } = await supabaseClient.auth.getSession();
-        if (data?.session?.access_token) {
-          accessToken = data.session.access_token;
-        }
+        try {
+          const { data } = await supabaseClient.auth.getSession();
+          if (data?.session?.access_token) {
+            accessToken = data.session.access_token;
+          }
+        } catch {}
       }
 
       const headers = { ...options.headers };
@@ -1199,7 +1227,7 @@
         console.log('[authFetch] 无 access_token，DEMO 模式直接请求:', url);
       }
 
-      const response = await fetch(url, { ...options, headers });
+      const response = await fetch(url, { credentials: 'include', ...options, headers });
       return response;
     }
 
@@ -1221,7 +1249,7 @@
       }
 
       try {
-        const res = await fetch('/api/app-config');
+        const res = await fetch('/api/app-config', { credentials: 'include' });
         const config = await res.json().catch(() => ({}));
 
         if (config?.supabase?.url && config?.supabase?.key && window.supabase && typeof window.supabase.createClient === 'function') {
@@ -1606,27 +1634,52 @@
       if (changed) localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
     }
 
+    function showErrorState(title, message) {
+      const errEl = document.getElementById('errorState');
+      const emptyEl = document.getElementById('emptyState');
+      const resEl = document.getElementById('resultSection');
+      if (errEl) {
+        const titleEl = document.getElementById('errorTitle');
+        const msgEl = document.getElementById('errorMsg');
+        if (titleEl) titleEl.textContent = title || '查询未成功';
+        if (msgEl) msgEl.textContent = message || '无法获取面料数据，请稍后重试。';
+        errEl.style.display = 'block';
+      }
+      if (emptyEl) emptyEl.style.display = 'none';
+      if (resEl) resEl.style.display = 'none';
+    }
+
+    function hideErrorState() {
+      const errEl = document.getElementById('errorState');
+      if (errEl) errEl.style.display = 'none';
+    }
+
     async function handleQuery() {
       const textarea = document.getElementById('pdtCodes');
-      const input = textarea.value.trim();
+      const input = textarea ? textarea.value.trim() : '';
       
       if (!input) {
-        alert('请输入款式编码');
+        showErrorState('请输入款式编码', '请在左侧或上方输入至少一个款式编码后再进行查询。');
         return;
       }
 
       const pdtCodes = input.split('\n').map(s => s.trim()).filter(s => s);
       
       if (pdtCodes.length === 0) {
-        alert('请输入有效的款式编码');
+        showErrorState('款式编码无效', '未能解析到有效的款式编码，请检查输入的款号格式。');
         return;
       }
 
       // 显示loading
-      document.getElementById('loading').classList.add('show');
-      document.getElementById('emptyState').style.display = 'none';
-      document.getElementById('resultSection').style.display = 'none';
-      document.getElementById('queryBtn').disabled = true;
+      hideErrorState();
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.classList.add('show');
+      const emptyEl = document.getElementById('emptyState');
+      if (emptyEl) emptyEl.style.display = 'none';
+      const resEl = document.getElementById('resultSection');
+      if (resEl) resEl.style.display = 'none';
+      const queryBtn = document.getElementById('queryBtn');
+      if (queryBtn) queryBtn.disabled = true;
 
       try {
         const response = await authFetch('/api/query', {
@@ -1635,10 +1688,20 @@
           body: JSON.stringify({ pdtCodes })
         });
         
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          let errMsg = `HTTP ${response.status}`;
+          try {
+            const errJson = JSON.parse(errText);
+            if (errJson.message || errJson.error) errMsg = errJson.message || errJson.error;
+          } catch {}
+          throw new Error(errMsg);
+        }
+
         const result = await response.json();
 
         if (result.success) {
-          queryResults = result.data;
+          queryResults = result.data || [];
           // 先把采购接口返回的在途/交期写成默认值（本会话手动改过的格子不覆盖）
           seedAutoPurchasing();
           // PO overrides 从 localStorage 加载后同步到主格（但手动编辑过的格不覆盖）
@@ -1651,13 +1714,23 @@
           // 自动保存到 Supabase
           autoSaveToSupabase();
         } else {
-          alert('查询失败: ' + (result.error || '未知错误'));
+          showErrorState('查询失败', result.error || '未能成功获取面料数据，请检查网络或重试。');
         }
       } catch (error) {
-        alert('请求失败: ' + error.message);
+        console.error('[handleQuery] error:', error);
+        showErrorState('请求异常', error.message || '网络连接超时或服务不可用，请稍后重试。');
       } finally {
-        document.getElementById('loading').classList.remove('show');
-        document.getElementById('queryBtn').disabled = false;
+        if (loadingEl) loadingEl.classList.remove('show');
+        if (queryBtn) queryBtn.disabled = false;
+        // 防空白兜底：若既无结果展示也无错误提示，则恢复 emptyState，绝对不留空白屏
+        const currentRes = document.getElementById('resultSection');
+        const currentErr = document.getElementById('errorState');
+        const currentEmpty = document.getElementById('emptyState');
+        if ((!currentRes || currentRes.style.display === 'none') && 
+            (!currentErr || currentErr.style.display === 'none') && 
+            currentEmpty) {
+          currentEmpty.style.display = 'block';
+        }
       }
     }
 
@@ -1788,6 +1861,18 @@
       const tbody = document.getElementById('resultBody');
       tbody.innerHTML = '';
       supplementInputs = {};
+
+      if (uniqueData.length === 0) {
+        const emptyTr = document.createElement('tr');
+        emptyTr.innerHTML = `
+          <td colspan="30" style="text-align: center; padding: 48px 16px; color: #64748b; font-size: 14px; background: #f8fafc;">
+            <div style="font-size: 24px; margin-bottom: 8px;">🔍</div>
+            <div style="font-weight: 500; color: #334155;">未查询到相关面料数据</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">该款号在领猫 SCM 中可能尚未维护面料 BOM 或物料信息</div>
+          </td>
+        `;
+        tbody.appendChild(emptyTr);
+      }
 
       // 为每个款式编码分配颜色
       const codeColors = {};

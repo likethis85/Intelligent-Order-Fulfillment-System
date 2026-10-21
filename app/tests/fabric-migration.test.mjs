@@ -78,4 +78,14 @@ test('fabric-public index.html includes mobile responsiveness and iframe-mode op
   assert.ok(indexHtml.includes('FREEZE_COL_COUNT = 7;'), 'index.html must freeze up to col 7 (物料规格名称) on desktop');
   assert.ok(indexHtml.includes('<th>供应商</th>'), '供应商 header must not have freeze-col');
   assert.ok(indexHtml.includes('<th>物料颜色</th>'), '物料颜色 header must not have freeze-col');
+  assert.ok(indexHtml.includes('error-state'), 'index.html must include error-state UI');
+  assert.ok(indexHtml.includes('showErrorState'), 'index.html must include showErrorState fallback');
+  assert.ok(indexHtml.includes("credentials: 'include'"), 'index.html authFetch must include credentials');
 });
+
+test('prefill-listener debounces rapid repeated prefill invocations', () => {
+  const listenerCode = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'prefill-listener.js'), 'utf8');
+  assert.ok(listenerCode.includes('lastAppliedKey'), 'prefill listener must have deduplication key');
+  assert.ok(listenerCode.includes('lastAppliedTime'), 'prefill listener must have deduplication timer');
+});
+

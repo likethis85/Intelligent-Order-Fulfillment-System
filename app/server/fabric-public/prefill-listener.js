@@ -1,6 +1,15 @@
 (function () {
+  let lastAppliedKey = '';
+  let lastAppliedTime = 0;
+
   function applyCodes(codes, autoSubmit) {
     if (!codes || codes.length === 0) return;
+    const key = codes.join(',');
+    const now = Date.now();
+    if (key === lastAppliedKey && (now - lastAppliedTime < 500)) return;
+    lastAppliedKey = key;
+    lastAppliedTime = now;
+
     var textarea = document.getElementById('pdtCodes');
     if (textarea) textarea.value = codes.join('\n');
     if (autoSubmit) {
