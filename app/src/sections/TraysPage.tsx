@@ -64,6 +64,13 @@ function CodeSuffixEditor({ value, onSave }: { value: string; onSave: (v: string
   );
 }
 
+// 稳健解析坑位当前封面款号：优先有效 cover，回退到 pids[0]
+export function getCoverPid(look: { cover?: string | null; pids: string[] }): string {
+  const c = typeof look?.cover === 'string' ? look.cover.trim() : '';
+  if (c && look.pids?.includes(c)) return c;
+  return look?.pids?.[0] || '';
+}
+
 // 售价注脚内联编辑：售价本身不动，售价后面追加一段文案（如 "券后" / "秒杀" / "套装价"）
 // 用法和 CodeSuffixEditor 一致：Enter / Cmd+Enter / blur 保存，Esc 还原
 function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
@@ -1103,8 +1110,8 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
 // 款号 → 主图 URL：优先 look.userImgs?.[coverPid] / look.userImg（自传覆盖），再 cover pid 的 Product.img
 // Product.img 已是完整 URL（OSS/淘宝 CDN），不能拼接 /uploads；走 /api/image-proxy 绕开浏览器 CORS
 function pidImgUrl(look: { pids: string[]; cover?: string | null; userImg?: string | null; userImgs?: Record<string, string> }, byId: TrayById): string | null {
-  const coverPid = look.cover ?? look.pids[0];
-  const uImg = look.userImgs?.[coverPid] ?? look.userImg;
+  const coverPid = getCoverPid(look);
+  const uImg = (coverPid ? look.userImgs?.[coverPid] : null) ?? look.userImg;
   if (uImg) return IMG_BASE + uImg;
   const p = byId(coverPid);
   if (!p?.img) return null;
@@ -3233,7 +3240,7 @@ function DeletePidDialog({
           {look.pids.map((pid) => {
             const p = fullByIdWithSize(pid);
             const isSelected = selectedPids.includes(pid);
-            const isCover = look.cover === pid;
+            const isCover = getCoverPid(look) === pid;
             return (
               <div
                 key={pid}
@@ -3375,19 +3382,25 @@ function CoverMenuDialog({
   const section = tray.sections.find((x) => x.id === target.sectionId);
   const look = section?.looks.find((y) => y.id === target.lookId);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingPid, setUploadingPid] = useState<string | null>(null);
+  // 使用 ref 保存待上传的款号，彻底避免异步 setState 闭包丢失 PID 的问题
+  const uploadingPidRef = useRef<string | null>(null);
 
   if (!section || !look) return null;
 
-  const activeCoverPid = look.cover ?? look.pids[0];
+  const activeCoverPid = getCoverPid(look);
   const autoShorts = computeRestockShortNames(look.pids.map(fullByIdWithSize));
 
-  const triggerUpload = (pid: string) => {
+  const triggerUpload = (pid?: string) => {
     if (readOnly) {
       toast.error('当前账号只有查看权限，不能上传或修改主图');
       return;
     }
-    setUploadingPid(pid);
+    const targetPid = (pid && pid.trim()) || activeCoverPid || look.pids[0] || '';
+    if (!targetPid) {
+      toast.error('未找到对应款号，无法上传主图');
+      return;
+    }
+    uploadingPidRef.current = targetPid;
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
       fileInputRef.current.click();
@@ -3401,11 +3414,18 @@ function CoverMenuDialog({
     }
     const file = e.target.files?.[0];
     e.target.value = '';
-    const pid = uploadingPid;
-    setUploadingPid(null);
-    if (!file || !pid) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('请选择图片文件');
+    const pid = (uploadingPidRef.current && uploadingPidRef.current.trim()) || activeCoverPid || look.pids[0] || '';
+    uploadingPidRef.current = null;
+    if (!file) return;
+    if (!pid) {
+      toast.error('未指定款式款号，无法上传主图');
+      return;
+    }
+    // 宽松检测：兼容没有标准 MIME 或 application/octet-stream 但扩展名为图片的场景
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const isImage = file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif'].includes(ext);
+    if (!isImage) {
+      toast.error('请选择图片文件（jpg/png/webp 等格式）');
       return;
     }
     const toastId = toast.loading(`正在上传款号 ${pid.toUpperCase()} 主图…`);
@@ -3417,6 +3437,7 @@ function CoverMenuDialog({
       toast.success(`款号 ${pid.toUpperCase()} 自传主图已更新`, { id: toastId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error('[handleFileChange] 上传失败:', err);
       toast.error(`上传失败：${msg}`, { id: toastId });
     }
   };
@@ -3426,8 +3447,10 @@ function CoverMenuDialog({
       toast.error('当前账号只有查看权限，不能清除自传图');
       return;
     }
-    onSetPidUserImg(target.sectionId, target.lookId, pid, null);
-    toast.success(`已清除款号 ${pid.toUpperCase()} 的自传图，回退到原商品图`);
+    const targetPid = (pid && pid.trim()) || activeCoverPid || look.pids[0] || '';
+    if (!targetPid) return;
+    onSetPidUserImg(target.sectionId, target.lookId, targetPid, null);
+    toast.success(`已清除款号 ${targetPid.toUpperCase()} 的自传图，回退到原商品图`);
   };
 
   const activeCoverUserImg = look.userImgs?.[activeCoverPid] ?? (look.cover === activeCoverPid ? look.userImg : null);
@@ -3646,10 +3669,12 @@ function CoverMenuDialog({
                   type="button"
                   onClick={() => triggerUpload(activeCoverPid)}
                   className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-sm"
-                  title={`上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图`}
+                  title={activeCoverPid ? `上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图` : '上传主图'}
                 >
                   <Camera size={13} />
-                  {activeCoverUserImg ? `重新上传主图 (${activeCoverPid.toUpperCase()})` : `上传主图 (${activeCoverPid.toUpperCase()})`}
+                  {activeCoverUserImg
+                    ? `重新上传主图${activeCoverPid ? ` (${activeCoverPid.toUpperCase()})` : ''}`
+                    : `上传主图${activeCoverPid ? ` (${activeCoverPid.toUpperCase()})` : ''}`}
                 </button>
                 {activeCoverUserImg && (
                   <button
@@ -4441,8 +4466,8 @@ export default function TraysPage({
     const m: Record<string, string> = {};
     for (const s of tray.sections) {
       for (const l of s.looks) {
-        const coverPid = l.cover ?? l.pids[0];
-        const img = l.userImgs?.[coverPid] ?? l.userImg;
+        const coverPid = getCoverPid(l);
+        const img = (coverPid ? l.userImgs?.[coverPid] : null) ?? l.userImg;
         if (img) m[l.id] = img;
       }
     }
@@ -4528,9 +4553,9 @@ export default function TraysPage({
             if (l.id !== lookId) return l;
             if (!l.pids.includes(pid)) return l;
             if (l.cover === pid) return l; // 已是封面
-            const prevCover = l.cover ?? l.pids[0];
+            const prevCover = getCoverPid(l);
             const nextUserImgs = { ...(l.userImgs || {}) };
-            if (l.userImg && !nextUserImgs[prevCover]) {
+            if (l.userImg && prevCover && !nextUserImgs[prevCover]) {
               nextUserImgs[prevCover] = l.userImg;
             }
             const nextCoverImg = nextUserImgs[pid] ?? null;
@@ -4556,10 +4581,10 @@ export default function TraysPage({
           ...s,
           looks: s.looks.map((l) => {
             if (l.id !== lookId) return l;
-            const activeCover = l.cover ?? l.pids[0];
+            const activeCover = getCoverPid(l);
             const nextUserImgs = { ...(l.userImgs || {}) };
             // 兼容迁移：若原先只有坑位级 userImg，迁移到当前主图款号下
-            if (l.userImg && !nextUserImgs[activeCover]) {
+            if (l.userImg && activeCover && !nextUserImgs[activeCover]) {
               nextUserImgs[activeCover] = l.userImg;
             }
             if (url) {
@@ -4567,7 +4592,8 @@ export default function TraysPage({
             } else {
               delete nextUserImgs[pid];
             }
-            const coverImg = nextUserImgs[activeCover] ?? null;
+            // 若当前修改的恰好是主图款号（或坑位只有一个款），同步更新坑位级 userImg
+            const coverImg = nextUserImgs[activeCover] ?? (pid === activeCover ? url : null);
             return {
               ...l,
               userImgs: Object.keys(nextUserImgs).length > 0 ? nextUserImgs : undefined,
@@ -5235,7 +5261,7 @@ export default function TraysPage({
                       <tr>
                         <td className={`${labelCell} text-action-danger-fg`}>主图</td>
                         {band.map((l) => {
-                          const coverPid = l.cover ?? l.pids[0];
+                          const coverPid = getCoverPid(l);
                           const coverP = fullByIdWithSize(coverPid);
                           const multi = l.pids.length > 1;
                           const needsConfirm = multi; // 只要多图就显示红点提示（之前 cover===null 太严格，默认 cover=pids[0] 让红点永远不出现）
