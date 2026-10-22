@@ -701,7 +701,7 @@ function SizeEditor({
 // - 点 row 任意位置（cost 数字 / "/" / ratio）都触发编辑
 // - 编辑态：cost 变 input，text-center 对齐
 function CostRatioRow({
-  text, isOverridden, ratio, ratioClass, placeholder, onSave, onClear,
+  text, isOverridden, ratio, ratioClass, placeholder, onSave, onClear, prefix,
 }: {
   text: string;
   isOverridden: boolean;
@@ -710,6 +710,7 @@ function CostRatioRow({
   placeholder: string;
   onSave: (v: string) => void;
   onClear: () => void;
+  prefix?: string;
 }) {
   const ref = useRef<{ startEdit: () => void }>(null);
   return (
@@ -720,8 +721,9 @@ function CostRatioRow({
         if (target.closest('button')) return;
         ref.current?.startEdit();
       }}
-      className="group flex cursor-text items-center justify-center gap-0.5 rounded-sm hover:bg-surface-subtle"
+      className="group flex cursor-text items-center justify-center gap-1 rounded-sm hover:bg-surface-subtle"
     >
+      {prefix && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{prefix}</span>}
       <CostEditor
         ref={ref}
         value={text}
@@ -1180,14 +1182,15 @@ async function fetchImg(url: string): Promise<{ buffer: ArrayBuffer; ext: 'jpeg'
 }
 
 // 成本/倍率 文本：手动 override > BI bomCost；倍率 = 售价 / 成本，跟 UI 显示口径一致
-function costRatioText(pid: string, t: Tray, byId: TrayById): string {
+function costRatioText(pid: string, t: Tray, byId: TrayById, short?: string): string {
+  const prefix = short ? `${short} ` : '';
   const p = byId(pid);
   const raw = t.costOverrides?.[pid] !== undefined ? t.costOverrides![pid] : (p.bomCost ?? '');
   const cost = roundCost(raw);
   const price = effectivePrice(t.priceOverrides?.[pid], p);
   const ratio = ratioOf(price, raw);
   if (!cost && !ratio) return '';
-  return `${cost || '—'}/${ratio || '—'}`;
+  return `${prefix}${cost || '—'}/${ratio || '—'}`;
 }
 
 // 库存情况（主仓）文本：跟 FIELDS.库存情况（主仓）.render 同款
@@ -1379,17 +1382,23 @@ async function exportTrayLayoutExcel(
   const isPast = Boolean(t.date && t.date < todayStr);
 
   type Look = typeof visible[0]['looks'][0];
-  // 售价：多款号坑位两个一行（用户要求，一行一个太细长）；位置仍按款号顺序两两对应
+  // 售价：多款号坑位带有短名前缀修饰
   const priceCellText = (l: Look): string => {
+    const ps = l.pids.map(byId);
+    const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
     const vals = l.pids.map((p) => {
+      const short = shortNames.get(p);
+      const prefix = short ? `${short} ` : '';
       const v = effectivePrice(t.priceOverrides?.[p], byId(p));
       const base = v > 0 ? String(v) : (byId(p).price ?? '');
       const suffix = t.priceSuffixOverrides?.[p];
-      return suffix ? `${base} ${suffix}` : base;
+      const priceStr = suffix ? `${base} ${suffix}` : base;
+      return `${prefix}${priceStr}`.trim();
     });
-    const lines: string[] = [];
-    for (let i = 0; i < vals.length; i += 2) lines.push(vals.slice(i, i + 2).join(' / '));
-    return lines.join('\n');
+    if (ps.length > 1) {
+      return vals.join('\n');
+    }
+    return vals[0] || '';
   };
   // labelRed=标签红字（搭配版块）；labelBlue=标签蓝底（库存/翻单/面料）；dataStyle=数据区整行样式
   type FieldRow = {
@@ -1405,7 +1414,11 @@ async function exportTrayLayoutExcel(
     { label: '款号', height: 40, dataStyle: 'codeBlue', get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
     { label: '尺码', height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
     { label: '售价', height: 45, dataStyle: 'priceGreen', get: (l) => priceCellText(l) },
-    { label: '成本/倍率', height: 40, get: (l) => l.pids.map((p) => costRatioText(p, t, byId)).filter(Boolean).join('\n') },
+    { label: '成本/倍率', height: 40, get: (l) => {
+      const ps = l.pids.map(byId);
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
+      return l.pids.map((p) => costRatioText(p, t, byId, shortNames.get(p))).filter(Boolean).join('\n');
+    } },
     { label: '库存情况(主仓)', labelBlue: true, height: 70, get: (l) => {
       const ps = l.pids.map(byId);
       const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
@@ -2570,16 +2583,19 @@ const FIELDS: FieldRow[] = [
       );
     },
     aggregateRender: (ps, tpl, ctx) => {
-      // 多款号：每个款号独立可编辑（不强制 "/" 拼接，避免改一个款号得重排其它款的视觉）
+      // 多款号：每个款号独立可编辑，当多款时附带产品短名前缀
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, ctx.restockShortNames) : new Map<string, string>();
       return (
         <>
           {ps.map((p) => {
+            const short = shortNames.get(p.id);
             const ov = ctx.priceOverrides?.[p.id];
             const text = ov !== undefined ? ov : p.price;
             const isOverridden = ov !== undefined && ov !== (p.price ?? '');
             return (
               <div key={p.id} className="text-center leading-5">
-                <div className="group/price group relative inline-flex items-center justify-center">
+                <div className="group/price group relative inline-flex items-center justify-center gap-1">
+                  {short && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{short}</span>}
                   <PriceEditor
                     value={text}
                     isOverridden={isOverridden}
@@ -2602,21 +2618,25 @@ const FIELDS: FieldRow[] = [
             <div className="mt-1 border-t border-edge-muted" />
           )}
           {tpl === 'mazong' && ps.map((p) => {
+            const short = shortNames.get(p.id);
             const ov = ctx.mpriceOverrides?.[p.id];
             const hasM = p.mprice || ov !== undefined;
             if (!hasM) return null;
             const text = ov !== undefined ? ov : (p.mprice ?? '');
             const isOverridden = ov !== undefined && ov !== (p.mprice ?? '');
             return (
-              <div key={p.id} className="leading-5">
-                <PriceEditor
-                  value={text}
-                  isOverridden={isOverridden}
-                  placeholder="马总价"
-                  kind="mprice"
-                  onSave={(v) => ctx.onSaveMprice?.(p.id, v)}
-                  onClear={() => ctx.onClearMprice?.(p.id)}
-                />
+              <div key={p.id} className="leading-5 text-center">
+                <div className="inline-flex items-center justify-center gap-1">
+                  {short && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{short}</span>}
+                  <PriceEditor
+                    value={text}
+                    isOverridden={isOverridden}
+                    placeholder="马总价"
+                    kind="mprice"
+                    onSave={(v) => ctx.onSaveMprice?.(p.id, v)}
+                    onClear={() => ctx.onClearMprice?.(p.id)}
+                  />
+                </div>
               </div>
             );
           })}
@@ -2672,9 +2692,11 @@ const FIELDS: FieldRow[] = [
       );
     },
     aggregateRender: (ps, tpl, ctx) => {
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, ctx.restockShortNames) : new Map<string, string>();
       return (
         <>
           {ps.map((p) => {
+            const short = shortNames.get(p.id);
             const raw = ctx.costOverrides?.[p.id];
             const rawVal = raw !== undefined ? raw : (p.bomCost ?? '');
             const text = roundCost(rawVal);
@@ -2685,6 +2707,7 @@ const FIELDS: FieldRow[] = [
             return (
               <div key={p.id} className="leading-5">
                 <CostRatioRow
+                  prefix={short}
                   text={text}
                   isOverridden={isOverridden}
                   ratio={ratio || '—'}
@@ -2700,6 +2723,7 @@ const FIELDS: FieldRow[] = [
             <div className="mt-1 border-t border-edge-muted" />
           )}
           {tpl === 'mazong' && ps.map((p) => {
+            const short = shortNames.get(p.id);
             const ov = ctx.mcostOverrides?.[p.id];
             const mpriceOv = ctx.mpriceOverrides?.[p.id];
             const hasM = p.mprice || ov !== undefined || mpriceOv !== undefined;
@@ -2710,7 +2734,8 @@ const FIELDS: FieldRow[] = [
             const ratio = (ov !== undefined && Number(ov) > 0 && mpriceNum > 0) ? ratioOf(mpriceNum, ov) : '';
             return (
               <div key={p.id} className="leading-5">
-                <div className="flex items-center justify-center gap-0.5">
+                <div className="flex items-center justify-center gap-1">
+                  {short && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{short}</span>}
                   <CostEditor
                     value={text}
                     isOverridden={isOverridden}
