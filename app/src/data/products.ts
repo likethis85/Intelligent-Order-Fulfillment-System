@@ -98,6 +98,7 @@ export interface Look {
   pids: string[];
   cover: string | null; // 封面款号（null = 多图待确认主图）
   userImg?: string | null; // 用户自传的主图 URL（'/uploads/<uuid>.<ext>'），优先级高于 cover pid 的 Product.img；为空回退到 cover pid 的 Product.img
+  userImgs?: Record<string, string>; // 每个款式独立自传主图（pid -> url），优先于 userImg / Product.img
   restockShortNames?: Record<string, string>; // 翻单行前缀手动覆盖（pid → 短名，如 针织裤/开衫）；缺省时按产品名自动推导
 }
 export interface TraySection {

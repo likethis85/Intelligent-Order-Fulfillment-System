@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import {
   ArrowLeft, ArrowRight, Plus, Eye, EyeOff, ArrowUp, ArrowDown, Pencil, Trash2, X, Check,
   Download, RefreshCw, Search, Sparkles, Bot, Send, MoreHorizontal, Archive, FileText,
-  Camera, History, CircleAlert, Printer,
+  Camera, History, CircleAlert, Printer, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 // xlsx-js-style 与 exceljs 只在导出时用到，改成点击导出时再动态加载，
@@ -513,7 +513,7 @@ function PriceEditor({
 }
 
 // 图片加载失败兜底：样衣款 / 缺图款 fallback 显示款号首字母占位（避免浏览器默认破图小图标）
-function SafeImg({ src, alt, className, fallbackText, pid, onClick }: { src: string; alt?: string; className?: string; fallbackText?: string; pid?: string; onClick?: () => void }) {
+function SafeImg({ src, alt, className, fallbackText, pid, onClick, title }: { src: string; alt?: string; className?: string; fallbackText?: string; pid?: string; onClick?: () => void; title?: string }) {
   const [errored, setErrored] = useState(false);
   if (!src || errored) {
     // 占位字符：优先用款号首字母（如 ME13FW006 → ME），回退到 alt，最后回退到「无图」
@@ -522,13 +522,13 @@ function SafeImg({ src, alt, className, fallbackText, pid, onClick }: { src: str
       <div
         onClick={onClick}
         className={`${className ?? ''} flex items-center justify-center bg-gradient-to-br from-surface-subtle to-surface-muted text-[10px] font-semibold tracking-wide text-ink-muted`}
-        title={pid ? `无图：${pid}` : '无图'}
+        title={title ?? (pid ? `无图：${pid}` : '无图')}
       >
         {placeholder}
       </div>
     );
   }
-  return <img src={src} alt={alt ?? ''} className={className} onError={() => setErrored(true)} onClick={onClick} />;
+  return <img src={src} alt={alt ?? ''} className={className} onError={() => setErrored(true)} onClick={onClick} title={title} />;
 }
 
 // BOM 成本内联编辑：跟 PriceEditor 完全一致的点文字变 input 模式
@@ -1021,7 +1021,7 @@ async function exportRestockExcel(
         const ov0 = t.fabricOverrides?.[pid];
         const hasRealFabric = Boolean((ov0 ?? '').trim() || (!isFabricNoise(p.fabric) && (p.fabric ?? '').trim()));
         effectiveNoRestockItems(allItems, hasRealFabric).forEach((it) => {
-          const key = `${it.pid.toLowerCase()} ${it.skc.toLowerCase()}`;
+          const key = `${it.pid.toLowerCase()} ${it.skc.toLowerCase()}`;
           if (emittedSkus.has(key)) return;
           emittedSkus.add(key);
           noRestockRows.push([t.name, s.label, `坑位${li + 1}`, it.pid.toUpperCase(), it.skc.toUpperCase(), it.color || '', it.fabric || '']);
@@ -1082,11 +1082,13 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: 'FF000000' } },
 };
 
-// 款号 → 主图 URL：优先 look.userImg（自传覆盖），再 cover pid 的 Product.img
+// 款号 → 主图 URL：优先 look.userImgs?.[coverPid] / look.userImg（自传覆盖），再 cover pid 的 Product.img
 // Product.img 已是完整 URL（OSS/淘宝 CDN），不能拼接 /uploads；走 /api/image-proxy 绕开浏览器 CORS
-function pidImgUrl(look: { pids: string[]; userImg?: string | null }, byId: TrayById): string | null {
-  if (look.userImg) return IMG_BASE + look.userImg;
-  const p = byId(look.pids[0]);
+function pidImgUrl(look: { pids: string[]; cover?: string | null; userImg?: string | null; userImgs?: Record<string, string> }, byId: TrayById): string | null {
+  const coverPid = look.cover ?? look.pids[0];
+  const uImg = look.userImgs?.[coverPid] ?? look.userImg;
+  if (uImg) return IMG_BASE + uImg;
+  const p = byId(coverPid);
   if (!p?.img) return null;
   const raw = String(p.img);
   if (/^https?:\/\//.test(raw)) {
@@ -3330,6 +3332,311 @@ function DeletePidDialog({
   );
 }
 
+// ── 坑位多图管理弹窗：所有款式均支持上传/更换/清除独立自传主图、切换主图、编辑翻单前缀 ──
+function CoverMenuDialog({
+  target,
+  tray,
+  fullByIdWithSize,
+  onClose,
+  onSetCover,
+  onSetPidUserImg,
+  onSetRestockShortName,
+  onRemovePid,
+}: {
+  target: { sectionId: string; lookId: string };
+  tray: Tray;
+  fullByIdWithSize: (id: string) => Product;
+  onClose: () => void;
+  onSetCover: (sectionId: string, lookId: string, pid: string) => void;
+  onSetPidUserImg: (sectionId: string, lookId: string, pid: string, url: string | null) => void;
+  onSetRestockShortName: (sectionId: string, lookId: string, pid: string, val: string) => void;
+  onRemovePid: (sectionId: string, lookId: string, pid: string) => void;
+}) {
+  const section = tray.sections.find((x) => x.id === target.sectionId);
+  const look = section?.looks.find((y) => y.id === target.lookId);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingPid, setUploadingPid] = useState<string | null>(null);
+
+  if (!section || !look) return null;
+
+  const activeCoverPid = look.cover ?? look.pids[0];
+  const autoShorts = computeRestockShortNames(look.pids.map(fullByIdWithSize));
+
+  const triggerUpload = (pid: string) => {
+    setUploadingPid(pid);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const pid = uploadingPid;
+    setUploadingPid(null);
+    if (!file || !pid) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('请选择图片文件');
+      return;
+    }
+    const toastId = toast.loading(`正在上传款号 ${pid.toUpperCase()} 主图…`);
+    try {
+      const url = await uploadImage(file, (status) => {
+        toast.loading(status, { id: toastId });
+      });
+      onSetPidUserImg(target.sectionId, target.lookId, pid, url);
+      toast.success(`款号 ${pid.toUpperCase()} 自传主图已更新`, { id: toastId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`上传失败：${msg}`, { id: toastId });
+    }
+  };
+
+  const handleRemoveUserImg = (pid: string) => {
+    onSetPidUserImg(target.sectionId, target.lookId, pid, null);
+    toast.success(`已清除款号 ${pid.toUpperCase()} 的自传图，回退到原商品图`);
+  };
+
+  const activeCoverUserImg = look.userImgs?.[activeCoverPid] ?? (look.cover === activeCoverPid ? look.userImg : null);
+  const isMulti = look.pids.length > 1;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="坑位多图管理"
+        className={`cover-dialog relative flex flex-col max-h-[90vh] overflow-hidden rounded-xl border border-edge bg-surface-card shadow-2xl ${
+          isMulti ? 'w-[720px] max-w-[95vw]' : 'w-[440px] max-w-[95vw]'
+        }`}
+      >
+        {/* 标题栏 */}
+        <div className="flex items-center justify-between border-b border-edge px-5 py-3.5 bg-surface-base">
+          <div>
+            <div className="flex items-center gap-2">
+              <Camera size={15} className="text-action-primary" />
+              <div className="text-[14px] font-bold text-ink-primary">坑位主图与多图管理</div>
+            </div>
+            <div className="mt-0.5 text-[11px] text-ink-muted">
+              「{section.label}」{isMulti ? `共 ${look.pids.length} 个款号 · 所有款式均支持独立上传主图` : `款号 ${look.pids[0].toUpperCase()} · 支持上传自传主图`}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭多图管理"
+            className="rounded-md p-1.5 text-ink-muted hover:bg-surface-subtle hover:text-ink-primary transition-colors"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* 隐藏的文件上传 input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        {/* 款式列表卡片网格 */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className={`grid gap-3.5 ${isMulti ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4' : 'grid-cols-1'}`}>
+            {look.pids.map((pid) => {
+              const p = fullByIdWithSize(pid);
+              const isCover = activeCoverPid === pid;
+              const pidUserImg = look.userImgs?.[pid] ?? (isCover ? look.userImg : null);
+              const displayImg = pidUserImg ?? p.img;
+              return (
+                <div
+                  key={pid}
+                  className={`group relative flex flex-col rounded-lg border p-2.5 transition-all bg-surface-card ${
+                    isCover
+                      ? 'border-action-primary ring-2 ring-action-primary/30 shadow-sm'
+                      : 'border-edge hover:border-edge-strong shadow-[0_1px_3px_rgba(0,0,0,0.04)]'
+                  }`}
+                >
+                  {/* 图片缩略区 */}
+                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded bg-surface-subtle">
+                    <SafeImg
+                      src={displayImg}
+                      alt={p.name}
+                      pid={pid}
+                      fallbackText="无图"
+                      className="h-full w-full object-cover"
+                    />
+
+                    {/* 自传标记 */}
+                    {pidUserImg && (
+                      <span
+                        title="已使用用户自传主图"
+                        className="absolute left-1 top-1 rounded bg-stage-success-fg px-1 py-0.2 text-[9px] font-semibold text-white shadow-sm pointer-events-none"
+                      >
+                        自传
+                      </span>
+                    )}
+
+                    {/* 主图标记 */}
+                    {isCover && (
+                      <span className="absolute right-1 top-1 rounded bg-action-primary px-1.5 py-0.5 text-[9.5px] font-bold text-white shadow-sm pointer-events-none">
+                        当前主图
+                      </span>
+                    )}
+
+                    {/* 悬浮操作蒙层 */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity p-2">
+                      {!isCover && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSetCover(target.sectionId, target.lookId, pid);
+                            toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
+                          }}
+                          className="w-full rounded bg-action-primary px-2 py-1 text-[11px] font-semibold text-white shadow hover:bg-action-primary-hover transition-colors"
+                        >
+                          设为坑位主图
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => triggerUpload(pid)}
+                        className="w-full flex items-center justify-center gap-1 rounded bg-white text-ink-primary px-2 py-1 text-[11px] font-medium shadow hover:bg-surface-subtle transition-colors"
+                      >
+                        <Camera size={12} />
+                        {pidUserImg ? '更换自传图' : '上传主图'}
+                      </button>
+                      {pidUserImg && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveUserImg(pid)}
+                          className="w-full flex items-center justify-center gap-1 rounded bg-action-danger-fg/90 text-white px-2 py-0.5 text-[10px] font-medium shadow hover:bg-action-danger-fg transition-colors"
+                        >
+                          <RotateCcw size={10} />
+                          恢复原图
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 款号信息 */}
+                  <div className="mt-2 flex items-center justify-between text-[11.5px]">
+                    <span className="font-mono font-bold text-ink-primary truncate" title={pid.toUpperCase()}>
+                      {pid.toUpperCase()}
+                    </span>
+                    {p.name && (
+                      <span className="truncate text-ink-muted text-[10.5px] max-w-[90px]" title={p.name}>
+                        {p.name}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 快捷按钮行 */}
+                  <div className="mt-1.5 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => triggerUpload(pid)}
+                      className="flex-1 flex items-center justify-center gap-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
+                      title={`为款号 ${pid.toUpperCase()} 上传独立主图`}
+                    >
+                      <Camera size={11} />
+                      {pidUserImg ? '更换' : '上传主图'}
+                    </button>
+                    {pidUserImg && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveUserImg(pid)}
+                        className="rounded border border-edge-strong p-1 text-[11px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors"
+                        title="清除自传图，恢复默认商品图"
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                    )}
+                    {!isCover && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSetCover(target.sectionId, target.lookId, pid);
+                          toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
+                        }}
+                        className="flex-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
+                        title="设为坑位封面主图"
+                      >
+                        设为主图
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 翻单前缀设置 */}
+                  <div className="mt-1.5">
+                    <input
+                      value={look.restockShortNames?.[pid] ?? ''}
+                      onChange={(e) => onSetRestockShortName(target.sectionId, target.lookId, pid, e.target.value)}
+                      placeholder={autoShorts.get(pid) ? `前缀：${autoShorts.get(pid)}` : '翻单前缀'}
+                      title="翻单周期每行的产品短名前缀（如 针织裤 / 开衫）；留空用自动推导"
+                      className="w-full rounded border border-edge-strong px-1.5 py-0.5 text-[10.5px] text-ink-secondary outline-none focus:border-action-primary"
+                    />
+                  </div>
+
+                  {/* 从坑位移除按钮（多款号时可用） */}
+                  {isMulti && (
+                    <button
+                      type="button"
+                      onClick={() => onRemovePid(target.sectionId, target.lookId, pid)}
+                      className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-action-primary text-white shadow-sm hover:bg-action-primary-hover group-hover:flex"
+                      title="从当前坑位移除此款式"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 底部操作与说明栏 */}
+        <div className="flex items-center justify-between border-t border-edge bg-surface-base px-5 py-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => triggerUpload(activeCoverPid)}
+              className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-sm"
+              title={`上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图`}
+            >
+              <Camera size={13} />
+              {activeCoverUserImg ? `重新上传主图 (${activeCoverPid.toUpperCase()})` : `上传主图 (${activeCoverPid.toUpperCase()})`}
+            </button>
+            {activeCoverUserImg && (
+              <button
+                type="button"
+                onClick={() => handleRemoveUserImg(activeCoverPid)}
+                className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-2.5 py-1.5 text-[12px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors shadow-sm"
+                title="清除当前主图款号的自传图，回退到系统原图"
+              >
+                <RotateCcw size={12} />
+                恢复原图
+              </button>
+            )}
+            <span className="hidden sm:inline text-[11px] text-ink-muted ml-1">
+              所有款式均支持独立传图，切换主图时自动展示对应自传图
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md bg-action-primary px-4 py-1.5 text-[12px] font-medium text-white hover:bg-action-primary-hover transition-colors shadow-sm"
+          >
+            完成
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 主页面 ──
 export default function TraysPage({
   trays, activeTrayId, onOpenTray, onCreateTray, onUpdateTray, onDeleteTray, onSync,
@@ -4082,11 +4389,17 @@ export default function TraysPage({
   const visible = tray.sections.filter((s) => s.visible);
   const visibleFields = FIELDS.filter((f) => f.show(tray.template));
 
-  // 用户自传主图：per-look，键值 lookup。在主图 SafeImg 处直接读取（不进 fullById）。
+  // 用户自传主图：per-look，键值 lookup。支持款式级（coverPid）自传图与坑位级（userImg）兼容。
   // 必须在 const tray 声明之后（依赖 tray.sections），否则触发 TDZ ReferenceError → 白屏
   const userImgByLook = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const s of tray.sections) for (const l of s.looks) if (l.userImg) m[l.id] = l.userImg;
+    for (const s of tray.sections) {
+      for (const l of s.looks) {
+        const coverPid = l.cover ?? l.pids[0];
+        const img = l.userImgs?.[coverPid] ?? l.userImg;
+        if (img) m[l.id] = img;
+      }
+    }
     return m;
   }, [tray]);
 
@@ -4169,27 +4482,42 @@ export default function TraysPage({
             if (l.id !== lookId) return l;
             if (!l.pids.includes(pid)) return l;
             if (l.cover === pid) return l; // 已是封面
-            return { ...l, cover: pid };
+            const nextCoverImg = l.userImgs ? (l.userImgs[pid] ?? null) : l.userImg;
+            return { ...l, cover: pid, userImg: nextCoverImg };
           }),
         };
       }),
     }));
   };
 
-  // 用户自传主图：per-look，url 为 '/uploads/<uuid>.<ext>'（由 uploadImage 返回）
-  const setUserImg = (sectionId: string, lookId: string, url: string | null) => {
+  // 用户自传主图：支持款式级（pid）自传，同时同步更新坑位级（lookId）
+  const setPidUserImg = (sectionId: string, lookId: string, pid: string, url: string | null) => {
     upd((t) => ({
       ...t,
       sections: t.sections.map((s) => {
         if (s.id !== sectionId) return s;
         return {
           ...s,
-          looks: s.looks.map((l) => (l.id === lookId ? { ...l, userImg: url } : l)),
+          looks: s.looks.map((l) => {
+            if (l.id !== lookId) return l;
+            const nextUserImgs = { ...(l.userImgs || {}) };
+            if (url) {
+              nextUserImgs[pid] = url;
+            } else {
+              delete nextUserImgs[pid];
+            }
+            const activeCover = l.cover ?? l.pids[0];
+            const coverImg = nextUserImgs[activeCover] ?? null;
+            return {
+              ...l,
+              userImgs: Object.keys(nextUserImgs).length > 0 ? nextUserImgs : undefined,
+              userImg: coverImg,
+            };
+          }),
         };
       }),
     }));
   };
-  const clearUserImg = (sectionId: string, lookId: string) => setUserImg(sectionId, lookId, null);
 
   // 翻单行前缀（如 针织裤/开衫）手动覆盖；传空串清除覆盖、回退自动推导
   const setRestockShortName = (sectionId: string, lookId: string, pid: string, value: string) => {
@@ -4854,23 +5182,41 @@ export default function TraysPage({
                           const userImg = userImgByLook[l.id];
                           return (
                             <td key={l.id} className={cell}>
-                              <div className="relative inline-block">
+                              <div className="relative inline-block group/mainimg">
                                 <SafeImg
                                   src={userImg ?? coverP.img}
                                   alt={`${coverP.name}（${coverPid.toUpperCase()}）`}
                                   pid={coverPid}
                                   fallbackText="无图"
-                                  onClick={() => multi && setCoverMenu({ sectionId: s.id, lookId: l.id })}
-                                  className={`h-56 w-[180px] object-cover ring-2 ring-edge ${multi ? 'cursor-pointer' : ''}`}
+                                  onClick={() => setCoverMenu({ sectionId: s.id, lookId: l.id })}
+                                  className="h-56 w-[180px] object-cover ring-2 ring-edge cursor-pointer hover:ring-action-primary transition-all"
+                                  title="点击管理坑位主图/多图"
                                 />
                                 {userImg && (
                                   <span
                                     title="已替换为自传图"
-                                    className="absolute left-1 top-1 rounded bg-stage-success-fg px-1 text-[9px] font-semibold text-white print:hidden"
+                                    className="absolute left-1 top-1 rounded bg-stage-success-fg px-1 text-[9px] font-semibold text-white print:hidden pointer-events-none shadow-sm"
                                   >
                                     自传
                                   </span>
                                 )}
+                                {multi && (
+                                  <span
+                                    title={`该坑位共 ${l.pids.length} 个款号`}
+                                    className="absolute left-1 bottom-1 rounded bg-black/60 px-1 text-[9px] font-medium text-white print:hidden pointer-events-none"
+                                  >
+                                    {l.pids.length}款
+                                  </span>
+                                )}
+                                <div
+                                  onClick={() => setCoverMenu({ sectionId: s.id, lookId: l.id })}
+                                  className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 group-hover/mainimg:opacity-100 transition-opacity cursor-pointer print:hidden rounded"
+                                >
+                                  <span className="flex items-center gap-1 text-[11px] font-medium text-white bg-black/70 px-2 py-1 rounded shadow">
+                                    <Camera size={13} />
+                                    {multi ? '多图管理' : '更换主图'}
+                                  </span>
+                                </div>
                                 {needsConfirm && (
                                   <span
                                     onClick={(e) => { e.stopPropagation(); setCoverMenu({ sectionId: s.id, lookId: l.id }); }}
@@ -5357,130 +5703,19 @@ export default function TraysPage({
         );
       })()}
 
-      {coverMenu && (() => {
-        const cmSection = tray.sections.find((x) => x.id === coverMenu.sectionId);
-        const cmLook = cmSection?.looks.find((y) => y.id === coverMenu.lookId);
-        if (!cmLook) return null;
-        const uploadInputRef = { current: null as HTMLInputElement | null };
-        const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-          const file = e.target.files?.[0];
-          e.target.value = ''; // 允许同名重复上传
-          if (!file) return;
-          if (!file.type.startsWith('image/')) {
-            toast.error('请选择图片文件');
-            return;
-          }
-          const toastId = toast.loading('准备上传自传图…');
-          try {
-            const url = await uploadImage(file, (status) => {
-              toast.loading(status, { id: toastId });
-            });
-            setUserImg(coverMenu.sectionId, coverMenu.lookId, url);
-            toast.success('自传图已替换', { id: toastId });
-            setCoverMenu(null);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            toast.error(`上传失败：${msg}`, { id: toastId });
-          }
-        };
-        const handleRemoveUserImg = () => {
-          clearUserImg(coverMenu.sectionId, coverMenu.lookId);
-          toast.success('已移除自传图，回退到封面款号原图');
-          setCoverMenu(null);
-        };
-        // 自动推导的翻单前缀（placeholder 提示用）：圆领/V领、针织裤/开衫 等
-        const autoShorts = computeRestockShortNames(cmLook.pids.map(fullByIdWithSize));
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/20" onClick={() => setCoverMenu(null)} />
-            <div role="dialog" aria-modal="true" aria-label="坑位多图管理" className="cover-dialog relative w-[520px] border border-edge bg-surface-card p-5 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <div className="text-[13px] font-bold">坑位多图管理</div>
-                  <div className="mt-0.5 text-[11px] text-ink-muted">
-                    「{cmSection?.label}」共 {cmLook.pids.length} 个款号 · 点击设为主图 · × 移除
-                  </div>
-                </div>
-                <button onClick={() => setCoverMenu(null)} aria-label="关闭多图管理" className="rounded-md p-1 hover:bg-surface-subtle">
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="cover-grid grid grid-cols-5 gap-3">
-                {cmLook.pids.map((pid) => {
-                  const p = fullByIdWithSize(pid);
-                  const isCover = cmLook.cover === pid;
-                  return (
-                    <div key={pid} className="group relative">
-                      <button
-                        onClick={() => { setCover(coverMenu.sectionId, coverMenu.lookId, pid); toast.success('已设为主图'); setCoverMenu(null); }}
-                        className="block w-full text-left"
-                      >
-                        <SafeImg
-                          src={p.img}
-                          alt={p.name}
-                          pid={pid}
-                          fallbackText="无图"
-                          className={`h-20 w-full object-cover ${isCover ? 'ring-2 ring-edge' : 'opacity-80 hover:opacity-100'}`}
-                        />
-                        <div className="mt-1 flex items-center justify-between text-[10px] text-ink-muted">
-                          <span className="truncate">{pid.toUpperCase()}</span>
-                          {isCover && <span className="text-[10px] font-semibold text-ink-primary">主图</span>}
-                        </div>
-                      </button>
-                      <input
-                        value={cmLook.restockShortNames?.[pid] ?? ''}
-                        onChange={(e) => setRestockShortName(coverMenu.sectionId, coverMenu.lookId, pid, e.target.value)}
-                        placeholder={autoShorts.get(pid) ? `前缀：${autoShorts.get(pid)}` : '翻单前缀'}
-                        title="翻单周期每行的产品短名前缀（如 针织裤 / 开衫）；留空用自动推导"
-                        className="mt-0.5 w-full rounded border border-edge-strong px-1 py-0.5 text-[10px] outline-none focus:border-edge"
-                      />
-                      <button
-                        onClick={() => removePid(coverMenu.sectionId, coverMenu.lookId, pid)}
-                        className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-action-primary text-white shadow-sm hover:bg-action-primary-hover group-hover:flex"
-                        title="从坑位移除"
-                      >
-                        <X size={9} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <input
-                ref={uploadInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleUpload}
-              />
-              <div className="mt-4 flex items-center justify-between border-t border-edge-muted pt-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => uploadInputRef.current?.click()}
-                    className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-1.5 text-[12px] hover:border-edge"
-                    title="上传自己的主图，替换当前坑位主图（不影响其它坑位）"
-                  >
-                    <Camera size={13} />
-                    {cmLook.userImg ? '重新上传主图' : '上传自己的主图'}
-                  </button>
-                  {cmLook.userImg && (
-                    <button
-                      onClick={handleRemoveUserImg}
-                      className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-1.5 text-[12px] hover:border-edge"
-                      title="清除自传图，回退到封面款号原图（不会删除服务端文件）"
-                    >
-                      <Trash2 size={12} />
-                      移除自传图
-                    </button>
-                  )}
-                </div>
-                <button onClick={() => setCoverMenu(null)} className="rounded-md border border-edge-strong px-3 py-1.5 text-[12px] hover:border-edge">
-                  完成
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* 坑位主图与多图管理弹窗：所有款式均支持独立上传自传主图 */}
+      {coverMenu && (
+        <CoverMenuDialog
+          target={coverMenu}
+          tray={tray}
+          fullByIdWithSize={fullByIdWithSize}
+          onClose={() => setCoverMenu(null)}
+          onSetCover={(sectionId, lookId, pid) => setCover(sectionId, lookId, pid)}
+          onSetPidUserImg={(sectionId, lookId, pid, url) => setPidUserImg(sectionId, lookId, pid, url)}
+          onSetRestockShortName={(sectionId, lookId, pid, val) => setRestockShortName(sectionId, lookId, pid, val)}
+          onRemovePid={(sectionId, lookId, pid) => removePid(sectionId, lookId, pid)}
+        />
+      )}
 
       {/* 删除款号弹窗 */}
       {deletePidTarget && (

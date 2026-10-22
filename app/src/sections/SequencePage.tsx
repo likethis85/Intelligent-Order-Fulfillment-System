@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowUp, ArrowDown, RotateCcw, Trash2, Sparkles, Clock, Layers, Printer } from 'lucide-react';
 import { toast } from 'sonner';
-import { type Product, type Tray, type SeqEntry } from '@/data/products';
+import { type Product, type Tray, type SeqEntry, type Look } from '@/data/products';
 import { useProductResolver } from '@/data/ProductsContext';
 import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 
@@ -50,8 +50,8 @@ function lookPids(tray: Tray, lookId: string): string[] {
   return [];
 }
 
-// 查找坑位对象（含 userImg 用户自传主图）
-function findLook(tray: Tray, lookId: string): { pids: string[]; userImg?: string | null } | null {
+// 查找坑位对象（含 userImg / userImgs 用户自传主图）
+function findLook(tray: Tray, lookId: string): Look | null {
   for (const s of tray.sections) {
     const l = s.looks.find((x) => x.id === lookId);
     if (l) return l;
@@ -521,9 +521,9 @@ export default function SequencePage({
               {entries.map((e, i) => {
                 const look = findLook(tray, e.lookId);
                 const pids = look?.pids || lookPids(tray, e.lookId);
-                if (!pids.length) return null;
                 const ps: Product[] = pids.map(byId);
-                const userImg = look?.userImg;
+                const coverPid = look?.cover ?? pids[0];
+                const userImg = (look?.userImgs?.[coverPid]) ?? look?.userImg;
                 const dragFromHere = seqDrag?.fromIdx === i;
                 const showBeforeLine = seqDrag?.overIdx === i && seqDrag.position === 'before' && !dragFromHere;
                 const showAfterLine = seqDrag?.overIdx === i && seqDrag.position === 'after' && !dragFromHere;
