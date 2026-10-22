@@ -54,8 +54,10 @@ app.use('/api', access.attach);
 app.use('/api/access', access.router);
 
 // 用户自传图静态托管（GET /uploads/<uuid>.<ext>）
-app.use('/uploads', ssoAuth.requireSession, express.static(UPLOAD_DIR, {
-  setHeaders: (res) => res.setHeader('Cache-Control', 'private, no-store'),
+// 自传商品图公开只读托管（写操作由 /api/upload 鉴权管控），避免因无 Cookie、会话过期或在公开页面访问时报 401 导致图片显示失败
+app.use('/uploads', express.static(UPLOAD_DIR, {
+  maxAge: '7d',
+  immutable: true,
 }));
 
 // 面料与翻单页面静态托管（GET /fabric/sales.html, /fabric/index.html 等）

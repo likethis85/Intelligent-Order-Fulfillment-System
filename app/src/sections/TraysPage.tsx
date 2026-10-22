@@ -515,6 +515,11 @@ function PriceEditor({
 // 图片加载失败兜底：样衣款 / 缺图款 fallback 显示款号首字母占位（避免浏览器默认破图小图标）
 function SafeImg({ src, alt, className, fallbackText, pid, onClick, title }: { src: string; alt?: string; className?: string; fallbackText?: string; pid?: string; onClick?: () => void; title?: string }) {
   const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    setErrored(false);
+  }, [src]);
+
   if (!src || errored) {
     // 占位字符：优先用款号首字母（如 ME13FW006 → ME），回退到 alt，最后回退到「无图」
     const placeholder = (pid || alt || '').slice(0, 2).toUpperCase() || fallbackText || '无图';
@@ -528,7 +533,20 @@ function SafeImg({ src, alt, className, fallbackText, pid, onClick, title }: { s
       </div>
     );
   }
-  return <img src={src} alt={alt ?? ''} className={className} onError={() => setErrored(true)} onClick={onClick} title={title} />;
+  return (
+    <img
+      key={src}
+      src={src}
+      alt={alt ?? ''}
+      className={className}
+      onError={() => {
+        console.warn('[SafeImg] 图片加载失败:', src);
+        setErrored(true);
+      }}
+      onClick={onClick}
+      title={title}
+    />
+  );
 }
 
 // BOM 成本内联编辑：跟 PriceEditor 完全一致的点文字变 input 模式
@@ -3337,6 +3355,7 @@ function CoverMenuDialog({
   target,
   tray,
   fullByIdWithSize,
+  readOnly = false,
   onClose,
   onSetCover,
   onSetPidUserImg,
@@ -3346,6 +3365,7 @@ function CoverMenuDialog({
   target: { sectionId: string; lookId: string };
   tray: Tray;
   fullByIdWithSize: (id: string) => Product;
+  readOnly?: boolean;
   onClose: () => void;
   onSetCover: (sectionId: string, lookId: string, pid: string) => void;
   onSetPidUserImg: (sectionId: string, lookId: string, pid: string, url: string | null) => void;
@@ -3363,6 +3383,10 @@ function CoverMenuDialog({
   const autoShorts = computeRestockShortNames(look.pids.map(fullByIdWithSize));
 
   const triggerUpload = (pid: string) => {
+    if (readOnly) {
+      toast.error('当前账号只有查看权限，不能上传或修改主图');
+      return;
+    }
     setUploadingPid(pid);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -3371,6 +3395,10 @@ function CoverMenuDialog({
   };
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (readOnly) {
+      toast.error('当前账号只有查看权限，不能上传主图');
+      return;
+    }
     const file = e.target.files?.[0];
     e.target.value = '';
     const pid = uploadingPid;
@@ -3394,6 +3422,10 @@ function CoverMenuDialog({
   };
 
   const handleRemoveUserImg = (pid: string) => {
+    if (readOnly) {
+      toast.error('当前账号只有查看权限，不能清除自传图');
+      return;
+    }
     onSetPidUserImg(target.sectionId, target.lookId, pid, null);
     toast.success(`已清除款号 ${pid.toUpperCase()} 的自传图，回退到原商品图`);
   };
@@ -3488,7 +3520,7 @@ function CoverMenuDialog({
 
                     {/* 悬浮操作蒙层 */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity p-2">
-                      {!isCover && (
+                      {!isCover && !readOnly && (
                         <button
                           type="button"
                           onClick={() => {
@@ -3500,15 +3532,17 @@ function CoverMenuDialog({
                           设为坑位主图
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => triggerUpload(pid)}
-                        className="w-full flex items-center justify-center gap-1 rounded bg-white text-ink-primary px-2 py-1 text-[11px] font-medium shadow hover:bg-surface-subtle transition-colors"
-                      >
-                        <Camera size={12} />
-                        {pidUserImg ? '更换自传图' : '上传主图'}
-                      </button>
-                      {pidUserImg && (
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => triggerUpload(pid)}
+                          className="w-full flex items-center justify-center gap-1 rounded bg-white text-ink-primary px-2 py-1 text-[11px] font-medium shadow hover:bg-surface-subtle transition-colors"
+                        >
+                          <Camera size={12} />
+                          {pidUserImg ? '更换自传图' : '上传主图'}
+                        </button>
+                      )}
+                      {pidUserImg && !readOnly && (
                         <button
                           type="button"
                           onClick={() => handleRemoveUserImg(pid)}
@@ -3517,6 +3551,9 @@ function CoverMenuDialog({
                           <RotateCcw size={10} />
                           恢复原图
                         </button>
+                      )}
+                      {readOnly && (
+                        <span className="text-[11px] text-white/80 font-medium">仅查看模式</span>
                       )}
                     </div>
                   </div>
@@ -3534,54 +3571,57 @@ function CoverMenuDialog({
                   </div>
 
                   {/* 快捷按钮行 */}
-                  <div className="mt-1.5 flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => triggerUpload(pid)}
-                      className="flex-1 flex items-center justify-center gap-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
-                      title={`为款号 ${pid.toUpperCase()} 上传独立主图`}
-                    >
-                      <Camera size={11} />
-                      {pidUserImg ? '更换' : '上传主图'}
-                    </button>
-                    {pidUserImg && (
+                  {!readOnly && (
+                    <div className="mt-1.5 flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => handleRemoveUserImg(pid)}
-                        className="rounded border border-edge-strong p-1 text-[11px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors"
-                        title="清除自传图，恢复默认商品图"
+                        onClick={() => triggerUpload(pid)}
+                        className="flex-1 flex items-center justify-center gap-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
+                        title={`为款号 ${pid.toUpperCase()} 上传独立主图`}
                       >
-                        <RotateCcw size={12} />
+                        <Camera size={11} />
+                        {pidUserImg ? '更换' : '上传主图'}
                       </button>
-                    )}
-                    {!isCover && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSetCover(target.sectionId, target.lookId, pid);
-                          toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
-                        }}
-                        className="flex-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
-                        title="设为坑位封面主图"
-                      >
-                        设为主图
-                      </button>
-                    )}
-                  </div>
+                      {pidUserImg && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveUserImg(pid)}
+                          className="rounded border border-edge-strong p-1 text-[11px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors"
+                          title="清除自传图，恢复默认商品图"
+                        >
+                          <RotateCcw size={12} />
+                        </button>
+                      )}
+                      {!isCover && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSetCover(target.sectionId, target.lookId, pid);
+                            toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
+                          }}
+                          className="flex-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
+                          title="设为坑位封面主图"
+                        >
+                          设为主图
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* 翻单前缀设置 */}
                   <div className="mt-1.5">
                     <input
+                      disabled={readOnly}
                       value={look.restockShortNames?.[pid] ?? ''}
                       onChange={(e) => onSetRestockShortName(target.sectionId, target.lookId, pid, e.target.value)}
                       placeholder={autoShorts.get(pid) ? `前缀：${autoShorts.get(pid)}` : '翻单前缀'}
                       title="翻单周期每行的产品短名前缀（如 针织裤 / 开衫）；留空用自动推导"
-                      className="w-full rounded border border-edge-strong px-1.5 py-0.5 text-[10.5px] text-ink-secondary outline-none focus:border-action-primary"
+                      className="w-full rounded border border-edge-strong px-1.5 py-0.5 text-[10.5px] text-ink-secondary outline-none focus:border-action-primary disabled:bg-surface-subtle disabled:cursor-not-allowed"
                     />
                   </div>
 
                   {/* 从坑位移除按钮（多款号时可用） */}
-                  {isMulti && (
+                  {isMulti && !readOnly && (
                     <button
                       type="button"
                       onClick={() => onRemovePid(target.sectionId, target.lookId, pid)}
@@ -3600,29 +3640,35 @@ function CoverMenuDialog({
         {/* 底部操作与说明栏 */}
         <div className="flex items-center justify-between border-t border-edge bg-surface-base px-5 py-3">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => triggerUpload(activeCoverPid)}
-              className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-sm"
-              title={`上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图`}
-            >
-              <Camera size={13} />
-              {activeCoverUserImg ? `重新上传主图 (${activeCoverPid.toUpperCase()})` : `上传主图 (${activeCoverPid.toUpperCase()})`}
-            </button>
-            {activeCoverUserImg && (
-              <button
-                type="button"
-                onClick={() => handleRemoveUserImg(activeCoverPid)}
-                className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-2.5 py-1.5 text-[12px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors shadow-sm"
-                title="清除当前主图款号的自传图，回退到系统原图"
-              >
-                <RotateCcw size={12} />
-                恢复原图
-              </button>
+            {!readOnly ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => triggerUpload(activeCoverPid)}
+                  className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-sm"
+                  title={`上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图`}
+                >
+                  <Camera size={13} />
+                  {activeCoverUserImg ? `重新上传主图 (${activeCoverPid.toUpperCase()})` : `上传主图 (${activeCoverPid.toUpperCase()})`}
+                </button>
+                {activeCoverUserImg && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveUserImg(activeCoverPid)}
+                    className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-2.5 py-1.5 text-[12px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors shadow-sm"
+                    title="清除当前主图款号的自传图，回退到系统原图"
+                  >
+                    <RotateCcw size={12} />
+                    恢复原图
+                  </button>
+                )}
+                <span className="hidden sm:inline text-[11px] text-ink-muted ml-1">
+                  所有款式均支持独立传图，切换主图时自动展示对应自传图
+                </span>
+              </>
+            ) : (
+              <span className="text-[12px] text-ink-muted">当前账号为仅查看模式，不能上传或更改主图</span>
             )}
-            <span className="hidden sm:inline text-[11px] text-ink-muted ml-1">
-              所有款式均支持独立传图，切换主图时自动展示对应自传图
-            </span>
           </div>
           <button
             type="button"
@@ -4482,8 +4528,18 @@ export default function TraysPage({
             if (l.id !== lookId) return l;
             if (!l.pids.includes(pid)) return l;
             if (l.cover === pid) return l; // 已是封面
-            const nextCoverImg = l.userImgs ? (l.userImgs[pid] ?? null) : l.userImg;
-            return { ...l, cover: pid, userImg: nextCoverImg };
+            const prevCover = l.cover ?? l.pids[0];
+            const nextUserImgs = { ...(l.userImgs || {}) };
+            if (l.userImg && !nextUserImgs[prevCover]) {
+              nextUserImgs[prevCover] = l.userImg;
+            }
+            const nextCoverImg = nextUserImgs[pid] ?? null;
+            return {
+              ...l,
+              cover: pid,
+              userImgs: Object.keys(nextUserImgs).length > 0 ? nextUserImgs : undefined,
+              userImg: nextCoverImg,
+            };
           }),
         };
       }),
@@ -4500,13 +4556,17 @@ export default function TraysPage({
           ...s,
           looks: s.looks.map((l) => {
             if (l.id !== lookId) return l;
+            const activeCover = l.cover ?? l.pids[0];
             const nextUserImgs = { ...(l.userImgs || {}) };
+            // 兼容迁移：若原先只有坑位级 userImg，迁移到当前主图款号下
+            if (l.userImg && !nextUserImgs[activeCover]) {
+              nextUserImgs[activeCover] = l.userImg;
+            }
             if (url) {
               nextUserImgs[pid] = url;
             } else {
               delete nextUserImgs[pid];
             }
-            const activeCover = l.cover ?? l.pids[0];
             const coverImg = nextUserImgs[activeCover] ?? null;
             return {
               ...l,
@@ -5709,6 +5769,7 @@ export default function TraysPage({
           target={coverMenu}
           tray={tray}
           fullByIdWithSize={fullByIdWithSize}
+          readOnly={readOnly}
           onClose={() => setCoverMenu(null)}
           onSetCover={(sectionId, lookId, pid) => setCover(sectionId, lookId, pid)}
           onSetPidUserImg={(sectionId, lookId, pid, url) => setPidUserImg(sectionId, lookId, pid, url)}

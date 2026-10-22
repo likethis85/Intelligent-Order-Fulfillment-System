@@ -4,14 +4,18 @@ import { mkdir, unlink } from 'node:fs/promises';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = join(__dirname, '.cache', 'uploads');
+try {
+  mkdirSync(UPLOAD_DIR, { recursive: true });
+} catch {}
 const MAX_BYTES = 50 * 1024 * 1024; // 50MB（手机原图通常 2-5MB）
 
-// 接受 image/*（手机原图常见 jpg/png/heic/webp）
-const ALLOWED_MIME = /^image\/(jpeg|jpg|png|webp|heic|heif|gif)$/i;
+// 接受 image/*（手机原图常见 jpg/png/heic/webp/pjpeg/x-png）
+const ALLOWED_MIME = /^image\/(jpeg|jpg|png|webp|heic|heif|gif|pjpeg|x-png)$/i;
+const ALLOWED_EXT = /\.(jpe?g|png|webp|heic|heif|gif)$/i;
 
 const storage = multer.diskStorage({
   destination: async (_req, _file, cb) => {
@@ -34,14 +38,28 @@ const upload = multer({
   storage,
   limits: { fileSize: MAX_BYTES },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_MIME.test(file.mimetype)) cb(null, true);
-    else cb(new Error(`unsupported mime ${file.mimetype}`));
+    const ext = extname(file.originalname || '').toLowerCase();
+    if (ALLOWED_MIME.test(file.mimetype) || ALLOWED_EXT.test(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`不支持的图片格式（${file.mimetype || ext || '未知'}），请上传 jpg/png/webp 等格式图片`));
+    }
   },
 });
 
 function mimeToExt(mime) {
-  const map = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic', 'image/heif': '.heif', 'image/gif': '.gif' };
-  return map[mime.toLowerCase()] || '';
+  const map = {
+    'image/jpeg': '.jpg',
+    'image/pjpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/x-png': '.png',
+    'image/webp': '.webp',
+    'image/heic': '.heic',
+    'image/heif': '.heif',
+    'image/gif': '.gif',
+  };
+  return map[(mime || '').toLowerCase()] || '';
 }
 
 const router = Router();
