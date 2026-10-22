@@ -1412,7 +1412,16 @@ async function exportTrayLayoutExcel(
     { label: '主图', img: true, height: 224, get: () => '' },
     { label: '商品名称', height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
     { label: '款号', height: 40, dataStyle: 'codeBlue', get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
-    { label: '尺码', height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
+    { label: '尺码', height: 32, get: (l) => {
+      const ps = l.pids.map(byId);
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
+      return l.pids.map((p) => {
+        const val = t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '';
+        if (!val) return '';
+        const short = shortNames.get(p);
+        return short ? `${short}：${val}` : val;
+      }).filter(Boolean).join('\n');
+    } },
     { label: '售价', height: 45, dataStyle: 'priceGreen', get: (l) => priceCellText(l) },
     { label: '成本/倍率', height: 40, get: (l) => {
       const ps = l.pids.map(byId);
@@ -1464,7 +1473,16 @@ async function exportTrayLayoutExcel(
     { label: '主图', img: true, labelRed: true, height: 224, get: () => '' },
     { label: '商品名称', labelRed: true, height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
     { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
-    { label: '尺码', labelRed: true, height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
+    { label: '尺码', labelRed: true, height: 32, get: (l) => {
+      const ps = l.pids.map(byId);
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
+      return l.pids.map((p) => {
+        const val = t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '';
+        if (!val) return '';
+        const short = shortNames.get(p);
+        return short ? `${short}：${val}` : val;
+      }).filter(Boolean).join('\n');
+    } },
     { label: '售价', labelRed: true, dataStyle: 'priceGreen', height: 45, get: (l) => priceCellText(l) },
     { label: '库存情况(主仓)', labelRed: true, labelBlue: true, height: 70, get: (l) => {
       const ps = l.pids.map(byId);
@@ -2512,16 +2530,18 @@ const FIELDS: FieldRow[] = [
           />
         );
       }
-      // 多款号：各款独立显示「款号：尺码」并支持编辑
+      // 多款号：各款独立显示「产品短名：尺码」并支持编辑（款号不再显示）
+      const shortNames = computeRestockShortNames(ps, ctx.restockShortNames);
       return (
-        <div className="space-y-1 font-mono text-[12px] text-ink-primary">
+        <div className="space-y-1 text-[12px] text-ink-primary">
           {ps.map((p) => {
+            const short = shortNames.get(p.id) || p.id.toUpperCase();
             const ov = ctx.sizeRangeOverrides?.[p.id];
             const effectiveSize = ov !== undefined ? ov : (p.sizeRange || '');
             const isOverridden = ov !== undefined && ov !== (p.sizeRange || '');
             return (
-              <div key={p.id} className="flex items-center justify-center gap-1">
-                <span className="text-ink-secondary text-[11px]">{p.id.toUpperCase()}</span>
+              <div key={p.id} className="flex items-center justify-center gap-1 font-mono">
+                <span className="text-ink-secondary text-[11px] whitespace-nowrap select-none font-sans">{short}</span>
                 <span className="text-ink-faint">：</span>
                 <SizeEditor
                   value={effectiveSize}
