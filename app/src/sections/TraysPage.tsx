@@ -1192,15 +1192,17 @@ function costRatioText(pid: string, t: Tray, byId: TrayById): string {
 
 // 库存情况（主仓）文本：跟 FIELDS.库存情况（主仓）.render 同款
 // 领猫款用 p.stock 颜色聚合；BI 独有用 stockMain + inTransit；都没有则 '—'
-function stockCellText(p: Product): string {
+function stockCellText(p: Product, short?: string): string {
+  const prefix = short ? `${short} ` : '';
   const lines = p.stock ?? [];
   if (lines.length === 0) {
-    if (!p.biOnly) return '—';
+    if (!p.biOnly) return short ? `${short}：—` : '—';
     // 现货 0 不写「现货0」
     const parts: string[] = [];
     if ((p.stockMain ?? 0) > 0) parts.push(`现货${p.stockMain}`);
     if ((p.inTransit ?? 0) > 0) parts.push(`在途${p.inTransit}`);
-    return parts.join(' · ') || '—';
+    const body = parts.join(' · ') || '—';
+    return short ? `${short}：${body}` : body;
   }
   const parsed = lines.map((s) => parseStockLine(s, p.colors ?? []));
   const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
@@ -1219,8 +1221,8 @@ function stockCellText(p: Product): string {
     if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
     if (v.eta) parts.push(`${v.eta}交`);
     if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);
-    return `${color}：${parts.join(' ') || '—'}`;
-  }).join('\n') || '—';
+    return `${prefix}${color}：${parts.join(' ') || '—'}`;
+  }).join('\n') || (short ? `${short}：—` : '—');
 }
 
 // 商品名称 单元格：复刻 FIELDS.商品名称.aggregateRender 的 3 行结构
@@ -1314,10 +1316,10 @@ function fabricCellText(pid: string, p: Product, t: Tray): string {
 }
 
 // 翻单周期文本：跟 FIELDS.翻单周期.aggregateRender 同款（去重 + 短名前缀）
-function restockCellText(ps: Product[], t: Tray): string {
+function restockCellText(ps: Product[], t: Tray, lookShorts?: Record<string, string>): string {
   if (ps.length === 0) return '';
   const restockOverrides = t.restockOverrides || {};
-  const shortNames = computeRestockShortNames(ps, t.restockShortNames);
+  const shortNames = computeRestockShortNames(ps, lookShorts || t.restockShortNames);
   const rows = ps.map((p) => {
     const raw = restockOverrides[p.id] ?? p.restock ?? '';
     const short = shortNames.get(p.id);
@@ -1404,8 +1406,12 @@ async function exportTrayLayoutExcel(
     { label: '尺码', height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
     { label: '售价', height: 45, dataStyle: 'priceGreen', get: (l) => priceCellText(l) },
     { label: '成本/倍率', height: 40, get: (l) => l.pids.map((p) => costRatioText(p, t, byId)).filter(Boolean).join('\n') },
-    { label: '库存情况(主仓)', labelBlue: true, height: 70, get: (l) => l.pids.map((p) => stockCellText(byId(p))).join('\n') },
-    { label: '翻单周期\n（下单日开始计算）', labelBlue: true, height: 60, get: (l) => restockCellText(l.pids.map(byId), t) },
+    { label: '库存情况(主仓)', labelBlue: true, height: 70, get: (l) => {
+      const ps = l.pids.map(byId);
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
+      return ps.map((p) => stockCellText(p, shortNames.get(p.id))).join('\n');
+    } },
+    { label: '翻单周期\n（下单日开始计算）', labelBlue: true, height: 60, get: (l) => restockCellText(l.pids.map(byId), t, l.restockShortNames) },
     {
       label: '面料情况',
       labelBlue: true,
@@ -1447,7 +1453,11 @@ async function exportTrayLayoutExcel(
     { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
     { label: '尺码', labelRed: true, height: 32, get: (l) => l.pids.map((p) => (t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '')).filter(Boolean).join('\n') },
     { label: '售价', labelRed: true, dataStyle: 'priceGreen', height: 45, get: (l) => priceCellText(l) },
-    { label: '库存情况(主仓)', labelRed: true, labelBlue: true, height: 70, get: (l) => l.pids.map((p) => stockCellText(byId(p))).join('\n') },
+    { label: '库存情况(主仓)', labelRed: true, labelBlue: true, height: 70, get: (l) => {
+      const ps = l.pids.map(byId);
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
+      return ps.map((p) => stockCellText(p, shortNames.get(p.id))).join('\n');
+    } },
   ];
 
   const isMainSection = (label: string) => {
@@ -2307,6 +2317,57 @@ function computeRestockShortNames(ps: Product[], overrides?: Record<string, stri
   return m;
 }
 
+function renderStockForProduct(p: Product, short?: string): ReactNode {
+  const prefix = short ? `${short} ` : '';
+  const stockLines = p.stock ?? [];
+  if (stockLines.length === 0) {
+    // 领猫款（biOnly=false/undefined）：领猫里没库存数据 → 显示 —
+    if (!p.biOnly) {
+      return <div className="w-full text-center text-[10.5px] text-ink-faint leading-5">{short ? `${short}：—` : '—'}</div>;
+    }
+    // BI 独有款（biOnly=true）：用 BI/款式卡的 stockMain 展示；现货 0 不写「现货0」
+    const parts: string[] = [];
+    if ((p.stockMain ?? 0) > 0) parts.push(`现货${p.stockMain}`);
+    if ((p.inTransit ?? 0) > 0) parts.push(`在途${p.inTransit}`);
+    const body = parts.join(' · ') || '—';
+    return (
+      <div className="w-full text-center text-ink-primary text-[11px] leading-5">
+        {short ? `${short}：${body}` : body}
+      </div>
+    );
+  }
+  const parsed = stockLines.map((s) => parseStockLine(s, p.colors ?? []));
+  // 按颜色聚合（每色内可能有 现货/在途/交期/占单）
+  const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
+  for (const e of parsed) {
+    const key = e.color || '其他';
+    const cur = byColor.get(key) || { stock: 0, inTransit: 0, eta: null, orderBook: 0 };
+    cur.stock = Math.max(cur.stock, e.stock);
+    cur.inTransit = Math.max(cur.inTransit, e.inTransit);
+    cur.orderBook = Math.max(cur.orderBook, e.orderBook);
+    if (e.eta && !cur.eta) cur.eta = e.eta;
+    byColor.set(key, cur);
+  }
+  const lines = [...byColor.entries()].map(([color, v]) => {
+    // 现货为 0 时不写「现货0」（用户口径：0 现货等于没这句），有在途/交期/占单照样显示
+    const parts: string[] = [];
+    if (v.stock > 0) parts.push(`现货${v.stock}`);
+    if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
+    if (v.eta) parts.push(`${v.eta}交`);
+    if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);
+    return { color, text: `${prefix}${color}：${parts.join(' ') || '—'}` };
+  });
+  return (
+    <div className="w-full text-center text-ink-primary leading-5">
+      {lines.map((l) => (
+        <div key={l.color} className="text-[11px]">
+          {l.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const FIELDS: FieldRow[] = [
   {
     label: '商品名称',
@@ -2671,49 +2732,17 @@ const FIELDS: FieldRow[] = [
   {
     label: '库存情况（主仓）',
     show: () => true,
-    render: (p, _tpl) => {
-      const stockLines = p.stock ?? [];
-      if (stockLines.length === 0) {
-        // 领猫款（biOnly=false/undefined）：领猫里没库存数据 → 显示 —
-        if (!p.biOnly) {
-          return <div className="w-full text-center text-[10.5px] text-ink-faint leading-5">—</div>;
-        }
-        // BI 独有款（biOnly=true）：用 BI/款式卡的 stockMain 展示；现货 0 不写「现货0」
-        return (
-          <div className="w-full text-center text-ink-primary text-[11px] leading-5">
-            {(p.stockMain ?? 0) > 0 && `现货${p.stockMain}`}
-            {(p.inTransit ?? 0) > 0 && ` · 在途${p.inTransit}`}
-            {(p.stockMain ?? 0) <= 0 && (p.inTransit ?? 0) <= 0 && '—'}
-          </div>
-        );
+    aggregate: true,
+    render: (p) => renderStockForProduct(p),
+    aggregateRender: (ps, _tpl, ctx) => {
+      if (ps.length === 1) {
+        return renderStockForProduct(ps[0]);
       }
-      const parsed = stockLines.map((s) => parseStockLine(s, p.colors ?? []));
-      // 按颜色聚合（每色内可能有 现货/在途/交期/占单）
-      const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
-      for (const e of parsed) {
-        const key = e.color || '其他';
-        const cur = byColor.get(key) || { stock: 0, inTransit: 0, eta: null, orderBook: 0 };
-        cur.stock = Math.max(cur.stock, e.stock);
-        cur.inTransit = Math.max(cur.inTransit, e.inTransit);
-        cur.orderBook = Math.max(cur.orderBook, e.orderBook);
-        if (e.eta && !cur.eta) cur.eta = e.eta;
-        byColor.set(key, cur);
-      }
-      const lines = [...byColor.entries()].map(([color, v]) => {
-        // 现货为 0 时不写「现货0」（用户口径：0 现货等于没这句），有在途/交期/占单照样显示
-        const parts: string[] = [];
-        if (v.stock > 0) parts.push(`现货${v.stock}`);
-        if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
-        if (v.eta) parts.push(`${v.eta}交`);
-        if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);
-        return { color, text: `${color}：${parts.join(' ') || '—'}` };
-      });
+      const shortNames = computeRestockShortNames(ps, ctx.restockShortNames);
       return (
-        <div className="w-full text-center text-ink-primary leading-5">
-          {lines.map((l) => (
-            <div key={l.color} className="text-[11px]">
-              {l.text}
-            </div>
+        <div className="w-full text-center text-ink-primary leading-5 space-y-1">
+          {ps.map((p) => (
+            <div key={p.id}>{renderStockForProduct(p, shortNames.get(p.id))}</div>
           ))}
         </div>
       );
@@ -3631,14 +3660,14 @@ function CoverMenuDialog({
                     </div>
                   )}
 
-                  {/* 翻单前缀设置 */}
+                  {/* 短名前缀设置（库存情况与翻单周期共用） */}
                   <div className="mt-1.5">
                     <input
                       disabled={readOnly}
                       value={look.restockShortNames?.[pid] ?? ''}
                       onChange={(e) => onSetRestockShortName(target.sectionId, target.lookId, pid, e.target.value)}
-                      placeholder={autoShorts.get(pid) ? `前缀：${autoShorts.get(pid)}` : '翻单前缀'}
-                      title="翻单周期每行的产品短名前缀（如 针织裤 / 开衫）；留空用自动推导"
+                      placeholder={autoShorts.get(pid) ? `短名前缀：${autoShorts.get(pid)}` : '短名前缀'}
+                      title="库存情况与翻单周期每行的产品短名前缀（如 针织裤 / 开衫 / 翻领中长）；留空用自动推导"
                       className="w-full rounded border border-edge-strong px-1.5 py-0.5 text-[10.5px] text-ink-secondary outline-none focus:border-action-primary disabled:bg-surface-subtle disabled:cursor-not-allowed"
                     />
                   </div>
