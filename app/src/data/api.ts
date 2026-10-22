@@ -681,8 +681,9 @@ export async function uploadImage(file: File, onStatus?: (status: string) => voi
     }
   }
 
+  const timeoutMs = 90_000;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000); // 上传最长 60s
+  const timer = setTimeout(() => ctrl.abort(new Error('上传超时（90s），请检查网络连接并重试')), timeoutMs);
   try {
     const fd = new FormData();
     fd.append('file', fileToUpload);
@@ -699,6 +700,11 @@ export async function uploadImage(file: File, onStatus?: (status: string) => voi
     const j = (await res.json()) as { ok?: boolean; url?: string };
     if (!j.url) throw new Error('上传失败：服务端未返回 url');
     return j.url;
+  } catch (err) {
+    if ((err instanceof DOMException && err.name === 'AbortError') || (err instanceof Error && err.name === 'AbortError')) {
+      throw new Error(err.message && err.message !== 'signal is aborted without reason' ? err.message : '上传超时（90s），请检查网络连接');
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
