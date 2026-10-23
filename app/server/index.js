@@ -12,7 +12,7 @@ import profilesRouter from './routes/profiles.js';
 import fabricRouter from './routes/fabric.js';
 import { router as uploadRouter, UPLOAD_DIR } from './uploads.js';
 import { hasCredentials, clearProductsCache, clearSamplesCache } from './vscm-client.js';
-import { clearBiCache, clearBiSkcCache } from './bi-client.js';
+import { clearBiCache, clearBiSkcCache, refreshBiSkc, getStockSyncStatus } from './bi-client.js';
 import { clearProfileCache } from './profile-client.js';
 import { clearSizeCache } from './size-client.js';
 import { clearCostCache } from './cost-client.js';
@@ -25,7 +25,7 @@ import { getWeatherRules, saveWeatherRules } from './weather-rules.js';
 import aiRouter from './routes/ai.js';
 import remainingInventoryRouter from './routes/remaining-inventory.js';
 import { getWeather } from './weather-client.js';
-import { attachTrayWs } from './ws-trays.js';
+import { attachTrayWs, broadcastToAll } from './ws-trays.js';
 import { createSsoAuth, readSsoConfig } from './sso-auth.js';
 import { createAccessControl } from './access-control.js';
 
@@ -216,8 +216,14 @@ app.get('/api/weather', async (req, res) => {
 
 // POST /api/sync — 从源头重新拉数据
 //   kind='商品' → 领猫基础资料 + BI 款式卡（名称/小名/售价）+ 尺码 ETL
-//   kind='库存' → BI SKC 卡（现货/在途/占单/交期） + 尺码 ETL（聚水潭接入后改聚水潭）
+//   kind='库存' → BI SKC 卡（现货/在途/占单/交期）后台平滑同步 + 尺码 ETL
 app.use('/api/sync', access.guardSyncWrites);
+
+// GET /api/sync/stock/status — 查询库存后台同步状态
+app.get('/api/sync/stock/status', (_req, res) => {
+  res.json(getStockSyncStatus());
+});
+
 app.post('/api/sync', async (req, res) => {
   const kind = req.body?.kind === '库存' ? '库存' : '商品';
   try {
@@ -229,27 +235,65 @@ app.post('/api/sync', async (req, res) => {
         message: `已从${kind === '库存' ? 'BI' : '领猫'}重新拉取（mock）`,
       });
     }
-    if (kind === '商品') {
-      // 清掉所有商品相关缓存：领猫基础资料 + 样衣库 + BI 款式卡 + BI SKC 卡 + 尺码 / 成本 ETL + 画像/主播 + 销量
-      clearProductsCache({ hard: true });
-      clearSamplesCache({ hard: true });
-      clearBiCache();
-      clearSizeCache();
-      clearCostCache();
-      clearProfileCache();
-      clearSalesCache({ hard: true });
-    } else {
-      // 库存：只清 BI SKC 卡（现货/在途/占单/交期）、尺码 / 成本 ETL，保留款式卡基础资料
-      clearBiSkcCache();
-      clearSizeCache();
-      clearCostCache();
+
+    if (kind === '库存') {
+      // 方案 1：异步后台同步 + 防重锁 + 旧缓存平滑过渡（Stale-While-Revalidate）
+      const result = await refreshBiSkc();
+      if (result.status === 'already_running') {
+        return res.json({
+          ok: true,
+          kind: '库存',
+          status: 'running',
+          message: '观远 BI 库存正在后台同步中（耗时约 2 分钟），请稍候，完成后将自动生效',
+          startedAt: result.startedAt,
+        });
+      }
+
+      // 后台任务执行完毕回调：清理关联衍生缓存并通过 WebSocket 广播给所有客户端
+      result.promise
+        .then(({ count, elapsed }) => {
+          clearSizeCache();
+          clearCostCache();
+          broadcastToAll({
+            type: 'stock-synced',
+            at: new Date().toISOString(),
+            count,
+            message: `观远 BI 最新库存已同步完成（${count} 款，耗时 ${elapsed}s）`,
+          });
+        })
+        .catch((err) => {
+          broadcastToAll({
+            type: 'stock-sync-failed',
+            at: new Date().toISOString(),
+            error: err.message,
+            message: `观远 BI 库存后台拉取失败（已保留原有效库存）：${err.message}`,
+          });
+        });
+
+      return res.json({
+        ok: true,
+        kind: '库存',
+        status: 'started',
+        message: '已启动后台同步观远 BI 库存（耗时约 2 分钟），期间继续使用当前有效库存，同步完成后自动生效',
+        syncedAt: new Date().toISOString(),
+      });
     }
+
+    // kind === '商品'：
+    // 清掉商品相关缓存：领猫基础资料 + 样衣库 + BI 款式卡 + 尺码 / 成本 ETL + 画像/主播 + 销量
+    // 注意：不删 SKC 卡缓存（耗时 160s 的库存），避免商品同步把库存打回原形
+    clearProductsCache({ hard: true });
+    clearSamplesCache({ hard: true });
+    clearBiCache();
+    clearSizeCache();
+    clearCostCache();
+    clearProfileCache();
+    clearSalesCache({ hard: true });
+
     // 触发重新拉取（命中磁盘缓存就秒返，否则走 guancli 重拉）
     const url = '/api/products?fresh=true';
     const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { headers: { Cookie: req.headers.cookie || '' } });
     const json = await r.json().catch(() => ({}));
-    // /products?fresh=true 在拉取失败时返回 503 + source:'fetch-failed'，
-    // 不要把这种"空 + 报错"的响应当作"同步成功 0 款"
     if (!r.ok || json.source === 'fetch-failed') {
       return res.status(500).json({
         ok: false,
@@ -263,9 +307,7 @@ app.post('/api/sync', async (req, res) => {
       syncedAt: new Date().toISOString(),
       source: json.source,
       count: json.count,
-      message: kind === '库存'
-        ? `已从 BI 重新拉取库存（${json.count} 款；聚水潭接入后会切换）`
-        : `已从领猫 + BI 款式卡重新拉取 ${json.count} 款商品`,
+      message: `已从领猫 + BI 款式卡重新拉取 ${json.count} 款商品`,
     });
   } catch (err) {
     console.error(`[sync] ${kind} 同步失败:`, err.message);

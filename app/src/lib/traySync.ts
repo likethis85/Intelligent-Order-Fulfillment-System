@@ -160,22 +160,32 @@ export interface TrayOpLogEntry {
   change?: string;
 }
 
+export interface StockSyncedEvent {
+  type: 'stock-synced';
+  at: string;
+  count: number;
+  message?: string;
+}
+
 // ── WS 客户端 hook ──
-// activeTrayId 变化时切 room；收 tray-updated 按键级合并进 setTrays
+// activeTrayId 变化时切 room；收 tray-updated 按键级合并进 setTrays；收 stock-synced 通知库存更新
 export function useTraySync(
   activeTrayId: string | null,
   userName: string,
   setTrays: React.Dispatch<React.SetStateAction<Tray[]>>,
   onRemoteUpdate: (user: string, trayName: string) => void,
+  onStockSynced?: (event: StockSyncedEvent) => void,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const trayIdRef = useRef<string | null>(activeTrayId);
   const setTraysRef = useRef(setTrays);
   const onRemoteRef = useRef(onRemoteUpdate);
+  const onStockSyncedRef = useRef(onStockSynced);
   const userRef = useRef(userName);
   trayIdRef.current = activeTrayId;
   setTraysRef.current = setTrays;
   onRemoteRef.current = onRemoteUpdate;
+  onStockSyncedRef.current = onStockSynced;
   userRef.current = userName;
 
   useEffect(() => {
@@ -200,6 +210,10 @@ export function useTraySync(
       ws.onmessage = (ev) => {
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'stock-synced') {
+          onStockSyncedRef.current?.(msg as StockSyncedEvent);
+          return;
+        }
         if (msg.type === 'tray-updated' && msg.tray?.id) {
           const remote = msg.tray as Tray;
           setTraysRef.current((ts) => {

@@ -43,13 +43,13 @@ export function runGuancli(args, { timeoutMs = 180_000, maxOutputBytes = 64 * 10
   });
 }
 
-export async function previewGuancliCard(cardId, { limit } = {}) {
+export async function previewGuancliCard(cardId, { limit, timeoutMs } = {}) {
   const tmpFile = join(tmpdir(), `marius-bi-${randomUUID()}.csv`);
   const args = ['card', 'preview', cardId, '--value-format', 'raw', '-f', 'csv'];
   if (limit !== undefined) args.push('--limit', String(limit));
   args.push('-o', tmpFile);
   try {
-    await runGuancli(args, { captureStdout: false });
+    await runGuancli(args, { captureStdout: false, timeoutMs });
     return await readFile(tmpFile, 'utf8');
   } finally {
     await unlink(tmpFile).catch(() => {});

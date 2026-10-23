@@ -158,30 +158,104 @@ export function getSkcsForCode(code) {
     .filter((x) => x.code);
 }
 
-export function clearBiCache() {
+let stockSyncState = {
+  isSyncing: false,
+  startedAt: null,
+  lastSyncedAt: null,
+  lastError: null,
+  lastCount: 0,
+};
+
+export function getStockSyncStatus() {
+  return { ...stockSyncState };
+}
+
+// 异步从观远 BI 刷新 SKC 卡（现货/在途/占单/交期），平滑过渡（Stale-While-Revalidate）：
+// 拉取期间旧缓存继续生效，新数据下载并校验成功后原子替换磁盘与内存缓存
+export async function refreshBiSkc({ timeoutMs = 300_000 } = {}) {
+  if (stockSyncState.isSyncing) {
+    return { status: 'already_running', startedAt: stockSyncState.startedAt };
+  }
+  stockSyncState.isSyncing = true;
+  stockSyncState.startedAt = new Date().toISOString();
+  stockSyncState.lastError = null;
+
+  const promise = (async () => {
+    const t0 = Date.now();
+    try {
+      console.log('[bi] 开始后台刷新观远 BI SKC 库存卡...');
+      const csv = await previewGuancliCard(SKC_CARD_ID, { limit: 100000, timeoutMs });
+      const rows = parseCsv(csv);
+      if (!rows || rows.length === 0) {
+        throw new Error('观远 BI 返回了空数据');
+      }
+      const byCode = rowsToMap(rows);
+      // 原子替换内存缓存
+      cache = { at: Date.now(), byCode, totalRows: rows.length };
+      // 原子保存磁盘缓存（saveToDisk 先写 .tmp 再 rename）
+      await saveToDisk(cache);
+      // 联动加载/刷新 ETA 卡
+      await loadEtaMap().catch((err) => console.warn('[bi] eta 卡加载失败:', err.message));
+
+      const elapsed = Math.round((Date.now() - t0) / 1000);
+      console.log(`[bi] SKC 库存卡后台刷新成功: ${rows.length} 行，${byCode.size} 款，耗时 ${elapsed}s`);
+
+      stockSyncState.lastSyncedAt = new Date().toISOString();
+      stockSyncState.lastCount = byCode.size;
+      return { success: true, count: byCode.size, rows: rows.length, elapsed };
+    } catch (err) {
+      console.error('[bi] SKC 库存卡后台刷新失败 (旧缓存仍有效):', err.message);
+      stockSyncState.lastError = err.message;
+      throw err;
+    } finally {
+      stockSyncState.isSyncing = false;
+    }
+  })();
+
+  return { status: 'started', startedAt: stockSyncState.startedAt, promise };
+}
+
+export function clearBiCache({ hard = false } = {}) {
   cache = { at: 0, byCode: new Map(), totalRows: 0 };
   productCache = { at: 0, byPdtCode: new Map(), totalRows: 0 };
-  unlink(CACHE_FILE).catch(() => {});
-  unlink(PRODUCT_CACHE_FILE).catch(() => {});
+  if (hard) {
+    unlink(CACHE_FILE).catch(() => {});
+    unlink(PRODUCT_CACHE_FILE).catch(() => {});
+  }
 }
 
 // 只清 SKC 卡（库存/在途/占单），保留款式卡（名称/小名/售价）
-// 用途：「同步库存」按钮 — 库存变更不影响基础资料
-export function clearBiSkcCache() {
+// 用途：「同步库存」按钮 — 默认不清磁盘，确保旧缓存有效
+export function clearBiSkcCache({ hard = false } = {}) {
   cache = { at: 0, byCode: new Map(), totalRows: 0 };
-  unlink(CACHE_FILE).catch(() => {});
+  if (hard) {
+    unlink(CACHE_FILE).catch(() => {});
+  }
 }
 
 async function loadBiFromDisk() {
   try {
     const text = await readFile(CACHE_FILE, 'utf8');
-    const j = JSON.parse(text);
-    if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byCode) {
-      return {
-        at: Date.now(),
-        byCode: new Map(j.byCode),
-        totalRows: j.totalRows,
-      };
+    if (!text || !text.trim()) return null;
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{')) {
+      const j = JSON.parse(trimmed);
+      if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byCode) {
+        return {
+          at: Date.now(),
+          byCode: new Map(j.byCode),
+          totalRows: j.totalRows,
+        };
+      }
+    } else {
+      // 兼容直接放 CSV 文件的场景
+      const rows = parseCsv(trimmed);
+      if (rows.length > 0) {
+        const byCode = rowsToMap(rows);
+        const cacheObj = { at: Date.now(), byCode, totalRows: rows.length };
+        saveToDisk(cacheObj).catch(() => {});
+        return cacheObj;
+      }
     }
   } catch { /* */ }
   return null;
@@ -190,13 +264,31 @@ async function loadBiFromDisk() {
 async function loadProductMasterFromDisk() {
   try {
     const text = await readFile(PRODUCT_CACHE_FILE, 'utf8');
-    const j = JSON.parse(text);
-    if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byPdtCode) {
-      return {
-        at: Date.now(),
-        byPdtCode: new Map(j.byPdtCode),
-        totalRows: j.totalRows,
-      };
+    if (!text || !text.trim()) return null;
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{')) {
+      const j = JSON.parse(trimmed);
+      if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byPdtCode) {
+        return {
+          at: Date.now(),
+          byPdtCode: new Map(j.byPdtCode),
+          totalRows: j.totalRows,
+        };
+      }
+    } else {
+      const rows = parseCsv(trimmed);
+      if (rows.length > 0) {
+        const byPdtCode = new Map();
+        for (const r of rows) {
+          const code = String(r['款号'] || '').trim();
+          if (!code) continue;
+          const key = code.toLowerCase();
+          if (!byPdtCode.has(key)) byPdtCode.set(key, { pdtCode: code, raw: r });
+        }
+        const cacheObj = { at: Date.now(), byPdtCode, totalRows: rows.length };
+        saveProductMasterToDisk(cacheObj).catch(() => {});
+        return cacheObj;
+      }
     }
   } catch { /* */ }
   return null;

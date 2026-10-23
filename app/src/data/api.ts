@@ -54,10 +54,11 @@ export interface ApiFilters {
 export interface SyncResult {
   ok: boolean;
   kind?: string;
+  status?: 'started' | 'running' | string;
   source?: string;
   count?: number;
   message: string;
-  syncedAt: string;
+  syncedAt?: string;
 }
 
 // 前端 localStorage 缓存：stale-while-revalidate — 立刻显示上次 + 后台拉新
@@ -248,6 +249,18 @@ export interface HengjiStatus {
 }
 export function fetchHengjiStatus(): Promise<HengjiStatus> {
   return jsonFetch<HengjiStatus>('/sync/hengji/status', undefined, 30_000);
+}
+
+// GET /api/sync/stock/status → 查询观远 BI 库存后台同步状态
+export interface StockSyncStatus {
+  isSyncing: boolean;
+  startedAt: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  lastCount: number;
+}
+export function fetchStockSyncStatus(): Promise<StockSyncStatus> {
+  return jsonFetch<StockSyncStatus>('/sync/stock/status', undefined, 10_000);
 }
 
 // ── 排品角色判定规则（配置后台；服务端持久化在 server/data/role-rules.json） ──

@@ -39,6 +39,18 @@ function readLog({ trayId, limit = 200 } = {}) {
   return list.slice(-limit).reverse();
 }
 
+let activeWss = null;
+
+export function broadcastToAll(msg) {
+  if (!activeWss) return;
+  const data = JSON.stringify(msg);
+  for (const ws of activeWss.clients) {
+    if (ws.readyState === 1) {
+      try { ws.send(data); } catch { /* ignore */ }
+    }
+  }
+}
+
 export { appendLog, readLog };
 
 export function attachTrayWs(server, auth, accessControl = null) {
@@ -52,6 +64,7 @@ export function attachTrayWs(server, auth, accessControl = null) {
       done(true);
     },
   });
+  activeWss = wss;
   const unsubscribe = auth.onRevoke((key) => {
     for (const ws of wss.clients) if (ws._sessionKey === key) ws.close(1008, 'Session ended');
   });

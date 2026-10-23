@@ -10,7 +10,7 @@ import WeatherPage from '@/sections/WeatherPage';
 import ConfigPage from '@/sections/ConfigPage';
 import AccessPage from '@/sections/AccessPage';
 import { ProductsProvider } from '@/data/ProductsContext';
-import { fetchProducts, syncProducts, syncHengjiCost, readProductsCache, fetchAccessMe } from '@/data/api';
+import { fetchProducts, syncProducts, syncHengjiCost, readProductsCache, fetchAccessMe, fetchStockSyncStatus } from '@/data/api';
 import type { AccessMe } from '@/data/api';
 import { useTraySync, diffTray } from '@/lib/traySync';
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
@@ -224,6 +224,16 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     collabUser,
     setTrays,
     (user, trayName) => toast.info(`${user} 更新了货盘「${trayName}」`, { duration: 3000 }),
+    (event) => {
+      toast.success(event.message || '观远 BI 最新库存已同步完成，数据已更新', { duration: 4000 });
+      fetchProducts().then((items) => {
+        const src = (items as unknown as { source?: string })?.source ?? '';
+        if (src !== 'mock-fallback' && src !== 'fetch-failed' && items.length > 0) {
+          setProducts(items);
+        }
+        setDataVersion((v) => v + 1);
+      }).catch(() => {});
+    },
   );
   collabRef.current = { broadcast };
 
@@ -512,6 +522,32 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
       } else {
         const res = await syncProducts(kind);
         message = res.message;
+        // 如果是库存同步，后台已异步启动任务，前端启动轻量轮询做兜底通知
+        if (kind === '库存' && res.status === 'started') {
+          const pollStart = Date.now();
+          const pollTimer = setInterval(async () => {
+            // 最多轮询 4 分钟
+            if (Date.now() - pollStart > 240_000) {
+              clearInterval(pollTimer);
+              return;
+            }
+            try {
+              const status = await fetchStockSyncStatus();
+              if (!status.isSyncing) {
+                clearInterval(pollTimer);
+                // 同步结束，如果上次同步成功完成
+                if (status.lastSyncedAt && new Date(status.lastSyncedAt).getTime() >= pollStart - 5000) {
+                  const items = await fetchProducts();
+                  const src = (items as unknown as { source?: string })?.source ?? '';
+                  if (src !== 'mock-fallback' && src !== 'fetch-failed' && items.length > 0) {
+                    setProducts(items);
+                  }
+                  setDataVersion((v) => v + 1);
+                }
+              }
+            } catch { /* ignore poll errors */ }
+          }, 5000);
+        }
       }
       toast.success(message);
       // 同步后都刷新一次商品池（同步库存也会改 stock 行，必须重拉）
