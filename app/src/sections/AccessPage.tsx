@@ -49,6 +49,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
   const [savedSnapshot, setSavedSnapshot] = useState<AccessConfig | null>(null);
   const [users, setUsers] = useState<KnownUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [newDept, setNewDept] = useState('');
@@ -81,6 +82,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetchAccessConfig();
       setDraft(res.config);
@@ -88,7 +90,9 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
       setUsers(res.users || []);
       setDirty(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '加载权限配置失败');
+      const msg = e instanceof Error ? e.message : '加载权限配置失败';
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -588,10 +592,30 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
   };
 
   if (loading) {
-    return <div className="responsive-page px-10 py-8 text-[13px] text-ink-muted">正在加载权限配置…</div>;
+    return (
+      <div className="responsive-page flex min-h-[400px] flex-col items-center justify-center gap-3 px-10 py-8 text-[13px] text-ink-muted">
+        <RefreshCw size={20} className="animate-spin text-ink-secondary" />
+        <span>正在加载权限配置…</span>
+      </div>
+    );
   }
   if (!draft) {
-    return <div className="responsive-page px-10 py-8 text-[13px] text-ink-muted">权限配置读取失败，请确认后端已启动。</div>;
+    return (
+      <div className="responsive-page flex min-h-[400px] flex-col items-center justify-center gap-4 px-10 py-8 text-center text-[13px]">
+        <ShieldCheck size={36} className="text-amber-500 opacity-80" />
+        <div>
+          <div className="font-medium text-ink-primary">权限配置加载失败</div>
+          <div className="mt-1 text-ink-muted">{loadError || '后端未响应或请求超时'}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => { void load(); }}
+          className="flex items-center gap-1.5 rounded-md bg-ink-primary px-4 py-2 text-[12px] font-medium text-surface-subtle hover:opacity-90"
+        >
+          <RefreshCw size={13} /> 点击重试
+        </button>
+      </div>
+    );
   }
 
   return (

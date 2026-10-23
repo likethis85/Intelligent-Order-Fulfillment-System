@@ -5,7 +5,10 @@ export const API_BASE = API_ORIGIN + '/api';
 export const AUTH_REQUIRED_EVENT = 'marius:auth-required';
 
 export async function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const response = await fetch(input, { ...init, credentials: 'include' });
+  const urlStr = typeof input === 'string' ? input : (input && 'href' in input) ? (input as URL).href : (input && 'url' in input) ? (input as Request).url : '';
+  const isCrossOrigin = Boolean(urlStr && /^https?:\/\//i.test(urlStr) && !urlStr.startsWith(location.origin));
+  const credentials = init?.credentials ?? (isCrossOrigin ? 'same-origin' : 'include');
+  const response = await fetch(input, { ...init, credentials });
   if (response.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   return response;
 }

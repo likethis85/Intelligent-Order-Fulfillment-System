@@ -72,6 +72,27 @@ async function ensureCacheLoaded() {
 }
 
 // 保存磁盘缓存
+let dailySaveTimer = null;
+let cumuSaveTimer = null;
+
+function scheduleDailySave() {
+  if (dailySaveTimer) return;
+  dailySaveTimer = setTimeout(async () => {
+    dailySaveTimer = null;
+    await saveDiskCache(DAILY_CACHE_FILE, memDaily);
+  }, 1000);
+  dailySaveTimer.unref?.();
+}
+
+function scheduleCumuSave() {
+  if (cumuSaveTimer) return;
+  cumuSaveTimer = setTimeout(async () => {
+    cumuSaveTimer = null;
+    await saveDiskCache(CUMU_CACHE_FILE, memCumu);
+  }, 1000);
+  cumuSaveTimer.unref?.();
+}
+
 async function saveDiskCache(file, data) {
   try {
     await mkdir(CACHE_DIR, { recursive: true });
@@ -97,7 +118,7 @@ async function setDailyToCache(lowerPid, date, qty) {
   if (!memDaily) memDaily = {};
   if (!memDaily[lowerPid]) memDaily[lowerPid] = {};
   memDaily[lowerPid][date] = { q: qty, at: Date.now() };
-  await saveDiskCache(DAILY_CACHE_FILE, memDaily);
+  scheduleDailySave();
 }
 
 function getCumuFromCache(lowerPid) {
@@ -113,7 +134,7 @@ function getCumuFromCache(lowerPid) {
 async function setCumuToCache(lowerPid, qty) {
   if (!memCumu) memCumu = {};
   memCumu[lowerPid] = { q: qty, at: Date.now() };
-  await saveDiskCache(CUMU_CACHE_FILE, memCumu);
+  scheduleCumuSave();
 }
 
 // 全局并发控制器: MAX_CONC = 3
@@ -161,14 +182,15 @@ export function parseCsv(text) {
   return rows;
 }
 
-// 带重试调用 guancli (默认重试 2 次)
-async function runGuancliWithRetry(args, { retries = 2, delayMs = 500 } = {}) {
+// 带重试调用 guancli (默认重试 1 次)
+async function runGuancliWithRetry(args, { retries = 1, delayMs = 500, timeoutMs = 15_000 } = {}) {
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const csv = await runGuancli(args);
+      const csv = await runGuancli(args, { timeoutMs });
+      // 空响应是正常的查询结果（BI 无匹配行 = 销量为 0），不是错误，无需重试
       if (!csv || typeof csv !== 'string' || !csv.trim()) {
-        throw new Error('guancli 返回空响应');
+        return [];
       }
       return parseCsv(csv);
     } catch (err) {

@@ -249,3 +249,65 @@ export function matchCandidates(pid: string): string[] {
   if (!p) return []; // BI 独有款号不在本地 PRODUCTS，避免访问 undefined.tempBand 抛错
   return PRODUCTS.filter((x) => x.id !== pid && x.tempBand === p.tempBand).slice(0, 3).map((x) => x.id);
 }
+
+// ── 阿里云 OSS 静态存储根路径与图片地址规范化 ──
+export const OSS_UPLOADS_BASE = 'https://marius.oss-cn-shanghai.aliyuncs.com/trays/uploads/';
+
+/**
+ * 将任意图片地址（尤其是历史 /uploads/xxx 相对路径或旧服务器单机地址）规范化为阿里云 OSS 公网高速直链
+ */
+export function normalizeImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const str = String(url).trim();
+  if (!str) return null;
+
+  // 1. 相对路径 /uploads/xxx 或 uploads/xxx -> 映射至阿里云 OSS 公网地址
+  if (/^\/?uploads\//i.test(str)) {
+    const filename = str.replace(/^\/?uploads\//i, '');
+    return `${OSS_UPLOADS_BASE}${filename}`;
+  }
+
+  // 2. 携带旧服务器单机地址的 /uploads/xxx -> 映射至阿里云 OSS 公网地址
+  // 例如 http://203.205.89.231:3700/uploads/xxx, http://localhost:3700/uploads/xxx
+  const serverMatch = str.match(/^https?:\/\/[^\/]+\/uploads\/(.+)$/i);
+  if (serverMatch) {
+    return `${OSS_UPLOADS_BASE}${serverMatch[1]}`;
+  }
+
+  return str;
+}
+
+/**
+ * 递归清洗货盘中所有坑位及款式的自传主图地址，自动升级为阿里云 OSS 直链
+ */
+export function normalizeTrayImages(tray: Tray): Tray {
+  if (!tray || !Array.isArray(tray.sections)) return tray;
+  return {
+    ...tray,
+    sections: tray.sections.map((section) => ({
+      ...section,
+      looks: (section.looks || []).map((look) => {
+        let changed = false;
+        let nextUserImg = look.userImg;
+        if (look.userImg) {
+          const norm = normalizeImageUrl(look.userImg);
+          if (norm && norm !== look.userImg) {
+            nextUserImg = norm;
+            changed = true;
+          }
+        }
+        let nextUserImgs = look.userImgs;
+        if (look.userImgs && typeof look.userImgs === 'object') {
+          const updated: Record<string, string> = {};
+          for (const [pid, u] of Object.entries(look.userImgs)) {
+            const norm = normalizeImageUrl(u) || u;
+            if (norm !== u) changed = true;
+            updated[pid] = norm;
+          }
+          if (changed) nextUserImgs = updated;
+        }
+        return changed ? { ...look, userImg: nextUserImg, userImgs: nextUserImgs } : look;
+      }),
+    })),
+  };
+}

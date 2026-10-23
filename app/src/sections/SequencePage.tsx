@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowUp, ArrowDown, RotateCcw, Trash2, Sparkles, Clock, Layers, Printer } from 'lucide-react';
 import { toast } from 'sonner';
-import { type Product, type Tray, type SeqEntry, type Look } from '@/data/products';
+import { type Product, type Tray, type SeqEntry, type Look, normalizeImageUrl } from '@/data/products';
 import { useProductResolver } from '@/data/ProductsContext';
 import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 
@@ -410,6 +410,9 @@ export default function SequencePage({
             if (!pids.length) return null;
             const ps: Product[] = pids.map(byId);
             const roles = [...new Set(ps.flatMap((p) => p.roles))];
+            const look = findLook(tray, e.lookId);
+            const coverPid = look?.cover ?? pids[0];
+            const userImg = normalizeImageUrl((look?.userImgs?.[coverPid]) ?? look?.userImg);
             return (
               <div
                 key={e.key + i}
@@ -455,11 +458,15 @@ export default function SequencePage({
                   <Clock size={11} /> {minutes(i)}
                 </span>
                 <div className="sequence-images flex shrink-0 gap-1">
-                  {ps.map((p) => (p.img ? (
-                    <img key={p.id} src={p.img} className="h-14 w-11 rounded-md object-cover" alt={p.name} />
-                  ) : (
-                    <div key={p.id} className="flex h-14 w-11 items-center justify-center rounded-md bg-gradient-to-br from-surface-subtle to-surface-muted text-[10px] font-semibold text-ink-muted">{(p.id || '').slice(0, 2).toUpperCase() || '无图'}</div>
-                  )))}
+                  {ps.map((p) => {
+                    const rawSrc = (p.id === coverPid && userImg) ? userImg : p.img;
+                    const imgSrc = normalizeImageUrl(rawSrc) || rawSrc;
+                    return imgSrc ? (
+                      <img key={p.id} src={imgSrc} className="h-14 w-11 rounded-md object-cover" alt={p.name} />
+                    ) : (
+                      <div key={p.id} className="flex h-14 w-11 items-center justify-center rounded-md bg-gradient-to-br from-surface-subtle to-surface-muted text-[10px] font-semibold text-ink-muted">{(p.id || '').slice(0, 2).toUpperCase() || '无图'}</div>
+                    );
+                  })}
                 </div>
                 <div className="sequence-product min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{ps.map((p) => p.name).join(' + ')}</div>
@@ -523,7 +530,7 @@ export default function SequencePage({
                 const pids = look?.pids || lookPids(tray, e.lookId);
                 const ps: Product[] = pids.map(byId);
                 const coverPid = look?.cover ?? pids[0];
-                const userImg = (look?.userImgs?.[coverPid]) ?? look?.userImg;
+                const userImg = normalizeImageUrl((look?.userImgs?.[coverPid]) ?? look?.userImg);
                 const dragFromHere = seqDrag?.fromIdx === i;
                 const showBeforeLine = seqDrag?.overIdx === i && seqDrag.position === 'before' && !dragFromHere;
                 const showAfterLine = seqDrag?.overIdx === i && seqDrag.position === 'after' && !dragFromHere;
@@ -568,9 +575,13 @@ export default function SequencePage({
                       className={`m-1 cursor-grab border border-edge-muted p-2 active:cursor-grabbing ${dragFromHere ? 'opacity-40 border-action-link' : ''} ${e.rerun ? 'bg-stage-return-row' : ''}`}
                     >
                       <div className="flex gap-1">
-                        {ps.slice(0, 1).map((p) => (
-                          <SeqImg key={p.id} src={userImg ?? p.img} alt={p.name} pid={p.id} className="h-32 w-24 rounded object-cover" />
-                        ))}
+                        {ps.slice(0, 1).map((p) => {
+                          const rawSrc = userImg ?? p.img;
+                          const imgSrc = normalizeImageUrl(rawSrc) || rawSrc;
+                          return (
+                            <SeqImg key={p.id} src={imgSrc} alt={p.name} pid={p.id} className="h-32 w-24 rounded object-cover" />
+                          );
+                        })}
                       </div>
                       <div className="mt-2 truncate text-[11.5px] font-semibold">{ps.map((p) => p.name).join('+')}</div>
                       <div className="mt-1 text-[12px] font-bold text-stage-connect-fg">

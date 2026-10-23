@@ -1228,6 +1228,9 @@
       }
 
       const response = await fetch(url, { credentials: 'include', ...options, headers });
+      if (response.status === 401) {
+        window.location.replace('/?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search));
+      }
       return response;
     }
 
@@ -2407,13 +2410,13 @@
     // 登出
     async function handleLogout() {
       if (!confirm('确定要退出登录吗？')) return;
-      // 清除后端cookie
-      await fetch('/api/auth/logout', { method: 'POST' });
-      // 清除Supabase session
-      if (supabaseClient?.auth) {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch (e) {}
+      if (typeof supabaseClient !== 'undefined' && supabaseClient?.auth) {
         try { await supabaseClient.auth.signOut(); } catch (e) {}
       }
-      window.location.reload();
+      window.location.replace('/?logged_out=' + Date.now());
     }
 
     // ========== 货盘文字生成 ==========

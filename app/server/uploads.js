@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { mkdir, unlink } from 'node:fs/promises';
+import { mkdir, unlink, readFile } from 'node:fs/promises';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
+import { isOssConfigured, generatePostPolicy, uploadBufferToOss, getOssConfig } from './oss-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = join(__dirname, '.cache', 'uploads');
@@ -64,13 +65,41 @@ function mimeToExt(mime) {
 
 const router = Router();
 
+// 获取前端直传阿里云 OSS 的临时凭证（直传绕过单机出口瓶颈，极速上传）
+router.get('/oss-params', (req, res) => {
+  if (!isOssConfigured()) {
+    return res.json({ ossEnabled: false });
+  }
+  try {
+    const filename = String(req.query.filename || '').trim();
+    const params = generatePostPolicy(filename);
+    res.json({ ossEnabled: true, ...params });
+  } catch (err) {
+    res.status(500).json({ ossEnabled: false, error: err.message });
+  }
+});
+
 // 单图上传：前端 FormData.append('file', file)
-router.post('/', upload.single('file'), (req, res) => {
+// 若配置了 OSS，服务端将文件转存至 OSS，并返回 OSS 永久高速访问地址；同时在本地保留备份
+router.post('/', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no_file', message: '请在 multipart/form-data 里提供 file 字段' });
-  const url = `/uploads/${req.file.filename}`;
+
+  let finalUrl = `/uploads/${req.file.filename}`;
+
+  if (isOssConfigured()) {
+    try {
+      const cfg = getOssConfig();
+      const key = `${cfg.dir}${req.file.filename}`;
+      const buffer = await readFile(req.file.path);
+      finalUrl = await uploadBufferToOss(key, buffer, req.file.mimetype || 'image/jpeg');
+    } catch (err) {
+      console.warn('[upload] 转存 OSS 失败，回退本地存储:', err.message);
+    }
+  }
+
   res.json({
     ok: true,
-    url,
+    url: finalUrl,
     bytes: req.file.size,
     filename: req.file.filename,
     original: req.file.originalname,

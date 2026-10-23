@@ -687,9 +687,13 @@
     // 区域折叠状态（手机端默认折叠"已填"区，优先展示"未填"）
     let sectionCollapsed = { filled: window.innerWidth <= 768, unfilled: false };
 
-    // 带认证的fetch函数（已移除登录检查，直接请求，带 cookie 保证 iframe 模式正常鉴权）
+    // 带认证的fetch函数：带 cookie 凭证，若会话失效（401）自动跳转登录页
     async function authFetch(url, options = {}) {
-      return fetch(url, { credentials: 'include', ...options });
+      const res = await fetch(url, { credentials: 'include', ...options });
+      if (res.status === 401) {
+        window.location.replace('/?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search));
+      }
+      return res;
     }
 
     // 页面初始化
@@ -2415,11 +2419,13 @@
     // 登出
     async function handleLogout() {
       if (!confirm('确定要退出登录吗？')) return;
-      await fetch('/api/auth/logout', { method: 'POST' });
-      if (supabaseClient?.auth) {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch (e) {}
+      if (typeof supabaseClient !== 'undefined' && supabaseClient?.auth) {
         try { await supabaseClient.auth.signOut(); } catch (e) {}
       }
-      window.location.reload();
+      window.location.replace('/?logged_out=' + Date.now());
     }
 
     // ========== 新功能：共用面料检测 ==========

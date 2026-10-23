@@ -28,3 +28,7 @@ app/server/data/dingtalk-storage-state.json
 app/server/data/access-control.json
 app/server/data/access-users.json
 app/server/data/access-audit.json
+
+# Scratch files and temporary test scripts
+scratch/
+

@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 import {
-  TRAY_TYPES, goodsValue, matchCandidates,
+  TRAY_TYPES, goodsValue, matchCandidates, normalizeImageUrl,
   type NoRestockItem, type Product, type RoleTag, type Tray, type TrayType,
 } from '@/data/products';
 import { useProducts, useProductsById, useProductResolver } from '@/data/ProductsContext';
@@ -1114,10 +1114,13 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
 function pidImgUrl(look: { pids: string[]; cover?: string | null; userImg?: string | null; userImgs?: Record<string, string> }, byId: TrayById): string | null {
   const coverPid = getCoverPid(look);
   const uImg = (coverPid ? look.userImgs?.[coverPid] : null) ?? look.userImg;
-  if (uImg) return IMG_BASE + uImg;
+  const normUser = normalizeImageUrl(uImg);
+  if (normUser) return normUser;
   const p = byId(coverPid);
   if (!p?.img) return null;
   const raw = String(p.img);
+  const normRaw = normalizeImageUrl(raw);
+  if (normRaw && normRaw !== raw) return normRaw;
   if (/^https?:\/\//.test(raw)) {
     return `${IMG_BASE}/api/image-proxy?url=${encodeURIComponent(raw)}`;
   }
@@ -3527,7 +3530,7 @@ function CoverMenuDialog({
     toast.success(`已清除款号 ${targetPid.toUpperCase()} 的自传图，回退到原商品图`);
   };
 
-  const activeCoverUserImg = look.userImgs?.[activeCoverPid] ?? (look.cover === activeCoverPid ? look.userImg : null);
+  const activeCoverUserImg = normalizeImageUrl(look.userImgs?.[activeCoverPid] ?? (look.cover === activeCoverPid ? look.userImg : null));
   const isMulti = look.pids.length > 1;
 
   return (
@@ -3577,7 +3580,7 @@ function CoverMenuDialog({
             {look.pids.map((pid) => {
               const p = fullByIdWithSize(pid);
               const isCover = activeCoverPid === pid;
-              const pidUserImg = look.userImgs?.[pid] ?? (isCover ? look.userImg : null);
+              const pidUserImg = normalizeImageUrl(look.userImgs?.[pid] ?? (isCover ? look.userImg : null));
               const displayImg = pidUserImg ?? p.img;
               return (
                 <div
@@ -4468,22 +4471,22 @@ export default function TraysPage({
       setSalesByDate({});
       return;
     }
-    let alive = true;
+    const ctrl = new AbortController();
     (async () => {
       const merged: typeof salesByDate = {};
       const dates = [...byDate.entries()];
       await Promise.all(dates.map(async ([date, pids]) => {
         try {
-          const r = await fetchSalesSummary(date, [...pids]);
-          if (!alive) return;
+          const r = await fetchSalesSummary(date, [...pids], { signal: ctrl.signal });
+          if (ctrl.signal.aborted) return;
           merged[date] = { daily: r.daily || {}, cumulative: r.cumulative || {} };
         } catch {
-          if (alive) merged[date] = { daily: {}, cumulative: {} };
+          if (!ctrl.signal.aborted) merged[date] = { daily: {}, cumulative: {} };
         }
       }));
-      if (alive) setSalesByDate(merged);
+      if (!ctrl.signal.aborted) setSalesByDate(merged);
     })();
-    return () => { alive = false; };
+    return () => { ctrl.abort(); };
   }, [trays, todayStr]);
 
   // 当前打开的货盘销量快照：ctx 注入给 aggregateRender 用
@@ -4502,12 +4505,12 @@ export default function TraysPage({
     for (const t of trays) for (const s of t.sections) for (const l of s.looks) for (const pid of l.pids) ids.add(pid);
     const list = [...ids];
     if (list.length === 0) return;
-    let cancelled = false;
-    authenticatedFetch(`${API_BASE}/products/cost/by-ids?ids=${encodeURIComponent(list.join(','))}`)
+    const ctrl = new AbortController();
+    authenticatedFetch(`${API_BASE}/products/cost/by-ids?ids=${encodeURIComponent(list.join(','))}`, { signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : { byCode: {} })
-      .then((j) => { if (!cancelled) setCostByCode(j.byCode || {}); })
-      .catch(() => { if (!cancelled) setCostByCode({}); });
-    return () => { cancelled = true; };
+      .then((j) => { if (!ctrl.signal.aborted) setCostByCode(j.byCode || {}); })
+      .catch(() => { if (!ctrl.signal.aborted) setCostByCode({}); });
+    return () => { ctrl.abort(); };
   }, [trays]);
   const fullByIdWithCost = useMemo(() => {
     return (id: string) => {
@@ -4542,7 +4545,8 @@ export default function TraysPage({
       for (const l of s.looks) {
         const coverPid = getCoverPid(l);
         const img = (coverPid ? l.userImgs?.[coverPid] : null) ?? l.userImg;
-        if (img) m[l.id] = img;
+        const norm = normalizeImageUrl(img);
+        if (norm) m[l.id] = norm;
       }
     }
     return m;
@@ -4647,6 +4651,7 @@ export default function TraysPage({
 
   // 用户自传主图：支持款式级（pid）自传，同时同步更新坑位级（lookId）
   const setPidUserImg = (sectionId: string, lookId: string, pid: string, url: string | null) => {
+    const targetUrl = url ? (normalizeImageUrl(url) || url) : null;
     upd((t) => ({
       ...t,
       sections: t.sections.map((s) => {
@@ -4659,15 +4664,15 @@ export default function TraysPage({
             const nextUserImgs = { ...(l.userImgs || {}) };
             // 兼容迁移：若原先只有坑位级 userImg，迁移到当前主图款号下
             if (l.userImg && activeCover && !nextUserImgs[activeCover]) {
-              nextUserImgs[activeCover] = l.userImg;
+              nextUserImgs[activeCover] = normalizeImageUrl(l.userImg) || l.userImg;
             }
-            if (url) {
-              nextUserImgs[pid] = url;
+            if (targetUrl) {
+              nextUserImgs[pid] = targetUrl;
             } else {
               delete nextUserImgs[pid];
             }
             // 若当前修改的恰好是主图款号（或坑位只有一个款），同步更新坑位级 userImg
-            const coverImg = nextUserImgs[activeCover] ?? (pid === activeCover ? url : null);
+            const coverImg = nextUserImgs[activeCover] ?? (pid === activeCover ? targetUrl : null);
             return {
               ...l,
               userImgs: Object.keys(nextUserImgs).length > 0 ? nextUserImgs : undefined,

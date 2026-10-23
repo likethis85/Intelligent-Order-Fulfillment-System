@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile, readdir, unlink, stat } from 'node:fs/promi
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { getOssPublicUrl } from './oss-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,11 +14,57 @@ const TRAYS_FILE = join(CACHE_DIR, 'trays.json');
 const SNAPSHOT_DIR = join(CACHE_DIR, 'trays-snapshots');
 const MAX_SNAPSHOTS = 50;
 
+function normalizeUploadUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  const str = url.trim();
+  if (/^\/?uploads\//i.test(str)) {
+    return getOssPublicUrl(str);
+  }
+  const match = str.match(/^https?:\/\/[^\/]+\/uploads\/(.+)$/i);
+  if (match) {
+    return getOssPublicUrl(match[1]);
+  }
+  return str;
+}
+
+export function cleanTrayImages(tray) {
+  if (!tray || typeof tray !== 'object' || !Array.isArray(tray.sections)) return tray;
+  return {
+    ...tray,
+    sections: tray.sections.map((section) => ({
+      ...section,
+      looks: (section.looks || []).map((look) => {
+        let changed = false;
+        let nextUserImg = look.userImg;
+        if (look.userImg) {
+          const norm = normalizeUploadUrl(look.userImg);
+          if (norm !== look.userImg) {
+            nextUserImg = norm;
+            changed = true;
+          }
+        }
+        let nextUserImgs = look.userImgs;
+        if (look.userImgs && typeof look.userImgs === 'object') {
+          const updated = {};
+          for (const [pid, u] of Object.entries(look.userImgs)) {
+            const norm = normalizeUploadUrl(u);
+            if (norm !== u) changed = true;
+            updated[pid] = norm;
+          }
+          if (changed) nextUserImgs = updated;
+        }
+        return changed ? { ...look, userImg: nextUserImg, userImgs: nextUserImgs } : look;
+      }),
+    })),
+  };
+}
+
 async function load() {
   try {
     const text = await readFile(TRAYS_FILE, 'utf8');
     const j = JSON.parse(text);
-    return j && Array.isArray(j.trays) ? j.trays : [];
+    const trays = j && Array.isArray(j.trays) ? j.trays : [];
+    return trays.map((t) => cleanTrayImages(t));
   } catch {
     return [];
   }
@@ -27,8 +74,8 @@ async function save(trays) {
   await mkdir(CACHE_DIR, { recursive: true });
   // 先留一份当前快照，再覆盖
   await snapshot(trays);
-  // 清洗上游可能带进来的括号（如 "面料仓)" / "无面料不翻单）"）
-  const cleaned = trays.map((t) => cleanTrayFabric(t));
+  // 清洗上游可能带进来的括号与自传图地址（自动迁移至阿里云 OSS 高速 CDN 地址）
+  const cleaned = trays.map((t) => cleanTrayImages(cleanTrayFabric(t)));
   const payload = {
     at: Date.now(),
     count: cleaned.length,

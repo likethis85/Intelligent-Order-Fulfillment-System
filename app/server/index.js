@@ -11,6 +11,7 @@ import traysRouter from './routes/trays.js';
 import profilesRouter from './routes/profiles.js';
 import fabricRouter from './routes/fabric.js';
 import { router as uploadRouter, UPLOAD_DIR } from './uploads.js';
+import { isOssConfigured, getOssPublicUrl, syncLocalUploadsToOss } from './oss-client.js';
 import { hasCredentials, clearProductsCache, clearSamplesCache } from './vscm-client.js';
 import { clearBiCache, clearBiSkcCache, refreshBiSkc, getStockSyncStatus } from './bi-client.js';
 import { clearProfileCache } from './profile-client.js';
@@ -54,15 +55,36 @@ app.use('/api', access.attach);
 app.use('/api/access', access.router);
 
 // 用户自传图静态托管（GET /uploads/<uuid>.<ext>）
-// 自传商品图公开只读托管（写操作由 /api/upload 鉴权管控），避免因无 Cookie、会话过期或在公开页面访问时报 401 导致图片显示失败
+// 自传商品图公开只读托管。若配置了阿里云 OSS，重定向至 OSS 高速 CDN 地址；否则本地回源
+app.get('/uploads/:filename', (req, res, next) => {
+  if (isOssConfigured()) {
+    const filename = req.params.filename;
+    if (filename && !filename.includes('/') && !filename.includes('..')) {
+      return res.redirect(302, getOssPublicUrl(filename));
+    }
+  }
+  next();
+});
 app.use('/uploads', express.static(UPLOAD_DIR, {
   maxAge: '7d',
   immutable: true,
 }));
 
 // 面料与翻单页面静态托管（GET /fabric/sales.html, /fabric/index.html 等）
+// 强制鉴权：所有页面必须登录态才可访问；未登录拦截并重定向到登录页
 const FABRIC_DIR = path.join(__dirname, 'fabric-public');
-app.use('/fabric', express.static(FABRIC_DIR, {
+app.use('/fabric', (req, res, next) => {
+  const session = ssoAuth.getSession(req);
+  if (!session) {
+    const isHtml = req.path.endsWith('.html') || req.path === '/' || !path.extname(req.path);
+    if (isHtml) {
+      const returnTo = encodeURIComponent(`/fabric${req.url}`);
+      return res.redirect(`/?returnTo=${returnTo}`);
+    }
+    return res.status(401).json({ error: 'authentication_required', message: '请先登录' });
+  }
+  next();
+}, express.static(FABRIC_DIR, {
   setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
 }));
 
@@ -405,6 +427,8 @@ server.on('close', () => ssoAuth.close());
 
 server.listen(PORT, () => {
   const vscm = hasCredentials() ? '✓ 已配' : '✗ 缺凭证';
+  const oss = isOssConfigured() ? '✓ 已配' : '✗ 未配';
   console.log(`[server] Listening on http://127.0.0.1:${PORT}`);
-  console.log(`[server] 领猫凭证：${vscm}`);
+  console.log(`[server] 领猫凭证：${vscm} | 阿里云 OSS：${oss}`);
+  syncLocalUploadsToOss(UPLOAD_DIR).catch(() => {});
 });

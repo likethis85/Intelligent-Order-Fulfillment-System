@@ -61,7 +61,10 @@ function safeReturnTo(value) {
   try {
     const url = new URL(value, 'http://application.invalid');
     if (url.origin !== 'http://application.invalid' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) return '/';
-    return url.pathname + url.search + url.hash;
+    url.searchParams.delete('logged_out');
+    url.searchParams.delete('sso_error');
+    const path = url.pathname + url.search + url.hash;
+    return path || '/';
   } catch { return '/'; }
 }
 
@@ -226,6 +229,7 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
     }
   });
 
+  // 退出登录：清除会话及 Cookie，受来源与 Host 头校验保护，防止第三方恶意网站触发登出
   router.post('/logout', requireOrigin, (req, res) => {
     const session = getSession(req);
     if (session) revoke(session.key);
@@ -237,8 +241,7 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   });
 
   function requireSession(req, res, next) {
-    const isPublicRead = (req.method === 'GET' && ['/health', '/app-config', '/config', '/fabric-data', '/history'].includes(req.path))
-      || (['/query'].includes(req.path) && ['GET', 'POST'].includes(req.method));
+    const isPublicRead = req.method === 'GET' && req.path === '/health';
     const session = getSession(req);
     if (session) req.auth = session;
     if (isPublicRead) return next();

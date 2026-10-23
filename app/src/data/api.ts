@@ -217,10 +217,10 @@ export interface SalesSummary {
 }
 // GET /api/sales/summary?date=YYYY-MM-DD&pids=a,b,c
 // 一次拿当日 + 累计销量
-export function fetchSalesSummary(date: string, pids: string[]): Promise<SalesSummary> {
+export function fetchSalesSummary(date: string, pids: string[], init?: RequestInit): Promise<SalesSummary> {
   if (pids.length === 0) return Promise.resolve({ date, daily: {}, cumulative: {} });
   const q = new URLSearchParams({ date, pids: pids.join(',') });
-  return jsonFetch<SalesSummary>(`/sales/summary?${q.toString()}`, {}, 150_000);
+  return jsonFetch<SalesSummary>(`/sales/summary?${q.toString()}`, init, 150_000);
 }
 
 // POST /api/sync → 重新拉数据（首次冷启可能 >30s，给 180s 超时）
@@ -680,7 +680,8 @@ export async function compressImage(
   }
 }
 
-// POST /api/upload → 上传用户自传图（货盘主图覆盖），返回可访问的 /uploads/... 路径
+// 上传用户自传图（货盘主图覆盖 / 自定义货款图片）
+// 优先采用阿里云 OSS 直传通道（零单机带宽瓶颈、秒级极速直达），若网络异常或未配 OSS 自动降级服务端转存
 export async function uploadImage(file: File, onStatus?: (status: string) => void): Promise<string> {
   let fileToUpload = file;
   if (file.size > 300 * 1024) {
@@ -689,11 +690,57 @@ export async function uploadImage(file: File, onStatus?: (status: string) => voi
     if (didCompress) {
       const origMB = (originalSize / (1024 * 1024)).toFixed(1);
       const compKB = Math.round(compressedSize / 1024);
-      onStatus?.(`已压缩 (${origMB}MB → ${compKB}KB)，正在上传…`);
+      onStatus?.(`已压缩 (${origMB}MB → ${compKB}KB)，准备上传…`);
       fileToUpload = compressed;
     }
   }
 
+  // 1. 优先尝试前端直传阿里云 OSS（极速并发，绕过单机出口与入库瓶颈）
+  try {
+    onStatus?.('正在建立阿里云 OSS 高速通道…');
+    const ossParamsRes = await authenticatedFetch(BASE + '/upload/oss-params?filename=' + encodeURIComponent(fileToUpload.name));
+    if (ossParamsRes.ok) {
+      const ossParams = await ossParamsRes.json() as {
+        ossEnabled?: boolean;
+        host?: string;
+        key?: string;
+        policy?: string;
+        OSSAccessKeyId?: string;
+        signature?: string;
+        url?: string;
+      };
+
+      if (ossParams?.ossEnabled && ossParams.host && ossParams.policy && ossParams.signature && ossParams.url) {
+        onStatus?.('正在直传阿里云 OSS…');
+        const fd = new FormData();
+        fd.append('key', ossParams.key || '');
+        fd.append('policy', ossParams.policy);
+        fd.append('OSSAccessKeyId', ossParams.OSSAccessKeyId || '');
+        fd.append('success_action_status', '200');
+        fd.append('signature', ossParams.signature);
+        fd.append('file', fileToUpload);
+
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 60_000);
+        const directRes = await fetch(ossParams.host, {
+          method: 'POST',
+          body: fd,
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+
+        if (directRes.ok) {
+          return ossParams.url;
+        }
+        console.warn('[uploadImage] OSS 直传非 200，回退服务端:', directRes.status);
+      }
+    }
+  } catch (directErr) {
+    console.warn('[uploadImage] OSS 直传异常，平滑回退服务端:', directErr);
+  }
+
+  // 2. 服务端通道兜底（服务端同样会转存 OSS 并持久化本地备份）
+  onStatus?.('正在通过服务器上传…');
   const timeoutMs = 90_000;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(new Error('上传超时（90s），请检查网络连接并重试')), timeoutMs);
@@ -798,7 +845,7 @@ export function fetchAccessMe() {
 
 // GET /api/access/config → 权限配置 + 登录过的用户目录（仅管理员）
 export function fetchAccessConfig() {
-  return jsonFetch<{ ok: boolean; config: AccessConfig; users: KnownUser[] }>('/access/config', undefined, 20000);
+  return jsonFetch<{ ok: boolean; config: AccessConfig; users: KnownUser[] }>('/access/config', undefined, 30000);
 }
 
 // PUT /api/access/config → 覆盖式保存权限配置（仅管理员）

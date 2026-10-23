@@ -16,6 +16,7 @@ import { useTraySync, diffTray } from '@/lib/traySync';
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
 import type { AuthUser } from '@/lib/api-client';
 import type { Look, Product, Tray, TraySection, TrayType } from '@/data/products';
+import { normalizeTrayImages } from '@/data/products';
 
 type PageKey = 'trays' | 'sequence' | 'board' | 'profile' | 'weather' | 'config' | 'access';
 
@@ -58,7 +59,7 @@ function readLocalTrays(): { trays: Tray[]; updatedAt: number } | null {
     const parsed = JSON.parse(saved) as Tray[];
     const at = Number(localStorage.getItem(TRAYS_UPDATED_AT_KEY) || '0');
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return { trays: parsed, updatedAt: at };
+      return { trays: parsed.map(normalizeTrayImages), updatedAt: at };
     }
   } catch {}
   return null;
@@ -276,7 +277,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.trays)) {
-            cloudTrays = data.trays;
+            cloudTrays = data.trays.map(normalizeTrayImages);
             cloudAt = typeof data.updatedAt === 'number' ? data.updatedAt : data.at ?? 0;
           }
         }
@@ -308,8 +309,9 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
       if (cancelled) return;
       if (merged.length > 0) {
-        setTrays(merged);
-        writeLocalTrays(merged, Date.now());
+        const normalizedMerged = merged.map(normalizeTrayImages);
+        setTrays(normalizedMerged);
+        writeLocalTrays(normalizedMerged, Date.now());
       }
       setTraysReady(true);
     })();

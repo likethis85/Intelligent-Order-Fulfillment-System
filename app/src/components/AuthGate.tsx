@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { Layers, LogIn, QrCode } from 'lucide-react';
-import { toast } from 'sonner';
 import App from '@/App';
 import { API_BASE, AUTH_REQUIRED_EVENT, authenticatedFetch } from '@/lib/api-client';
 import type { AuthSession } from '@/lib/api-client';
@@ -12,6 +11,22 @@ const errors: Record<string, string> = {
   dingtalk_unavailable: '暂时无法打开钉钉登录，请重试或使用统一账号登录。',
 };
 
+function getCleanReturnTo(): string {
+  try {
+    const params = new URLSearchParams(location.search);
+    const explicit = params.get('returnTo');
+    const raw = explicit || (location.pathname + location.search + location.hash);
+    const parsed = new URL(raw, 'http://application.invalid');
+    parsed.searchParams.delete('logged_out');
+    parsed.searchParams.delete('sso_error');
+    parsed.searchParams.delete('returnTo');
+    const clean = parsed.pathname + parsed.search + parsed.hash;
+    return clean && clean !== '/' ? clean : '/';
+  } catch {
+    return '/';
+  }
+}
+
 export default function AuthGate() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,19 +34,31 @@ export default function AuthGate() {
   const version = useRef(0);
   const [message, setMessage] = useState(() => {
     const url = new URL(location.href);
+    if (url.searchParams.has('logged_out')) return '已退出登录。';
     const error = url.searchParams.get('sso_error');
     return error ? errors[error] || errors.login_failed : '';
   });
 
   useEffect(() => {
     const url = new URL(location.href);
+    let urlChanged = false;
     if (url.searchParams.has('sso_error')) {
       url.searchParams.delete('sso_error');
+      urlChanged = true;
+    }
+    if (url.searchParams.has('logged_out')) {
+      url.searchParams.delete('logged_out');
+      setMessage('已退出登录。');
+      urlChanged = true;
+    }
+    if (urlChanged) {
       history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
+
     const controller = new AbortController();
     let alive = true;
     const check = async () => {
+      if (busy) return;
       const checkedVersion = version.current;
       try {
         const response = await authenticatedFetch(API_BASE + '/auth/session', { cache: 'no-store', signal: controller.signal });
@@ -39,32 +66,41 @@ export default function AuthGate() {
         const next = await response.json() as AuthSession;
         if (alive && checkedVersion === version.current) {
           setSession(next);
-          if (!next.ssoConfigured) setMessage('统一登录尚未配置，请联系管理员。');
-          else setMessage((current) => ['暂时无法连接系统，请稍后重试。', '统一登录尚未配置，请联系管理员。'].includes(current) ? '' : current);
+          if (!next.ssoConfigured) {
+            setMessage('统一登录尚未配置，请联系管理员。');
+          } else {
+            setMessage((current) => ['暂时无法连接系统，请稍后重试。', '统一登录尚未配置，请联系管理员。'].includes(current) ? '' : current);
+          }
         }
       } catch {
         if (alive && checkedVersion === version.current) {
-          setSession((current) => current?.authenticated ? current : null);
+          setSession((current) => current?.authenticated ? current : { authenticated: false, ssoConfigured: true, user: null, expiresAt: null });
           setMessage('暂时无法连接系统，请稍后重试。');
         }
-      } finally { if (alive) setLoading(false); }
+      } finally {
+        if (alive) setLoading(false);
+      }
     };
+
     const expired = () => {
       version.current++;
-      setSession((current) => current ? { ...current, authenticated: false, user: null, expiresAt: null } : null);
+      setSession((current) => current ? { ...current, authenticated: false, user: null, expiresAt: null } : { authenticated: false, ssoConfigured: true, user: null, expiresAt: null });
       setMessage('登录已过期，请重新登录。');
     };
+
     const focused = () => { void check(); };
     void check();
     const timer = setInterval(() => { void check(); }, 60_000);
     window.addEventListener('focus', focused);
     window.addEventListener(AUTH_REQUIRED_EVENT, expired);
     return () => {
-      alive = false; controller.abort(); clearInterval(timer);
+      alive = false;
+      controller.abort();
+      clearInterval(timer);
       window.removeEventListener('focus', focused);
       window.removeEventListener(AUTH_REQUIRED_EVENT, expired);
     };
-  }, []);
+  }, [busy]);
 
   useEffect(() => {
     if (!session?.authenticated || !session.expiresAt) return;
@@ -81,20 +117,28 @@ export default function AuthGate() {
     version.current++;
     setBusy(true);
     try {
-      const response = await authenticatedFetch(API_BASE + '/auth/logout', { method: 'POST' });
-      if (!response.ok) throw new Error('logout_failed');
-      setSession((current) => current ? { ...current, authenticated: false, user: null, expiresAt: null } : null);
-      setMessage('已退出登录。');
-      window.location.replace('/');
-    } catch { toast.error('退出失败，请稍后重试。'); }
-    finally { setBusy(false); }
+      await authenticatedFetch(API_BASE + '/auth/logout', { method: 'POST' }).catch(() => {});
+    } catch {
+      // 即使网络出现短暂抖动，也必须完成退出，不阻断用户
+    }
+    setSession(null);
+    setMessage('已退出登录。');
+    // 强制完整重置跳转至根路径，带时间戳避免浏览器缓存当前页面，确保完全退出
+    window.location.replace('/?logged_out=' + Date.now());
   };
 
   if (!loading && session?.authenticated && session.user) {
     return <App key={session.user.id} user={session.user} onLogout={logout} logoutPending={busy} />;
   }
 
-  const loginUrl = '/api/auth/sso/start?' + new URLSearchParams({ origin: location.origin, returnTo: location.pathname + location.search + location.hash });
+  const targetReturnTo = getCleanReturnTo();
+  const loginUrl = '/api/auth/sso/start?' + new URLSearchParams({
+    origin: location.origin,
+    returnTo: targetReturnTo,
+  });
+
+  const showLoginButtons = !loading && (session?.ssoConfigured ?? true);
+
   return (
     <main className="flex min-h-dvh items-center justify-center bg-surface-bg px-4 py-10 text-ink-primary">
       <section className="w-full max-w-[420px] rounded-2xl border border-edge bg-white p-6 shadow-sm sm:p-8" aria-labelledby="login-title">
@@ -105,7 +149,9 @@ export default function AuthGate() {
         <h1 id="login-title" className="text-xl font-semibold">登录工作台</h1>
         <p className="mt-3 text-sm leading-6 text-ink-secondary">使用钉钉或公司统一账号，继续管理货盘与直播排品。</p>
         {message && <p role="alert" className="mt-5 rounded-lg bg-surface-subtle px-3 py-3 text-sm leading-6 text-ink-secondary">{message}</p>}
-        {loading ? <p role="status" className="mt-7 text-sm text-ink-muted">正在检查登录状态…</p> : session?.ssoConfigured ? (
+        {loading ? (
+          <p role="status" className="mt-7 text-sm text-ink-muted">正在检查登录状态…</p>
+        ) : showLoginButtons ? (
           <div className="mt-7 space-y-3">
             <a href={loginUrl + '&provider=dingtalk'} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-action-primary px-4 py-3 text-sm font-semibold text-white hover:bg-action-primary-hover"><QrCode size={18} aria-hidden="true" />钉钉登录</a>
             <a href={loginUrl} className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-edge px-4 py-3 text-sm font-medium hover:bg-surface-subtle"><LogIn size={18} aria-hidden="true" />统一账号登录</a>
