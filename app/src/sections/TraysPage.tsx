@@ -4472,24 +4472,25 @@ function CoverMenuDialog({
 
                   {/* 快捷按钮行 */}
                   {!readOnly && (
-                    <div className="mt-1.5 flex items-center gap-1">
+                    <div className="mt-1.5 flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => triggerUpload(pid)}
-                        className="flex-1 flex items-center justify-center gap-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
+                        className="flex-1 flex items-center justify-center gap-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors whitespace-nowrap"
                         title={`为款号 ${pid.toUpperCase()} 上传独立主图`}
                       >
-                        <Camera size={11} />
-                        {pidUserImg ? '更换' : '上传主图'}
+                        <Camera size={11} className="shrink-0" />
+                        <span>{pidUserImg ? '更换' : '上传主图'}</span>
                       </button>
                       {pidUserImg && (
                         <button
                           type="button"
                           onClick={() => handleRemoveUserImg(pid)}
-                          className="rounded border border-edge-strong p-1 text-[11px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded border border-rose-200 bg-rose-50/80 px-2 py-1 text-[11px] font-medium text-rose-600 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300 transition-colors whitespace-nowrap"
                           title="清除自传图，恢复默认商品图"
                         >
-                          <RotateCcw size={12} />
+                          <RotateCcw size={11} className="shrink-0" />
+                          <span>恢复原图</span>
                         </button>
                       )}
                       {!isCover && (
@@ -4499,7 +4500,7 @@ function CoverMenuDialog({
                             onSetCover(target.sectionId, target.lookId, pid);
                             toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
                           }}
-                          className="flex-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors"
+                          className="flex-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors whitespace-nowrap"
                           title="设为坑位封面主图"
                         >
                           设为主图
@@ -4538,35 +4539,38 @@ function CoverMenuDialog({
         </div>
 
         {/* 底部操作与说明栏 */}
-        <div className="flex items-center justify-between border-t border-edge bg-surface-base px-5 py-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-3 border-t border-edge bg-surface-base px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2">
             {!readOnly ? (
               <>
                 <button
                   type="button"
                   onClick={() => triggerUpload(activeCoverPid)}
-                  className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-sm"
+                  className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-xs"
                   title={activeCoverPid ? `上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图` : '上传主图'}
                 >
-                  <Camera size={13} />
-                  {activeCoverUserImg
-                    ? `重新上传主图${activeCoverPid ? ` (${activeCoverPid.toUpperCase()})` : ''}`
-                    : `上传主图${activeCoverPid ? ` (${activeCoverPid.toUpperCase()})` : ''}`}
+                  <Camera size={13} className="shrink-0 text-action-primary" />
+                  <span>{activeCoverUserImg ? '重新上传主图' : '上传主图'}</span>
+                  {activeCoverPid && (
+                    <span className="font-mono text-[11px] text-ink-muted">({activeCoverPid.toUpperCase()})</span>
+                  )}
                 </button>
                 {activeCoverUserImg && (
                   <button
                     type="button"
                     onClick={() => handleRemoveUserImg(activeCoverPid)}
-                    className="flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface-card px-2.5 py-1.5 text-[12px] text-action-danger-fg hover:border-action-danger-fg hover:bg-action-danger/5 transition-colors shadow-sm"
-                    title="清除当前主图款号的自传图，回退到系统原图"
+                    className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-md border border-rose-300 bg-rose-50/80 px-3 py-1.5 text-[12px] font-medium text-rose-700 hover:border-rose-400 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/60 transition-colors shadow-xs"
+                    title="清除当前主图款号的自传图，回退到系统默认商品图"
                   >
-                    <RotateCcw size={12} />
-                    恢复原图
+                    <RotateCcw size={12} className="shrink-0" />
+                    <span>恢复原图</span>
                   </button>
                 )}
-                <span className="hidden sm:inline text-[11px] text-ink-muted ml-1">
-                  所有款式均支持独立传图，切换主图时自动展示对应自传图
-                </span>
+                {isMulti && (
+                  <span className="hidden md:inline text-[11px] text-ink-muted ml-1">
+                    所有款式均支持独立传图，切换主图时自动展示对应自传图
+                  </span>
+                )}
               </>
             ) : (
               <span className="text-[12px] text-ink-muted">当前账号为仅查看模式，不能上传或更改主图</span>
@@ -4575,7 +4579,7 @@ function CoverMenuDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md bg-action-primary px-4 py-1.5 text-[12px] font-medium text-white hover:bg-action-primary-hover transition-colors shadow-sm"
+            className="whitespace-nowrap shrink-0 rounded-md bg-action-primary px-4 py-1.5 text-[12px] font-medium text-white hover:bg-action-primary-hover transition-colors shadow-xs"
           >
             完成
           </button>
