@@ -87,3 +87,39 @@ test('oss-client: deleteOssObject exported and handles null or empty input safel
   const resNull = await deleteOssObject(null);
   assert.equal(resNull, false);
 });
+
+test('trays-store: loadTraysWithStatus, snapshot recovery, and cleanOrphanedUploads safety gates', async () => {
+  const {
+    loadTraysWithStatus,
+    loadLatestSnapshot,
+    extractReferencedImageFilenamesFromSnapshots,
+    cleanOrphanedUploads,
+  } = await import('../server/trays-store.js');
+
+  assert.equal(typeof loadTraysWithStatus, 'function');
+  assert.equal(typeof loadLatestSnapshot, 'function');
+  assert.equal(typeof extractReferencedImageFilenamesFromSnapshots, 'function');
+  assert.equal(typeof cleanOrphanedUploads, 'function');
+
+  // Verify loadTraysWithStatus returns a valid status object
+  const status = await loadTraysWithStatus();
+  assert.ok(typeof status === 'object' && status !== null);
+  assert.equal(typeof status.ok, 'boolean');
+  if (status.ok) {
+    assert.ok(Array.isArray(status.trays));
+  }
+
+  // Safety Gate Test: Passing empty trays when local upload dir has files must abort
+  // unless forceEmptyTrays is explicitly passed
+  const abortRes = await cleanOrphanedUploads([], { gracePeriodMs: 0 });
+  if (abortRes.scanned > 0) {
+    assert.equal(abortRes.aborted, true);
+    assert.equal(abortRes.reason, 'empty_trays_safety_stop');
+    assert.equal(abortRes.deleted, 0);
+  }
+
+  // Snapshot reference extraction returns a set
+  const snapRefs = await extractReferencedImageFilenamesFromSnapshots();
+  assert.ok(snapRefs instanceof Set);
+});
+

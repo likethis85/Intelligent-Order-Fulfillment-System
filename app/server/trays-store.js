@@ -90,8 +90,15 @@ export function extractReferencedImageFilenames(trays) {
 
 // 增量清理：当货盘发生变动（恢复原图 / 删除坑位 / 更换主图 / 删除货盘）时，
 // 找出在旧货盘中存在、但在当前所有货盘中均不再被引用的自传图片，执行物理删除
+// 增量清理：当货盘发生变动（恢复原图 / 删除坑位 / 更换主图 / 删除货盘）时，
+// 找出在旧货盘中存在、但在当前所有货盘中均不再被引用的自传图片，执行物理删除
 async function cleanupAbandonedImages(prevTrays, currentTrays) {
   if (!prevTrays || prevTrays.length === 0) return;
+  // 安全门禁：若当前货盘为空数组，可能为异常清空，拒绝触发全量删除
+  if (!currentTrays || currentTrays.length === 0) {
+    console.warn('[uploads-gc] 当前货盘为空，跳过废弃图片物理删除以防止误删');
+    return;
+  }
   const prevFilenames = extractReferencedImageFilenames(prevTrays);
   if (prevFilenames.size === 0) return;
 
@@ -116,26 +123,187 @@ async function cleanupAbandonedImages(prevTrays, currentTrays) {
   }
 }
 
+// 从历史快照中寻找并加载最新的有效快照（用于 trays.json 损坏或丢失时的灾难恢复）
+export async function loadLatestSnapshot() {
+  if (!existsSync(SNAPSHOT_DIR)) return null;
+  try {
+    const files = (await readdir(SNAPSHOT_DIR))
+      .filter((f) => f.startsWith('trays-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    for (const file of files) {
+      try {
+        const text = await readFile(join(SNAPSHOT_DIR, file), 'utf8');
+        const j = JSON.parse(text);
+        if (j && Array.isArray(j.trays) && j.trays.length > 0) {
+          return {
+            snapshotFile: file,
+            trays: j.trays.map((t) => cleanTrayImages(t)),
+          };
+        }
+      } catch {
+        // 单个快照文件损坏继续尝试下一个
+      }
+    }
+  } catch (err) {
+    console.warn('[trays-store] 读取历史快照失败:', err.message);
+  }
+  return null;
+}
+
+// 从历史快照中提取所有被引用的图片文件名（全小写集合）
+// 保护期机制：默认保护最近 7 天内的快照，防止回退历史快照时出现死链
+export async function extractReferencedImageFilenamesFromSnapshots(options = {}) {
+  const referenced = new Set();
+  if (!existsSync(SNAPSHOT_DIR)) return referenced;
+  const maxAgeMs = Number(options.maxAgeMs) || (7 * 24 * 60 * 60 * 1000);
+  const now = Date.now();
+  try {
+    const files = (await readdir(SNAPSHOT_DIR))
+      .filter((f) => f.startsWith('trays-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    // 保护最近的 30 份快照
+    for (const file of files.slice(0, 30)) {
+      const snapPath = join(SNAPSHOT_DIR, file);
+      try {
+        const st = await stat(snapPath);
+        if (now - st.mtimeMs > maxAgeMs) continue;
+        const text = await readFile(snapPath, 'utf8');
+        const j = JSON.parse(text);
+        if (j && Array.isArray(j.trays)) {
+          const snapRefs = extractReferencedImageFilenames(j.trays);
+          for (const fn of snapRefs) referenced.add(fn);
+        }
+      } catch {
+        // 单个快照损坏跳过
+      }
+    }
+  } catch (err) {
+    console.warn('[trays-store] 读取历史快照图片引用异常:', err.message);
+  }
+  return referenced;
+}
+
+// 严格带状态与熔断保护的货盘加载函数
+// 绝不将“读取或解析失败”静默当成“空货盘 []”，并支持快照自动容灾恢复
+export async function loadTraysWithStatus() {
+  if (!existsSync(TRAYS_FILE)) {
+    // trays.json 不存在时，先检查是否存在历史快照（防止主文件被误删/未挂载）
+    const snap = await loadLatestSnapshot();
+    if (snap) {
+      console.warn(`[trays-store] trays.json 不存在，但已自动从最新历史快照 ${snap.snapshotFile} 恢复 (${snap.trays.length} 个货盘)`);
+      return { ok: true, trays: snap.trays, from: 'snapshot', snapshotFile: snap.snapshotFile };
+    }
+    return { ok: true, trays: [], from: 'empty' };
+  }
+
+  try {
+    const text = await readFile(TRAYS_FILE, 'utf8');
+    if (!text || !text.trim()) {
+      throw new Error('trays.json 文件为空 (0 字节)');
+    }
+    const j = JSON.parse(text);
+    if (!j || !Array.isArray(j.trays)) {
+      throw new Error('trays.json 缺少 trays 数组结构');
+    }
+    const trays = j.trays.map((t) => cleanTrayImages(t));
+    return { ok: true, trays, from: 'file' };
+  } catch (err) {
+    console.error(`[trays-store] CRITICAL: 读取或解析 trays.json 失败 (${err.message})，尝试从历史快照恢复...`);
+    const snap = await loadLatestSnapshot();
+    if (snap) {
+      console.warn(`[trays-store] 已成功从最新历史快照 ${snap.snapshotFile} 恢复货盘数据 (${snap.trays.length} 个货盘)`);
+      return { ok: true, trays: snap.trays, from: 'snapshot', snapshotFile: snap.snapshotFile };
+    }
+    console.error('[trays-store] FATAL: 历史快照无可恢复数据，货盘加载失败!');
+    return { ok: false, error: err, trays: null };
+  }
+}
+
 // 全局扫盘清理孤儿图片文件（可作为定时任务 / 启动时自检 / 手动触发）
-// 保护期机制：默认 15 分钟内创建或修改的文件受保护，避免客户端上传并发中的竞态
+// 保护机制：
+// 1. 货盘数据加载熔断：读取或解析失败时，绝不执行清理，立即中止；
+// 2. 空货盘安全门禁：若当前货盘为空但本地存在图片，除非显式指定 forceEmptyTrays，否则绝不清理；
+// 3. 快照引用双重保护：同时保护当前货盘与历史快照中的引用图片；
+// 4. 上传保护期：默认 15 分钟内创建或修改的文件受保护，避免客户端上传并发中的竞态；
+// 5. 大批量删除熔断：待删除文件比例异常过高时 (>70% 且 >15个) 熔断中止，防止灾难性误删。
 export async function cleanOrphanedUploads(currentTrays, options = {}) {
   const gracePeriodMs = Number(options.gracePeriodMs) || (15 * 60 * 1000);
-  const activeTrays = Array.isArray(currentTrays) ? currentTrays : await load();
-  const referenced = extractReferencedImageFilenames(activeTrays);
+  const forceEmptyTrays = Boolean(options.forceEmptyTrays);
+  const forceMassDelete = Boolean(options.forceMassDelete);
 
   if (!existsSync(UPLOAD_DIR)) {
     return { scanned: 0, deleted: 0, freedBytes: 0, deletedFiles: [] };
   }
 
-  const files = await readdir(UPLOAD_DIR);
+  // 1. 确定当前有效货盘列表（带失败熔断保护）
+  let activeTrays = null;
+  if (Array.isArray(currentTrays)) {
+    activeTrays = currentTrays;
+  } else {
+    const status = await loadTraysWithStatus();
+    if (!status.ok) {
+      console.error(`[uploads-gc] 货盘文件读取或解析失败，触发安全熔断保护，立即终止图片清理以避免误删! 错误原因: ${status.error?.message}`);
+      return {
+        scanned: 0,
+        deleted: 0,
+        freedBytes: 0,
+        deletedFiles: [],
+        aborted: true,
+        reason: 'load_trays_failed',
+        error: status.error?.message,
+      };
+    }
+    activeTrays = status.trays;
+  }
+
+  // 2. 扫描本地图片文件
+  const localFiles = (await readdir(UPLOAD_DIR)).filter((file) =>
+    /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file)
+  );
+
+  // 3. 空货盘安全门禁 (Safety Gate)
+  if (activeTrays.length === 0 && localFiles.length > 0 && !forceEmptyTrays) {
+    console.warn(`[uploads-gc] 货盘列表为空但本地存在 ${localFiles.length} 个图片文件，触发安全熔断保护，终止清理以防止误删!`);
+    return {
+      scanned: localFiles.length,
+      deleted: 0,
+      freedBytes: 0,
+      deletedFiles: [],
+      aborted: true,
+      reason: 'empty_trays_safety_stop',
+    };
+  }
+
+  // 4. 提取被引用的文件名集合（当前货盘 + 历史快照双重保护）
+  const referenced = extractReferencedImageFilenames(activeTrays);
+  if (options.checkSnapshots !== false) {
+    const snapshotRefs = await extractReferencedImageFilenamesFromSnapshots();
+    for (const fn of snapshotRefs) {
+      referenced.add(fn);
+    }
+  }
+
+  // 5. 零引用安全熔断
+  if (localFiles.length > 0 && referenced.size === 0 && !forceEmptyTrays) {
+    console.warn(`[uploads-gc] 扫描到 ${localFiles.length} 个文件但引用集合为 0，触发安全熔断保护，终止清理以防止误删!`);
+    return {
+      scanned: localFiles.length,
+      deleted: 0,
+      freedBytes: 0,
+      deletedFiles: [],
+      aborted: true,
+      reason: 'zero_references_safety_stop',
+    };
+  }
+
+  // 6. 扫描待删除候选文件（先收集做安全判定，再物理执行）
   const now = Date.now();
   let scanned = 0;
-  let deleted = 0;
-  let freedBytes = 0;
-  const deletedFiles = [];
+  const candidates = [];
 
-  for (const file of files) {
-    if (!/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file)) continue;
+  for (const file of localFiles) {
     scanned++;
     const fnLower = file.toLowerCase();
     if (referenced.has(fnLower)) {
@@ -145,12 +313,37 @@ export async function cleanOrphanedUploads(currentTrays, options = {}) {
     const filePath = join(UPLOAD_DIR, file);
     try {
       const st = await stat(filePath);
-      // 保护期内的最新上传文件不清理
+      // 保护期内的最新上传文件不清理（默认 15 分钟）
       if (now - st.mtimeMs < gracePeriodMs) {
         continue;
       }
+      candidates.push({ file, size: st.size || 0 });
+    } catch (err) {
+      console.warn(`[uploads-gc] 检查文件 ${file} 状态失败:`, err.message);
+    }
+  }
 
-      const size = st.size || 0;
+  // 7. 大批量删除熔断保护 (Mass Deletion Circuit Breaker)
+  if (candidates.length > 15 && candidates.length > scanned * 0.7 && !forceMassDelete) {
+    console.warn(`[uploads-gc] 触发大批量删除熔断保护：拟删除 ${candidates.length} / ${scanned} 个文件 (>70%)，已终止操作以防灾难性误删! (若确需大批量删除请传入 forceMassDelete: true)`);
+    return {
+      scanned,
+      deleted: 0,
+      freedBytes: 0,
+      deletedFiles: [],
+      aborted: true,
+      reason: 'mass_deletion_circuit_breaker',
+      candidateCount: candidates.length,
+    };
+  }
+
+  // 8. 正式执行物理删除
+  let deleted = 0;
+  let freedBytes = 0;
+  const deletedFiles = [];
+
+  for (const { file, size } of candidates) {
+    try {
       await deleteUploadedImage(file);
       deleted++;
       freedBytes += size;
@@ -169,14 +362,11 @@ export async function cleanOrphanedUploads(currentTrays, options = {}) {
 }
 
 async function load() {
-  try {
-    const text = await readFile(TRAYS_FILE, 'utf8');
-    const j = JSON.parse(text);
-    const trays = j && Array.isArray(j.trays) ? j.trays : [];
-    return trays.map((t) => cleanTrayImages(t));
-  } catch {
-    return [];
+  const res = await loadTraysWithStatus();
+  if (!res.ok) {
+    throw new Error(`货盘数据文件读取或解析失败: ${res.error?.message || '未知错误'}`);
   }
+  return res.trays;
 }
 
 async function save(trays) {
@@ -184,12 +374,9 @@ async function save(trays) {
   // 读取旧托盘以便对比哪些图片被废弃（恢复原图/删除坑位/删除货盘）
   let prevTrays = [];
   try {
-    if (existsSync(TRAYS_FILE)) {
-      const oldText = await readFile(TRAYS_FILE, 'utf8');
-      const oldJ = JSON.parse(oldText);
-      if (oldJ && Array.isArray(oldJ.trays)) {
-        prevTrays = oldJ.trays;
-      }
+    const status = await loadTraysWithStatus();
+    if (status.ok && Array.isArray(status.trays)) {
+      prevTrays = status.trays;
     }
   } catch {}
 
@@ -212,6 +399,7 @@ async function save(trays) {
     console.warn('[trays-store] 清理废弃图片异常:', err.message);
   });
 }
+
 
 // 面料文案清洗：去掉行尾孤立/成对括号（允许括号后带空白）
 function cleanFabricText(text) {

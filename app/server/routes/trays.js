@@ -104,7 +104,16 @@ router.post('/log', (req, res) => {
 router.post('/clean-unused-images', async (req, res) => {
   try {
     const gracePeriodMs = req.body?.force ? 0 : undefined;
-    const stats = await cleanOrphanedUploads(null, { gracePeriodMs });
+    const forceEmptyTrays = Boolean(req.body?.forceEmptyTrays);
+    const forceMassDelete = Boolean(req.body?.forceMassDelete);
+    const stats = await cleanOrphanedUploads(null, { gracePeriodMs, forceEmptyTrays, forceMassDelete });
+    if (stats.aborted) {
+      return res.status(409).json({
+        ok: false,
+        message: `安全熔断阻止清理: ${stats.reason || '货盘状态异常'}`,
+        ...stats,
+      });
+    }
     res.json({
       ok: true,
       message: `清理完成：扫描 ${stats.scanned} 个文件，物理删除 ${stats.deleted} 个废弃文件，释放 ${(stats.freedBytes / 1024).toFixed(1)} KB`,
