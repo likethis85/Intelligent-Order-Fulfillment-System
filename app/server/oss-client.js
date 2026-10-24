@@ -134,6 +134,36 @@ export async function uploadBufferToOss(key, buffer, contentType = 'image/jpeg')
   return `${cfg.publicBase}/${cleanKey}`;
 }
 
+export async function deleteOssObject(key) {
+  const cfg = getOssConfig();
+  if (!cfg.configured || !key) return false;
+
+  const cleanKey = (key.startsWith('/') ? key.slice(1) : key).trim();
+  if (!cleanKey) return false;
+
+  const date = new Date().toUTCString();
+  const canonicalizedResource = `/${cfg.bucket}/${cleanKey}`;
+  const stringToSign = `DELETE\n\n\n${date}\n${canonicalizedResource}`;
+  const signature = createHmac('sha1', cfg.accessKeySecret).update(stringToSign).digest('base64');
+  const authorization = `OSS ${cfg.accessKeyId}:${signature}`;
+
+  const url = `https://${cfg.bucket}.${cfg.endpoint}/${cleanKey}`;
+  try {
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Date': date,
+        'Authorization': authorization,
+      },
+    });
+    return res.status === 204 || res.status === 200 || res.status === 404;
+  } catch (err) {
+    console.warn(`[oss] 删除对象 ${cleanKey} 失败:`, err.message);
+    return false;
+  }
+}
+
+
 const MIME_MAP = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',

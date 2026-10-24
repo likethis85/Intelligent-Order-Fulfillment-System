@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import productsRouter from './routes/products.js';
 import samplesRouter from './routes/samples.js';
 import traysRouter from './routes/trays.js';
+import { cleanOrphanedUploads } from './trays-store.js';
 import profilesRouter from './routes/profiles.js';
 import fabricRouter from './routes/fabric.js';
 import { router as uploadRouter, UPLOAD_DIR } from './uploads.js';
@@ -430,5 +431,7 @@ server.listen(PORT, () => {
   const oss = isOssConfigured() ? '✓ 已配' : '✗ 未配';
   console.log(`[server] Listening on http://127.0.0.1:${PORT}`);
   console.log(`[server] 领猫凭证：${vscm} | 阿里云 OSS：${oss}`);
-  syncLocalUploadsToOss(UPLOAD_DIR).catch(() => {});
+  syncLocalUploadsToOss(UPLOAD_DIR)
+    .then(() => cleanOrphanedUploads())
+    .catch(() => {});
 });

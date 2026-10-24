@@ -5,7 +5,7 @@ import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { isOssConfigured, generatePostPolicy, uploadBufferToOss, getOssConfig } from './oss-client.js';
+import { isOssConfigured, generatePostPolicy, uploadBufferToOss, deleteOssObject, getOssConfig } from './oss-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = join(__dirname, '.cache', 'uploads');
@@ -118,9 +118,53 @@ router.use((err, _req, res, next) => {
 
 export { router, UPLOAD_DIR };
 
-// 删除上传文件（前端"移除自传图"时调用）
-export async function removeUploadFile(filename) {
-  if (!filename || filename.includes('/') || filename.includes('..')) return;
-  const p = join(UPLOAD_DIR, filename);
-  if (existsSync(p)) await unlink(p).catch(() => {});
+// 从自传图 URL（/uploads/xxx 或 OSS URL 或七牛等）解析出标准文件名
+export function extractFilenameFromUploadUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const clean = url.split(/[?#]/)[0].trim();
+  const m = clean.match(/(?:^|\/)(?:trays\/uploads|uploads)\/([^\/]+)$/i);
+  if (m && m[1]) {
+    return decodeURIComponent(m[1]).trim();
+  }
+  // 若传入的就是纯文件名（如 0f14d7984485.jpg）
+  if (/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(clean)) {
+    return clean;
+  }
+  return null;
 }
+
+// 物理删除自传图片（同时清理本地存储与阿里云 OSS）
+export async function deleteUploadedImage(urlOrFilename) {
+  const cleanFilename = extractFilenameFromUploadUrl(urlOrFilename);
+  if (!cleanFilename || cleanFilename.includes('..')) return false;
+
+  let localDeleted = false;
+  let ossDeleted = false;
+
+  // 1. 本地磁盘文件物理删除
+  try {
+    const localPath = join(UPLOAD_DIR, cleanFilename);
+    if (existsSync(localPath)) {
+      await unlink(localPath);
+      localDeleted = true;
+    }
+  } catch (err) {
+    console.warn(`[uploads] 本地删除文件 ${cleanFilename} 异常:`, err.message);
+  }
+
+  // 2. 阿里云 OSS 对象物理删除
+  if (isOssConfigured()) {
+    try {
+      const cfg = getOssConfig();
+      const ossKey = `${cfg.dir}${cleanFilename}`;
+      ossDeleted = await deleteOssObject(ossKey);
+    } catch (err) {
+      console.warn(`[uploads] OSS 删除文件 ${cleanFilename} 异常:`, err.message);
+    }
+  }
+
+  return localDeleted || ossDeleted;
+}
+
+// 兼容别名
+export const removeUploadFile = deleteUploadedImage;

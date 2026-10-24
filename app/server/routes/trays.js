@@ -1,7 +1,7 @@
 // 货盘 REST API：GET 拉云端备份，PUT 增量写
 // 失败兜底由前端决定（localStorage 还有一份）
 import { Router } from 'express';
-import { loadTrays, saveTrays, listSnapshots } from '../trays-store.js';
+import { loadTrays, saveTrays, listSnapshots, cleanOrphanedUploads } from '../trays-store.js';
 import { persistTray, removeTray } from '../sales-persist.js';
 import { appendLog, readLog } from '../ws-trays.js';
 
@@ -98,6 +98,21 @@ router.post('/log', (req, res) => {
     })),
   );
   res.json({ ok: true });
+});
+
+// POST /api/trays/clean-unused-images → 手动/运维触发孤儿图片垃圾清理
+router.post('/clean-unused-images', async (req, res) => {
+  try {
+    const gracePeriodMs = req.body?.force ? 0 : undefined;
+    const stats = await cleanOrphanedUploads(null, { gracePeriodMs });
+    res.json({
+      ok: true,
+      message: `清理完成：扫描 ${stats.scanned} 个文件，物理删除 ${stats.deleted} 个废弃文件，释放 ${(stats.freedBytes / 1024).toFixed(1)} KB`,
+      ...stats,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 export default router;
