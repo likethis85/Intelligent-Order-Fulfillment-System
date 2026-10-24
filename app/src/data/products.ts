@@ -58,6 +58,7 @@ export interface Product {
   stockBand?: string;      // 款库存区间：100以下/100-200/200-500/500-1000/1000以上
   stockTurnover?: string;  // 款库存判定：无周转/周转>60天/周转30-60天/周转0-15天/周转15-30天
   launchDate?: string;     // 款上新时间（领猫侧无此字段，选款池筛选时回退到剩余库存 BI 卡片）
+  isCustom?: boolean;      // 是否为未在库自定义款（尚未同步到商品库）
 }
 
 // 货值 = 售价 × 总放量（计划翻单放量 + 已下单放量）
@@ -122,6 +123,11 @@ export interface NoRestockItem {
   fabric?: string; // 面料名称（如 羊毛）
 }
 
+export interface CustomProduct {
+  id: string; // 款号
+  name: string; // 商品名称
+}
+
 export interface Tray {
   restockShortNames?: Record<string, string>; // 兼容已有货盘级翻单简称
   id: string;
@@ -152,6 +158,7 @@ export interface Tray {
   costOverrides?: Record<string, string>; // BOM 成本手动编辑（pid → "123.45"），per-tray 优先于 BI bom商品成本；清空 = 清除 override
   mcostOverrides?: Record<string, string>; // 马总 BOM 成本手动编辑（仅马总场显示），per-tray 优先；清空 = 清除 override
   sizeRangeOverrides?: Record<string, string>; // 尺码范围手动编辑（pid → "S~XL" / "均码"），per-tray 优先于 BI ETL 聚合的 sizeRange；清空 = 清除 override
+  customProducts?: Record<string, CustomProduct>; // 自定义款信息（未在库商品）：pid.toLowerCase() -> { id, name }
   // 直播排品（SequencePage）专用
   startTime?: string; // 'HH:MM' 直播开始时间，默认 '19:00'
   seqDisplayMode?: 'list' | 'timeline'; // 排品页显示模式，默认 'list'

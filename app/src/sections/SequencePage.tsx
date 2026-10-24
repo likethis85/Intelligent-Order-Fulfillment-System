@@ -151,7 +151,7 @@ export default function SequencePage({
     () => tray.sections.flatMap((s) => s.looks.flatMap((l) => l.pids)),
     [tray],
   );
-  const byId = useProductResolver(allPids);
+  const byId = useProductResolver(allPids, tray.customProducts);
 
   const savedEntries = tray.seqOrders?.[tray.id] ?? defaultEntries(tray);
   // 草稿：调顺序（拖拽/节奏生成/返场/删除）先落在草稿，点「保存排品」才写回货盘持久化

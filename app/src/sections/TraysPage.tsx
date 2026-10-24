@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import {
   ArrowLeft, ArrowRight, Plus, Eye, EyeOff, ArrowUp, ArrowDown, Pencil, Trash2, X, Check,
   Download, RefreshCw, Search, Sparkles, Bot, Send, MoreHorizontal, Archive, FileText,
-  Camera, History, CircleAlert, Printer, RotateCcw, Palette,
+  Camera, History, CircleAlert, Printer, RotateCcw, Palette, PlusCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 // xlsx-js-style 与 exceljs 只在导出时用到，改成点击导出时再动态加载，
@@ -11,7 +11,7 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 import {
   TRAY_TYPES, goodsValue, matchCandidates, normalizeImageUrl,
-  type NoRestockItem, type Product, type RoleTag, type Tray, type TrayType,
+  type NoRestockItem, type Product, type RoleTag, type Tray, type TrayType, type CustomProduct,
 } from '@/data/products';
 import { useProducts, useProductsById, useProductResolver } from '@/data/ProductsContext';
 import { fetchSamplesByCodes, fetchSalesSummary, uploadImage, fetchRemainingInventory, fetchHengjiStatus, fetchSampleMaterials, fetchRestockStock, type HengjiStatus, type RemainingGroup, type SampleMaterialRow, type RestockStockFabric } from '@/data/api';
@@ -2194,11 +2194,12 @@ function applyAiFilters(list: Product[], filters: AiFilter[]): Product[] {
 
 // ── 坑位选款面板（右侧）：人给指令 → AI 推荐 → 人选主款 → 套装勾选 → 确认 ──
 function LookPicker({
-  sectionLabel, mode, onConfirm, onClose,
+  sectionLabel, mode, initialCustomProducts, onConfirm, onClose,
 }: {
   sectionLabel: string;
   mode: 'new' | 'append';
-  onConfirm: (pids: string[]) => void;
+  initialCustomProducts?: Record<string, CustomProduct>;
+  onConfirm: (pids: string[], customItems?: Array<{ id: string; name: string }>) => void;
   onClose: () => void;
 }) {
   const [directive, setDirective] = useState('');
@@ -2209,8 +2210,67 @@ function LookPicker({
   const [selected, setSelected] = useState<string[]>([]);
   // 「品类专场」按钮展开状态：点击展开品类选择
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  // 自定义不在库款输入行（支持一坑多款）
+  const [customRows, setCustomRows] = useState<Array<{ id: string; name: string }>>([
+    { id: '', name: '' },
+  ]);
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customItems, setCustomItems] = useState<Array<{ id: string; name: string }>>([]);
+
   const PRODUCTS = useProducts();
   const byId = useProductsById();
+
+  const updateCustomRow = (idx: number, field: 'id' | 'name', value: string) => {
+    setCustomRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  };
+
+  const removeCustomRow = (idx: number) => {
+    setCustomRows((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleAddCustomRows = () => {
+    const valid = customRows.filter((r) => r.id.trim().length > 0);
+    if (valid.length === 0) {
+      toast.error('请至少填写一个款号');
+      return;
+    }
+    const toAddCustom: Array<{ id: string; name: string }> = [];
+    const toAddPids: string[] = [];
+    for (const row of valid) {
+      const pid = row.id.trim().toUpperCase();
+      const existingProduct = PRODUCTS.find((p) => p.id.toUpperCase() === pid);
+      if (existingProduct) {
+        toast.success(`款号「${pid}」已在商品库中（${existingProduct.name}），已直接关联！`);
+        toAddPids.push(existingProduct.id);
+      } else {
+        const name = row.name.trim() || pid;
+        toAddCustom.push({ id: pid, name });
+        toAddPids.push(pid);
+      }
+    }
+    if (toAddCustom.length > 0) {
+      setCustomItems((prev) => {
+        const map = new Map(prev.map((c) => [c.id.toUpperCase(), c]));
+        for (const item of toAddCustom) map.set(item.id.toUpperCase(), item);
+        return [...map.values()];
+      });
+    }
+    setSelected((prev) => [...new Set([...prev, ...toAddPids])]);
+    setCustomRows([{ id: '', name: '' }]);
+    toast.success(`已加入 ${valid.length} 个款号到待选列表`);
+  };
+
+  const getProduct = (pid: string): Product => {
+    const lower = pid.toLowerCase();
+    const existing = PRODUCTS.find((p) => p.id.toLowerCase() === lower);
+    if (existing) return existing;
+    const custom = customItems.find((c) => c.id.toLowerCase() === lower) || initialCustomProducts?.[lower];
+    if (custom) {
+      const empty = byId(pid);
+      return { ...empty, id: custom.id || pid, name: custom.name || empty.name, isCustom: true };
+    }
+    return byId(pid);
+  };
   // 预估剩余库存（BI 剩余库存卡片，按款号索引；候选款/搭配款列表展示用）
   const [remainingMap, setRemainingMap] = useState<Map<string, RemainingGroup>>(new Map());
   useEffect(() => {
@@ -2430,10 +2490,157 @@ function LookPicker({
             )}
           </div>
 
+          {/* ➕ 添加不在库自定义款面板（支持一坑多款） */}
+          <div className="mt-3 rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-3 dark:border-amber-700/60 dark:bg-amber-950/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-amber-900 dark:text-amber-200">
+                <PlusCircle size={13} className="text-amber-600 dark:text-amber-400" />
+                <span>添加不在库自定义款</span>
+                <span className="rounded bg-amber-200/70 px-1.5 py-0.2 text-[9px] font-normal text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
+                  支持多款
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomForm((v) => !v)}
+                className="text-[11px] font-medium text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 flex items-center gap-0.5"
+              >
+                {showCustomForm ? '收起填写 ▴' : '展开填写 ▾'}
+              </button>
+            </div>
+
+            {showCustomForm && (
+              <div className="mt-2.5 space-y-2">
+                <div className="text-[10px] text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                  填写未入库款号与名称，一个坑位支持添加多个款。后续同步商品库时，若款号一致将自动更新对应真实数据。
+                </div>
+                {customRows.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-1.5">
+                    <div className="w-[125px] shrink-0">
+                      <input
+                        value={row.id}
+                        onChange={(e) => updateCustomRow(idx, 'id', e.target.value)}
+                        placeholder="款号 如 ME26DW01"
+                        className="w-full rounded border border-amber-300 dark:border-amber-700 bg-surface-card px-2 py-1 text-[11px] font-mono uppercase outline-none focus:border-action-primary"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        value={row.name}
+                        onChange={(e) => updateCustomRow(idx, 'name', e.target.value)}
+                        placeholder="商品名称 如 羊绒西装"
+                        className="w-full rounded border border-amber-300 dark:border-amber-700 bg-surface-card px-2 py-1 text-[11px] outline-none focus:border-action-primary"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleAddCustomRows();
+                        }}
+                      />
+                    </div>
+                    {customRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeCustomRow(idx)}
+                        className="rounded p-1 text-ink-muted hover:text-action-danger-fg"
+                        title="删除此行"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setCustomRows((r) => [...r, { id: '', name: '' }])}
+                    className="flex items-center gap-1 text-[10.5px] font-medium text-amber-700 hover:text-amber-900 dark:text-amber-300"
+                  >
+                    <Plus size={11} /> 增加一款
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddCustomRows}
+                    className="rounded bg-action-primary px-3 py-1 text-[11px] font-medium text-white hover:bg-action-primary-hover shadow-sm"
+                  >
+                    加入本坑位选款
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="mt-5 flex items-center gap-1.5 text-[11px] font-medium text-ink-muted">
-            <Bot size={12} /> 2 · 候选款（{finalPool.length} 款，勾选多款同入一坑位，首选为主款）
+            <Bot size={12} /> 2 · 候选款（{finalPool.length + customItems.length} 款，勾选多款同入一坑位，首选为主款）
           </div>
           <div className="mt-2 space-y-2">
+            {customItems.length > 0 && (
+              <div className="space-y-1.5 pb-1">
+                <div className="flex items-center justify-between text-[10.5px] font-medium text-amber-800 dark:text-amber-300">
+                  <span className="flex items-center gap-1">
+                    <Sparkles size={11} /> 已添加不在库自定义款（{customItems.length} 款）
+                  </span>
+                  <span className="text-[9.5px] text-ink-muted">后期同步商品库自动更新</span>
+                </div>
+                {customItems.map((c, idx) => {
+                  const isMain = selected[0] === c.id;
+                  const isOn = selected.includes(c.id);
+                  return (
+                    <div
+                      key={c.id}
+                      className={`flex items-center justify-between rounded-md border p-2 text-left transition-colors ${
+                        isOn
+                          ? 'border-amber-400/80 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/30'
+                          : 'border-edge opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setSelected((s) => (isOn ? s.filter((x) => x !== c.id) : [...s, c.id]))}
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+                            isOn ? 'border-amber-600 bg-amber-600 text-white' : 'border-ink-faint'
+                          }`}
+                          title={isOn ? '取消选入坑位' : '选入坑位'}
+                        >
+                          {isOn && <Check size={10} />}
+                        </button>
+                        <div className="flex h-12 w-10 shrink-0 items-center justify-center rounded-sm bg-amber-100 text-[10px] font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                          自定义
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-[12.5px] font-semibold text-ink-primary">{c.name}</span>
+                            <span className="rounded bg-amber-200/80 px-1.5 py-0.2 text-[9px] font-medium text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                              不在库
+                            </span>
+                            {isMain && (
+                              <span className="rounded bg-action-primary px-1.5 py-0.2 text-[9px] font-semibold text-white">
+                                主款
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 font-mono text-[10.5px] font-medium uppercase text-ink-secondary">
+                            {c.id}
+                          </div>
+                          <div className="text-[10px] text-ink-muted">
+                            待同步商品库 · 同步后自动更新真实数据
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomItems((list) => list.filter((_, i) => i !== idx));
+                          setSelected((s) => s.filter((x) => x !== c.id));
+                        }}
+                        className="rounded p-1 text-ink-muted hover:bg-surface-subtle hover:text-action-danger-fg"
+                        title="删除此自定义款"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {finalPool.map((p) => {
               const isOn = selected.includes(p.id);
               const isMain = selected[0] === p.id;
@@ -2470,8 +2677,23 @@ function LookPicker({
               );
             })}
             {finalPool.length === 0 && (
-              <div className="rounded-md border border-dashed border-edge-muted px-3 py-4 text-center text-[11px] text-ink-muted">
-                暂无匹配款式，试试换一组关键词
+              <div className="rounded-md border border-dashed border-edge-muted px-3 py-4 text-center text-[11px] text-ink-muted space-y-2">
+                <div>暂无匹配款式，试试换一组关键词</div>
+                {pidSearch.trim() && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCustomForm(true);
+                        setCustomRows([{ id: pidSearch.trim().toUpperCase(), name: '' }]);
+                      }}
+                      className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 border border-amber-300 dark:border-amber-700"
+                    >
+                      <Plus size={12} />
+                      「${pidSearch.trim().toUpperCase()}」不在库？点此添加为自定义款
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2479,7 +2701,7 @@ function LookPicker({
           {main && mode === 'new' && candidates.length > 0 && (
             <>
               <div className="mt-5 text-[11px] font-medium text-ink-muted">
-                3 · 套装搭配：系统已找出与「{byId(main).name}」成套的款号，勾选并入同一坑位
+                3 · 套装搭配：系统已找出与「{getProduct(main).name}」成套的款号，勾选并入同一坑位
               </div>
               <div className="mt-2 space-y-2">
                 {candidates.map((pid) => {
@@ -2517,7 +2739,8 @@ function LookPicker({
           <button
             disabled={selected.length === 0}
             onClick={() => {
-              onConfirm(selected);
+              const activeCustoms = customItems.filter((c) => selected.includes(c.id));
+              onConfirm(selected, activeCustoms);
               toast.success(`已${mode === 'new' ? '放入' : '追加到'}「${sectionLabel}」（${selected.length} 个款号）`);
               onClose();
             }}
@@ -2783,7 +3006,14 @@ const FIELDS: FieldRow[] = [
     render: (p, _tpl, ctx) => (
       <>
         {p.sub && p.sub !== '本' && p.sub.length > 1 && <div className="text-[12.5px] font-semibold leading-5">{p.sub}</div>}
-        <div className="text-[12.5px] font-semibold leading-5">{p.name}</div>
+        <div className="text-[12.5px] font-semibold leading-5 flex items-center justify-center gap-1">
+          <span>{p.name}</span>
+          {p.isCustom && (
+            <span className="shrink-0 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 px-1 py-0.2 text-[9px] font-normal" title="未在库自定义款 · 后期同步商品库后自动更新">
+              未入库
+            </span>
+          )}
+        </div>
         <div className="mt-0.5 text-[11.5px] leading-4 text-ink-secondary">
           {(() => {
             const extras = (ctx.sampleColorsByPid?.[p.id] || []).filter((c) => !p.colors.includes(c));
@@ -2813,10 +3043,18 @@ const FIELDS: FieldRow[] = [
       for (const p of ps) for (const c of (ctx.sampleColorsByPid?.[p.id] ?? [])) colorSet.add(c);
       const defaultColors = [...colorSet].join(' / ');
       const colorText = ctx.colorOverride ?? defaultColors;
+      const hasCustom = ps.some((p) => p.isCustom);
       return (
         <>
           {subs.length > 0 && <div className="text-[12.5px] font-semibold leading-5">{subs.join(' / ')}</div>}
-          <div className="text-[12.5px] font-semibold leading-5">{nameLine}</div>
+          <div className="text-[12.5px] font-semibold leading-5 flex items-center justify-center gap-1">
+            <span>{nameLine}</span>
+            {hasCustom && (
+              <span className="shrink-0 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 px-1 py-0.2 text-[9px] font-normal" title="未在库自定义款 · 后期同步商品库后自动更新">
+                未入库
+              </span>
+            )}
+          </div>
           {(defaultColors || ctx.colorOverride) && (
             <div className="mt-0.5 text-[11.5px] leading-4 text-center">
               <ColorLineEditor
@@ -4869,7 +5107,17 @@ export default function TraysPage({
     () => trays.flatMap((t) => t.sections.flatMap((s) => s.looks.flatMap((l) => l.pids))),
     [trays],
   );
-  const fullById = useProductResolver(allPids);
+  // 合并所有 tray 的 customProducts 供解析器使用（当前激活 tray 优先）
+  const allCustomProducts = useMemo(() => {
+    const map: Record<string, { id: string; name: string }> = {};
+    for (const t of trays) {
+      if (t.customProducts) Object.assign(map, t.customProducts);
+    }
+    if (tray?.customProducts) Object.assign(map, tray.customProducts);
+    return map;
+  }, [trays, tray]);
+
+  const fullById = useProductResolver(allPids, allCustomProducts);
 
   // 仅针对当前激活货盘收集款号，避免全量拉取全库所有历史货盘打爆 SCM API 配额
   const activeTrayPids = useMemo(() => {
@@ -5089,17 +5337,42 @@ export default function TraysPage({
 
   const upd = (fn: (t: Tray) => Tray) => onUpdateTray(fn(tray));
 
-  const addLooks = (sectionId: string, pids: string[], lookIdx?: number) =>
-    upd((t) => ({
-      ...t,
-      sections: t.sections.map((s) => {
-        if (s.id !== sectionId) return s;
-        if (lookIdx !== undefined)
-          return { ...s, looks: s.looks.map((l, i) => (i === lookIdx ? { ...l, pids: [...new Set([...l.pids, ...pids])], cover: null } : l)) };
-        // 新建坑位：cover 留空（待用户主动确认主图）
-        return { ...s, looks: [...s.looks, { id: `l${Date.now()}`, pids, cover: null }] };
-      }),
-    }));
+  const addLooks = (
+    sectionId: string,
+    pids: string[],
+    lookIdx?: number,
+    customItems?: Array<{ id: string; name: string }>,
+  ) =>
+    upd((t) => {
+      const nextCustom = t.customProducts ? { ...t.customProducts } : {};
+      if (customItems && customItems.length > 0) {
+        for (const it of customItems) {
+          const code = it.id?.trim();
+          if (code) {
+            nextCustom[code.toLowerCase()] = {
+              id: code,
+              name: it.name?.trim() || code.toUpperCase(),
+            };
+          }
+        }
+      }
+      return {
+        ...t,
+        customProducts: Object.keys(nextCustom).length > 0 ? nextCustom : undefined,
+        sections: t.sections.map((s) => {
+          if (s.id !== sectionId) return s;
+          if (lookIdx !== undefined)
+            return {
+              ...s,
+              looks: s.looks.map((l, i) =>
+                i === lookIdx ? { ...l, pids: [...new Set([...l.pids, ...pids])], cover: null } : l,
+              ),
+            };
+          // 新建坑位：cover 留空（待用户主动确认主图）
+          return { ...s, looks: [...s.looks, { id: `l${Date.now()}`, pids, cover: null }] };
+        }),
+      };
+    });
 
   const moveSection = (id: string, dir: -1 | 1) =>
     upd((t) => {
@@ -6329,7 +6602,8 @@ export default function TraysPage({
         <LookPicker
           sectionLabel={pickerSection.label}
           mode={picker.lookIdx !== undefined ? 'append' : 'new'}
-          onConfirm={(pids) => addLooks(picker.sectionId, pids, picker.lookIdx)}
+          initialCustomProducts={tray?.customProducts}
+          onConfirm={(pids, customItems) => addLooks(picker.sectionId, pids, picker.lookIdx, customItems)}
           onClose={() => setPicker(null)}
         />
       )}

@@ -51,9 +51,13 @@ export function useProductsById(): (id: string) => Product {
 }
 
 // 在 useProductsById 基础上再做一层兜底：pids 里不在 /api/products 的款号
-// （如老羽绒服 me13fw006，领猫 30 天窗口已查不到）从 /api/samples 拉一次补齐，
-// 让 TraysPage 和 SequencePage 查表结果一致（坑位图 / 价格 / 库存同源）。
-export function useProductResolver(pids: string[]): (id: string) => Product {
+// （如老羽绒服 me13fw006，领猫 30 天窗口已查不到）从 /api/samples 拉一次补齐；
+// 若在 customMap 中定义，未入库款展示用户自填的商品名称。
+// 后期同步商品库后，若款号一致自动优先使用商品库官方真实数据（自动更新无需重写货盘）。
+export function useProductResolver(
+  pids: string[],
+  customMap?: Record<string, { id?: string; name: string } | string>,
+): (id: string) => Product {
   const products = useProducts();
   const base = useProductsById();
   const [extras, setExtras] = useState<Product[]>([]);
@@ -76,10 +80,38 @@ export function useProductResolver(pids: string[]): (id: string) => Product {
     return () => { cancelled = true; };
   }, [key, products]);
   return useMemo(() => {
-    if (extras.length === 0) return base;
-    const map = new Map(extras.map((p) => [p.id.toLowerCase(), p]));
-    return (id: string) => map.get(id.toLowerCase()) ?? base(id);
-  }, [extras, base]);
+    const productMap = new Map(products.map((p) => [p.id.toLowerCase(), p]));
+    const sampleMap = new Map(extras.map((p) => [p.id.toLowerCase(), p]));
+
+    return (id: string) => {
+      const lower = id.toLowerCase();
+      // 1. 优先查商品库（后期同步商品库后，款号一致自动更新为官方真实数据）
+      const real = productMap.get(lower);
+      if (real) return real;
+
+      // 2. 其次查样衣库（样衣阶段款）
+      const sample = sampleMap.get(lower);
+      if (sample) return sample;
+
+      // 3. 再次查自定义未入库款（展示用户自填名称）
+      if (customMap) {
+        const custom = customMap[lower];
+        if (custom) {
+          const customName = typeof custom === 'string' ? custom : custom.name;
+          const customId = typeof custom === 'object' && custom.id ? custom.id : id;
+          return {
+            ...EMPTY_PRODUCT(id),
+            id: customId || id,
+            name: customName || id.toUpperCase(),
+            isCustom: true,
+          };
+        }
+      }
+
+      // 4. 兜底空壳
+      return base(id);
+    };
+  }, [products, extras, customMap, base]);
 }
 
 export function ProductsProvider({ products, children }: { products: Product[]; children: ReactNode }) {

@@ -25,6 +25,7 @@ const KEYED_FIELDS = [
   'plannedRestockAllSkcs',
   'codeBgColorByLook',
   'codeFgColorByLook',
+  'customProducts',
 ] as const;
 
 // 数组成员按稳定子键去重合并（先到的优先 → 远端优先）
@@ -71,10 +72,19 @@ export function mergeTray(local: Tray, remote: Tray): Tray {
   return merged;
 }
 
+function valStr(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    const o = v as { id?: string; name?: string };
+    return o.name ? `${o.id || ''}:${o.name}` : JSON.stringify(o);
+  }
+  return String(v);
+}
+
 function fmtKeys(prev: Record<string, unknown> | undefined, next: Record<string, unknown> | undefined): string {
   const p = prev || {};
   const n = next || {};
-  const changed = Object.keys({ ...p, ...n }).filter((k) => String(p[k] ?? '') !== String(n[k] ?? ''));
+  const changed = Object.keys({ ...p, ...n }).filter((k) => valStr(p[k]) !== valStr(n[k]));
   if (changed.length === 0) return '';
   const shown = changed.slice(0, 3).join('、');
   return changed.length > 3 ? `${shown} 等${changed.length}款` : shown;
@@ -84,12 +94,12 @@ function fmtKeys(prev: Record<string, unknown> | undefined, next: Record<string,
 function fmtKeyChanges(prev: Record<string, unknown> | undefined, next: Record<string, unknown> | undefined): string {
   const p = prev || {};
   const n = next || {};
-  const changed = Object.keys({ ...p, ...n }).filter((k) => String(p[k] ?? '') !== String(n[k] ?? ''));
+  const changed = Object.keys({ ...p, ...n }).filter((k) => valStr(p[k]) !== valStr(n[k]));
   if (changed.length === 0) return '';
   const lines = changed.slice(0, 3).map((k) => {
     const clip = (s: string) => (s.length > 40 ? `${s.slice(0, 40)}…` : s);
-    const oldV = clip(String(p[k] ?? '').trim()) || '（空）';
-    const newV = clip(String(n[k] ?? '').trim()) || '（清除）';
+    const oldV = clip(valStr(p[k]).trim()) || '（空）';
+    const newV = clip(valStr(n[k]).trim()) || '（清除）';
     return `${k.toUpperCase()}: ${oldV} → ${newV}`;
   });
   return changed.length > 3 ? `${lines.join('；')} 等${changed.length}款` : lines.join('；');
@@ -119,6 +129,7 @@ export function diffTray(prev: Tray, next: Tray): TrayOp[] {
   put('商品修饰名', fmtKeys(prev.restockShortNames, next.restockShortNames), fmtKeyChanges(prev.restockShortNames, next.restockShortNames));
   put('款号背景色', fmtKeys(prev.codeBgColorByLook, next.codeBgColorByLook), fmtKeyChanges(prev.codeBgColorByLook, next.codeBgColorByLook));
   put('款号字体色', fmtKeys(prev.codeFgColorByLook, next.codeFgColorByLook), fmtKeyChanges(prev.codeFgColorByLook, next.codeFgColorByLook));
+  put('自定义款', fmtKeys(prev.customProducts, next.customProducts), fmtKeyChanges(prev.customProducts, next.customProducts));
 
   const pn = (prev.noRestockItems?.length || 0) + (prev.noRestockSkcs?.length || 0);
   const nn = (next.noRestockItems?.length || 0) + (next.noRestockSkcs?.length || 0);
