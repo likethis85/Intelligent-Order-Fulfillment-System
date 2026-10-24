@@ -4266,13 +4266,17 @@ function CoverMenuDialog({
 
   const activeCoverPid = getCoverPid(look);
   const autoShorts = computeRestockShortNames(look.pids.map(fullByIdWithSize));
+  const isMulti = look.pids.length > 1;
+  const [selectedPid, setSelectedPid] = useState<string>(activeCoverPid);
+  const currentPid = (look.pids.includes(selectedPid) ? selectedPid : activeCoverPid) || look.pids[0] || '';
+  const currentPidUserImg = normalizeImageUrl(look.userImgs?.[currentPid] ?? (currentPid === look.cover ? look.userImg : null));
 
   const triggerUpload = (pid?: string) => {
     if (readOnly) {
       toast.error('当前账号只有查看权限，不能上传或修改主图');
       return;
     }
-    const targetPid = (pid && pid.trim()) || activeCoverPid || look.pids[0] || '';
+    const targetPid = (pid && pid.trim()) || currentPid || activeCoverPid || look.pids[0] || '';
     if (!targetPid) {
       toast.error('未找到对应款号，无法上传主图');
       return;
@@ -4291,7 +4295,7 @@ function CoverMenuDialog({
     }
     const file = e.target.files?.[0];
     e.target.value = '';
-    const pid = (uploadingPidRef.current && uploadingPidRef.current.trim()) || activeCoverPid || look.pids[0] || '';
+    const pid = (uploadingPidRef.current && uploadingPidRef.current.trim()) || currentPid || activeCoverPid || look.pids[0] || '';
     uploadingPidRef.current = null;
     if (!file) return;
     if (!pid) {
@@ -4319,19 +4323,16 @@ function CoverMenuDialog({
     }
   };
 
-  const handleRemoveUserImg = (pid: string) => {
+  const handleRemoveUserImg = (pid?: string) => {
     if (readOnly) {
       toast.error('当前账号只有查看权限，不能清除自传图');
       return;
     }
-    const targetPid = (pid && pid.trim()) || activeCoverPid || look.pids[0] || '';
+    const targetPid = (pid && pid.trim()) || currentPid || activeCoverPid || look.pids[0] || '';
     if (!targetPid) return;
     onSetPidUserImg(target.sectionId, target.lookId, targetPid, null);
     toast.success(`已清除款号 ${targetPid.toUpperCase()} 的自传图，回退到原商品图`);
   };
-
-  const activeCoverUserImg = normalizeImageUrl(look.userImgs?.[activeCoverPid] ?? (look.cover === activeCoverPid ? look.userImg : null));
-  const isMulti = look.pids.length > 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
@@ -4380,19 +4381,40 @@ function CoverMenuDialog({
             {look.pids.map((pid) => {
               const p = fullByIdWithSize(pid);
               const isCover = activeCoverPid === pid;
+              const isSelected = isMulti && currentPid === pid;
               const pidUserImg = normalizeImageUrl(look.userImgs?.[pid] ?? (isCover ? look.userImg : null));
               const displayImg = pidUserImg ?? p.img;
               return (
                 <div
                   key={pid}
+                  onClick={() => {
+                    if (isMulti) {
+                      setSelectedPid(pid);
+                    }
+                  }}
                   className={`group relative flex flex-col rounded-lg border p-2.5 transition-all bg-surface-card ${
-                    isCover
-                      ? 'border-action-primary ring-2 ring-action-primary/30 shadow-sm'
+                    isMulti ? 'cursor-pointer' : ''
+                  } ${
+                    isSelected
+                      ? 'border-action-primary ring-2 ring-action-primary/40 shadow-sm'
+                      : isCover
+                      ? 'border-action-primary/70 ring-1 ring-action-primary/20 shadow-sm'
                       : 'border-edge hover:border-edge-strong shadow-[0_1px_3px_rgba(0,0,0,0.04)]'
                   }`}
                 >
                   {/* 图片缩略区 */}
-                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded bg-surface-subtle">
+                  <div
+                    onClick={(e) => {
+                      if (!readOnly && !isMulti) {
+                        e.stopPropagation();
+                        triggerUpload(pid);
+                      }
+                    }}
+                    title={!readOnly ? (!isMulti ? '点击上传/更换主图' : undefined) : undefined}
+                    className={`relative aspect-[3/4] w-full overflow-hidden rounded bg-surface-subtle ${
+                      !readOnly && !isMulti ? 'cursor-pointer hover:opacity-95 transition-opacity' : ''
+                    }`}
+                  >
                     <SafeImg
                       src={displayImg}
                       alt={p.name}
@@ -4405,57 +4427,22 @@ function CoverMenuDialog({
                     {pidUserImg && (
                       <span
                         title="已使用用户自传主图"
-                        className="absolute left-1 top-1 rounded bg-stage-success-fg px-1 py-0.2 text-[9px] font-semibold text-white shadow-sm pointer-events-none"
+                        className="absolute left-1.5 top-1.5 rounded bg-stage-success-fg px-1 py-0.2 text-[9px] font-semibold text-white shadow-sm pointer-events-none"
                       >
                         自传
                       </span>
                     )}
 
-                    {/* 主图标记 */}
-                    {isCover && (
-                      <span className="absolute right-1 top-1 rounded bg-action-primary px-1.5 py-0.5 text-[9.5px] font-bold text-white shadow-sm pointer-events-none">
+                    {/* 主图/选中标记 */}
+                    {isCover ? (
+                      <span className="absolute right-1.5 top-1.5 rounded bg-action-primary px-1.5 py-0.5 text-[9.5px] font-bold text-white shadow-sm pointer-events-none">
                         当前主图
                       </span>
-                    )}
-
-                    {/* 悬浮操作蒙层 */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity p-2">
-                      {!isCover && !readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSetCover(target.sectionId, target.lookId, pid);
-                            toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
-                          }}
-                          className="w-full rounded bg-action-primary px-2 py-1 text-[11px] font-semibold text-white shadow hover:bg-action-primary-hover transition-colors"
-                        >
-                          设为坑位主图
-                        </button>
-                      )}
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => triggerUpload(pid)}
-                          className="w-full flex items-center justify-center gap-1 rounded bg-white text-ink-primary px-2 py-1 text-[11px] font-medium shadow hover:bg-surface-subtle transition-colors"
-                        >
-                          <Camera size={12} />
-                          {pidUserImg ? '更换自传图' : '上传主图'}
-                        </button>
-                      )}
-                      {pidUserImg && !readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveUserImg(pid)}
-                          className="w-full flex items-center justify-center gap-1 rounded bg-action-danger-fg/90 text-white px-2 py-0.5 text-[10px] font-medium shadow hover:bg-action-danger-fg transition-colors"
-                        >
-                          <RotateCcw size={10} />
-                          恢复原图
-                        </button>
-                      )}
-                      {readOnly && (
-                        <span className="text-[11px] text-white/80 font-medium">仅查看模式</span>
-                      )}
-                    </div>
+                    ) : isSelected ? (
+                      <span className="absolute right-1.5 top-1.5 rounded bg-surface-subtle border border-action-primary/40 text-action-primary px-1.5 py-0.5 text-[9.5px] font-medium shadow-sm pointer-events-none">
+                        已选定
+                      </span>
+                    ) : null}
                   </div>
 
                   {/* 款号信息 */}
@@ -4464,53 +4451,33 @@ function CoverMenuDialog({
                       {pid.toUpperCase()}
                     </span>
                     {p.name && (
-                      <span className="truncate text-ink-muted text-[10.5px] max-w-[90px]" title={p.name}>
+                      <span className="truncate text-ink-muted text-[10.5px] max-w-[120px]" title={p.name}>
                         {p.name}
                       </span>
                     )}
                   </div>
 
-                  {/* 快捷按钮行 */}
-                  {!readOnly && (
-                    <div className="mt-1.5 flex items-center gap-1.5">
+                  {/* 一坑多款时：非主图卡片提供设为主图按钮 */}
+                  {isMulti && !readOnly && !isCover && (
+                    <div className="mt-1.5">
                       <button
                         type="button"
-                        onClick={() => triggerUpload(pid)}
-                        className="flex-1 flex items-center justify-center gap-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors whitespace-nowrap"
-                        title={`为款号 ${pid.toUpperCase()} 上传独立主图`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSetCover(target.sectionId, target.lookId, pid);
+                          setSelectedPid(pid);
+                          toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
+                        }}
+                        className="w-full rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors whitespace-nowrap"
+                        title="设为坑位封面主图"
                       >
-                        <Camera size={11} className="shrink-0" />
-                        <span>{pidUserImg ? '更换' : '上传主图'}</span>
+                        设为主图
                       </button>
-                      {pidUserImg && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveUserImg(pid)}
-                          className="flex items-center justify-center gap-1 rounded border border-rose-200 bg-rose-50/80 px-2 py-1 text-[11px] font-medium text-rose-600 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300 transition-colors whitespace-nowrap"
-                          title="清除自传图，恢复默认商品图"
-                        >
-                          <RotateCcw size={11} className="shrink-0" />
-                          <span>恢复原图</span>
-                        </button>
-                      )}
-                      {!isCover && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSetCover(target.sectionId, target.lookId, pid);
-                            toast.success(`已将 ${pid.toUpperCase()} 设为主图`);
-                          }}
-                          className="flex-1 rounded border border-edge-strong py-1 text-[11px] font-medium text-ink-secondary hover:border-action-primary hover:text-action-primary transition-colors whitespace-nowrap"
-                          title="设为坑位封面主图"
-                        >
-                          设为主图
-                        </button>
-                      )}
                     </div>
                   )}
 
                   {/* 短名前缀设置（库存情况与翻单周期共用） */}
-                  <div className="mt-1.5">
+                  <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                     <input
                       disabled={readOnly}
                       value={look.restockShortNames?.[pid] ?? ''}
@@ -4525,7 +4492,10 @@ function CoverMenuDialog({
                   {isMulti && !readOnly && (
                     <button
                       type="button"
-                      onClick={() => onRemovePid(target.sectionId, target.lookId, pid)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemovePid(target.sectionId, target.lookId, pid);
+                      }}
                       className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-action-primary text-white shadow-sm hover:bg-action-primary-hover group-hover:flex"
                       title="从当前坑位移除此款式"
                     >
@@ -4545,30 +4515,30 @@ function CoverMenuDialog({
               <>
                 <button
                   type="button"
-                  onClick={() => triggerUpload(activeCoverPid)}
+                  onClick={() => triggerUpload(currentPid)}
                   className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-md border border-edge-strong bg-surface-card px-3 py-1.5 text-[12px] font-medium text-ink-primary hover:border-action-primary hover:text-action-primary transition-colors shadow-xs"
-                  title={activeCoverPid ? `上传当前主图款号（${activeCoverPid.toUpperCase()}）的独立主图` : '上传主图'}
+                  title={currentPid ? `上传款号（${currentPid.toUpperCase()}）的主图` : '上传主图'}
                 >
                   <Camera size={13} className="shrink-0 text-action-primary" />
-                  <span>{activeCoverUserImg ? '重新上传主图' : '上传主图'}</span>
-                  {activeCoverPid && (
-                    <span className="font-mono text-[11px] text-ink-muted">({activeCoverPid.toUpperCase()})</span>
+                  <span>{currentPidUserImg ? '重新上传主图' : '上传主图'}</span>
+                  {currentPid && (
+                    <span className="font-mono text-[11px] text-ink-muted">({currentPid.toUpperCase()})</span>
                   )}
                 </button>
-                {activeCoverUserImg && (
+                {currentPidUserImg && (
                   <button
                     type="button"
-                    onClick={() => handleRemoveUserImg(activeCoverPid)}
+                    onClick={() => handleRemoveUserImg(currentPid)}
                     className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-md border border-rose-300 bg-rose-50/80 px-3 py-1.5 text-[12px] font-medium text-rose-700 hover:border-rose-400 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/60 transition-colors shadow-xs"
-                    title="清除当前主图款号的自传图，回退到系统默认商品图"
+                    title="清除当前款式的自传图，回退到系统默认商品图"
                   >
                     <RotateCcw size={12} className="shrink-0" />
                     <span>恢复原图</span>
                   </button>
                 )}
                 {isMulti && (
-                  <span className="hidden md:inline text-[11px] text-ink-muted ml-1">
-                    所有款式均支持独立传图，切换主图时自动展示对应自传图
+                  <span className="hidden sm:inline text-[11px] text-ink-muted ml-1">
+                    点击款式卡片可切换上传目标
                   </span>
                 )}
               </>
