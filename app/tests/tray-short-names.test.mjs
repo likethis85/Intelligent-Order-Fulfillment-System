@@ -53,7 +53,7 @@ test('TraysPage: product modifier/short name editing support', async (t) => {
   });
 
   await t.test('setRestockShortName normalizes key and updates look.restockShortNames', () => {
-    assert.ok(code.includes('const setRestockShortName = (sectionId: string, lookId: string, pid: string, value: string) => {'));
+    assert.ok(code.includes('const setRestockShortName = (_sectionId: string, lookId: string, pid: string, value: string) => {'));
     assert.ok(code.includes('const key = pid.toLowerCase().trim();'));
     assert.ok(code.includes('restockShortNames: Object.keys(next).length > 0 ? next : undefined'));
   });

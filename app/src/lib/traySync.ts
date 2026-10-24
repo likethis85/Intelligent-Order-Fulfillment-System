@@ -19,6 +19,7 @@ const KEYED_FIELDS = [
   'mpriceOverrides',
   'mcostOverrides',
   'restockOverrides',
+  'restockShortNames',
   'codeSuffixOverrides',
   'sizeRangeOverrides',
   'plannedRestockAllSkcs',
@@ -113,6 +114,7 @@ export function diffTray(prev: Tray, next: Tray): TrayOp[] {
   put('翻单', fmtKeys(prev.restockOverrides, next.restockOverrides), fmtKeyChanges(prev.restockOverrides, next.restockOverrides));
   put('款号注脚', fmtKeys(prev.codeSuffixOverrides, next.codeSuffixOverrides), fmtKeyChanges(prev.codeSuffixOverrides, next.codeSuffixOverrides));
   put('尺码', fmtKeys(prev.sizeRangeOverrides, next.sizeRangeOverrides), fmtKeyChanges(prev.sizeRangeOverrides, next.sizeRangeOverrides));
+  put('商品修饰名', fmtKeys(prev.restockShortNames, next.restockShortNames), fmtKeyChanges(prev.restockShortNames, next.restockShortNames));
 
   const pn = (prev.noRestockItems?.length || 0) + (prev.noRestockSkcs?.length || 0);
   const nn = (next.noRestockItems?.length || 0) + (next.noRestockSkcs?.length || 0);

@@ -733,6 +733,16 @@ function ShortNameEditor({
     if (!editing) setDraft(short);
   }, [short, editing]);
 
+  const commit = (val: string) => {
+    const trimmed = val.trim();
+    if (trimmed && trimmed !== short) {
+      onSave?.(trimmed);
+    } else if (!trimmed && isOverridden) {
+      onClear?.();
+    }
+    setEditing(false);
+  };
+
   if (editing) {
     return (
       <span className="short-name-editor inline-flex items-center" onClick={(e) => e.stopPropagation()}>
@@ -742,19 +752,12 @@ function ShortNameEditor({
           onFocus={(e) => e.target.select()}
           onChange={(e) => setDraft(e.target.value)}
           onClick={(e) => e.stopPropagation()}
-          onBlur={() => {
-            const trimmed = draft.trim();
-            if (trimmed && trimmed !== short) {
-              onSave?.(trimmed);
-            } else if (!trimmed && isOverridden) {
-              onClear?.();
-            }
-            setEditing(false);
-          }}
+          onBlur={() => commit(draft)}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === 'Enter' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) {
-              (e.target as HTMLInputElement).blur();
+              e.preventDefault();
+              commit(draft);
             }
             if (e.key === 'Escape') {
               setDraft(short);
@@ -4914,26 +4917,45 @@ export default function TraysPage({
   };
 
   // 翻单行/商品修饰名前缀（如 针织裤/开衫/长款小香考拉）手动覆盖；传空串清除覆盖、回退自动推导
-  const setRestockShortName = (sectionId: string, lookId: string, pid: string, value: string) => {
+  const setRestockShortName = (_sectionId: string, lookId: string, pid: string, value: string) => {
     const key = pid.toLowerCase().trim();
-    upd((t) => ({
-      ...t,
-      sections: t.sections.map((s) => {
-        if (s.id !== sectionId) return s;
-        return {
-          ...s,
-          looks: s.looks.map((l) => {
-            if (l.id !== lookId) return l;
-            const next = { ...(l.restockShortNames || {}) };
-            for (const k of Object.keys(next)) {
-              if (k.toLowerCase() === key) delete next[k];
-            }
-            if (value.trim()) next[key] = value.trim();
-            return { ...l, restockShortNames: Object.keys(next).length > 0 ? next : undefined };
-          }),
-        };
-      }),
-    }));
+    const trimmedVal = value.trim();
+    upd((t) => {
+      // 1. 同步更新货盘级 restockShortNames，确保整个货盘多坑位/全表各行统一生效
+      const nextTrayShorts = { ...(t.restockShortNames || {}) };
+      for (const k of Object.keys(nextTrayShorts)) {
+        if (k.toLowerCase() === key) delete nextTrayShorts[k];
+      }
+      if (trimmedVal) nextTrayShorts[key] = trimmedVal;
+
+      // 2. 更新对应 look 级 restockShortNames（同时如果该货盘其他坑位也包含此 pid，一并同步保持一致）
+      const nextSections = t.sections.map((s) => ({
+        ...s,
+        looks: s.looks.map((l) => {
+          const containsPid = l.pids.some((p) => p.toLowerCase().trim() === key);
+          if (l.id !== lookId && !containsPid) return l;
+
+          const next = { ...(l.restockShortNames || {}) };
+          for (const k of Object.keys(next)) {
+            if (k.toLowerCase() === key) delete next[k];
+          }
+          if (trimmedVal) next[key] = trimmedVal;
+          return { ...l, restockShortNames: Object.keys(next).length > 0 ? next : undefined };
+        }),
+      }));
+
+      return {
+        ...t,
+        restockShortNames: Object.keys(nextTrayShorts).length > 0 ? nextTrayShorts : undefined,
+        sections: nextSections,
+      };
+    });
+
+    if (trimmedVal) {
+      toast.success(`已保存商品修饰名：「${trimmedVal}」`);
+    } else {
+      toast.success('已恢复默认自动推导修饰名');
+    }
   };
 
   // 删除整个坑位
@@ -5767,7 +5789,7 @@ export default function TraysPage({
                                     fabricOverrides: tray.fabricOverrides,
                                     fabricNotes: tray.fabricNotes,
                                     restockOverrides: tray.restockOverrides,
-                                    restockShortNames: l.restockShortNames,
+                                    restockShortNames: { ...(tray.restockShortNames || {}), ...(l.restockShortNames || {}) },
                                     noRestockItems: tray.noRestockItems,
                                     skcsByCode,
                                     onHoverFabric: f.label === '面料情况' ? (codes, el) => {
@@ -5891,6 +5913,7 @@ export default function TraysPage({
                                     onSaveFabricNote: saveFabricNote,
                                     onClearFabricNote: clearFabricNote,
                                     readOnly,
+                                    restockShortNames: { ...(tray.restockShortNames || {}), ...(l.restockShortNames || {}) },
                                     onSaveRestockShortName: (p, val) => setRestockShortName(s.id, l.id, p, val),
                                     onClearRestockShortName: (p) => setRestockShortName(s.id, l.id, p, ''),
                                     })}
