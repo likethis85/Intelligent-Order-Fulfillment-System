@@ -696,6 +696,123 @@ function SizeEditor({
   );
 }
 
+// 查找款号是否存在手动覆盖的修饰名（忽略大小写）
+function getShortOverride(overrides?: Record<string, string>, pid?: string): string | undefined {
+  if (!overrides || !pid) return undefined;
+  if (overrides[pid] !== undefined) return overrides[pid];
+  const lower = pid.toLowerCase();
+  for (const [k, v] of Object.entries(overrides)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return undefined;
+}
+
+// 商品短名前缀/修饰名称内联编辑器（如「长款小香考拉」「小香风」）
+// 点击文字变为输入框，Enter/blur 保存，Esc 取消；手动修改后可点小 × 恢复自动推导
+function ShortNameEditor({
+  short,
+  isOverridden,
+  onSave,
+  onClear,
+  className,
+  textClassName,
+  disabled = false,
+}: {
+  short: string;
+  isOverridden: boolean;
+  onSave?: (val: string) => void;
+  onClear?: () => void;
+  className?: string;
+  textClassName?: string;
+  disabled?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(short);
+
+  useEffect(() => {
+    if (!editing) setDraft(short);
+  }, [short, editing]);
+
+  if (editing) {
+    return (
+      <span className="short-name-editor inline-flex items-center" onClick={(e) => e.stopPropagation()}>
+        <input
+          autoFocus
+          value={draft}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={() => {
+            const trimmed = draft.trim();
+            if (trimmed && trimmed !== short) {
+              onSave?.(trimmed);
+            } else if (!trimmed && isOverridden) {
+              onClear?.();
+            }
+            setEditing(false);
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) {
+              (e.target as HTMLInputElement).blur();
+            }
+            if (e.key === 'Escape') {
+              setDraft(short);
+              setEditing(false);
+            }
+          }}
+          placeholder={short || '修饰名'}
+          style={{ width: `${Math.max((draft || short).length + 1.5, 4)}ch` }}
+          className={`short-name-input max-w-[140px] rounded px-1 py-0 bg-surface-card border border-action-primary text-ink-primary outline-none shadow-sm ${
+            textClassName || 'text-[11px] font-sans'
+          }`}
+        />
+      </span>
+    );
+  }
+
+  const defaultColorCls = isOverridden
+    ? 'text-stage-return-fg font-semibold'
+    : 'text-ink-secondary hover:text-ink-primary';
+
+  return (
+    <span
+      className={`short-name-editor inline-flex items-center gap-0.5 group/short cursor-pointer rounded px-0.5 hover:bg-surface-subtle transition-colors ${className ?? ''}`}
+      onClick={(e) => {
+        if (disabled) return;
+        e.stopPropagation();
+        setEditing(true);
+      }}
+      title={
+        isOverridden
+          ? `修饰名称：${short}（已自定义，点击修改，点 × 恢复自动推导）`
+          : `修饰名称：${short}（点击修改）`
+      }
+    >
+      <span
+        className={`whitespace-nowrap select-none underline decoration-dashed decoration-ink-faint/60 underline-offset-2 group-hover/short:decoration-action-primary ${
+          textClassName || `text-[11px] font-sans ${defaultColorCls}`
+        }`}
+      >
+        {short}
+      </span>
+      {isOverridden && !disabled && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClear?.();
+          }}
+          className="text-ink-faint hover:text-stage-return-fg p-0.5 leading-none transition-colors rounded hover:bg-surface-base"
+          title="恢复自动推导修饰名"
+        >
+          <X size={10} />
+        </button>
+      )}
+    </span>
+  );
+}
+
 // 整行可点的「cost/ratio」编辑器：
 // - 成本在前面（左），倍率在后面（右），整体在 cell 内居中
 // - 点 row 任意位置（cost 数字 / "/" / ratio）都触发编辑
@@ -710,20 +827,20 @@ function CostRatioRow({
   placeholder: string;
   onSave: (v: string) => void;
   onClear: () => void;
-  prefix?: string;
+  prefix?: ReactNode;
 }) {
   const ref = useRef<{ startEdit: () => void }>(null);
   return (
     <div
       onClick={(e) => {
-        // 避免点击 × 按钮时触发整行编辑
+        // 避免点击 × 按钮或修饰名编辑器时触发整行编辑
         const target = e.target as HTMLElement;
-        if (target.closest('button')) return;
+        if (target.closest('button') || target.closest('.short-name-editor') || target.closest('input')) return;
         ref.current?.startEdit();
       }}
       className="group flex cursor-text items-center justify-center gap-1 rounded-sm hover:bg-surface-subtle"
     >
-      {prefix && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{prefix}</span>}
+      {prefix && (typeof prefix === 'string' ? <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{prefix}</span> : prefix)}
       <CostEditor
         ref={ref}
         value={text}
@@ -2235,6 +2352,9 @@ interface FieldRenderCtx {
   onLeaveFabric?: () => void;
   // 销量注脚：仅「已播完」的货盘（tray.date < 今天）才传日期；否则 null
   pastDate?: string | null;
+  readOnly?: boolean;
+  onSaveRestockShortName?: (pid: string, value: string) => void;
+  onClearRestockShortName?: (pid: string) => void;
 }
 interface FieldRow {
   label: string;
@@ -2351,13 +2471,17 @@ function computeRestockShortNames(ps: Product[], overrides?: Record<string, stri
   return m;
 }
 
-function renderStockForProduct(p: Product, short?: string): ReactNode {
+function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode): ReactNode {
   const prefix = short ? `${short} ` : '';
   const stockLines = p.stock ?? [];
   if (stockLines.length === 0) {
     // 领猫款（biOnly=false/undefined）：领猫里没库存数据 → 显示 —
     if (!p.biOnly) {
-      return <div className="w-full text-center text-[10.5px] text-ink-faint leading-5">{short ? `${short}：—` : '—'}</div>;
+      return (
+        <div className="w-full text-center text-[10.5px] text-ink-faint leading-5 flex items-center justify-center gap-0.5">
+          {shortNode ? <>{shortNode}<span>：—</span></> : (short ? `${short}：—` : '—')}
+        </div>
+      );
     }
     // BI 独有款（biOnly=true）：用 BI/款式卡的 stockMain 展示；现货 0 不写「现货0」
     const parts: string[] = [];
@@ -2365,8 +2489,8 @@ function renderStockForProduct(p: Product, short?: string): ReactNode {
     if ((p.inTransit ?? 0) > 0) parts.push(`在途${p.inTransit}`);
     const body = parts.join(' · ') || '—';
     return (
-      <div className="w-full text-center text-ink-primary text-[11px] leading-5">
-        {short ? `${short}：${body}` : body}
+      <div className="w-full text-center text-ink-primary text-[11px] leading-5 flex items-center justify-center gap-0.5">
+        {shortNode ? <>{shortNode}<span>：{body}</span></> : (short ? `${short}：${body}` : body)}
       </div>
     );
   }
@@ -2389,13 +2513,21 @@ function renderStockForProduct(p: Product, short?: string): ReactNode {
     if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
     if (v.eta) parts.push(`${v.eta}交`);
     if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);
-    return { color, text: `${prefix}${color}：${parts.join(' ') || '—'}` };
+    const restText = `${color}：${parts.join(' ') || '—'}`;
+    return { color, restText };
   });
   return (
-    <div className="w-full text-center text-ink-primary leading-5">
+    <div className="w-full text-center text-ink-primary leading-5 space-y-0.5">
       {lines.map((l) => (
-        <div key={l.color} className="text-[11px]">
-          {l.text}
+        <div key={l.color} className="text-[11px] flex items-center justify-center gap-0.5">
+          {shortNode ? (
+            <>
+              {shortNode}
+              <span>{l.restText}</span>
+            </>
+          ) : (
+            <span>{prefix}{l.restText}</span>
+          )}
         </div>
       ))}
     </div>
@@ -2542,9 +2674,16 @@ const FIELDS: FieldRow[] = [
             const ov = ctx.sizeRangeOverrides?.[p.id];
             const effectiveSize = ov !== undefined ? ov : (p.sizeRange || '');
             const isOverridden = ov !== undefined && ov !== (p.sizeRange || '');
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
             return (
               <div key={p.id} className="flex items-center justify-center gap-1 font-mono">
-                <span className="text-ink-secondary text-[11px] whitespace-nowrap select-none font-sans">{short}</span>
+                <ShortNameEditor
+                  short={short}
+                  isOverridden={isShortOverridden}
+                  disabled={ctx.readOnly}
+                  onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                  onClear={() => ctx.onClearRestockShortName?.(p.id)}
+                />
                 <span className="text-ink-faint">：</span>
                 <SizeEditor
                   value={effectiveSize}
@@ -2612,13 +2751,22 @@ const FIELDS: FieldRow[] = [
         <>
           {ps.map((p) => {
             const short = shortNames.get(p.id);
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
             const ov = ctx.priceOverrides?.[p.id];
             const text = ov !== undefined ? ov : p.price;
             const isOverridden = ov !== undefined && ov !== (p.price ?? '');
             return (
               <div key={p.id} className="text-center leading-5">
                 <div className="group/price group relative inline-flex items-center justify-center gap-1">
-                  {short && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{short}</span>}
+                  {short && (
+                    <ShortNameEditor
+                      short={short}
+                      isOverridden={isShortOverridden}
+                      disabled={ctx.readOnly}
+                      onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                      onClear={() => ctx.onClearRestockShortName?.(p.id)}
+                    />
+                  )}
                   <PriceEditor
                     value={text}
                     isOverridden={isOverridden}
@@ -2642,6 +2790,7 @@ const FIELDS: FieldRow[] = [
           )}
           {tpl === 'mazong' && ps.map((p) => {
             const short = shortNames.get(p.id);
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
             const ov = ctx.mpriceOverrides?.[p.id];
             const hasM = p.mprice || ov !== undefined;
             if (!hasM) return null;
@@ -2650,7 +2799,15 @@ const FIELDS: FieldRow[] = [
             return (
               <div key={p.id} className="leading-5 text-center">
                 <div className="inline-flex items-center justify-center gap-1">
-                  {short && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{short}</span>}
+                  {short && (
+                    <ShortNameEditor
+                      short={short}
+                      isOverridden={isShortOverridden}
+                      disabled={ctx.readOnly}
+                      onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                      onClear={() => ctx.onClearRestockShortName?.(p.id)}
+                    />
+                  )}
                   <PriceEditor
                     value={text}
                     isOverridden={isOverridden}
@@ -2720,6 +2877,7 @@ const FIELDS: FieldRow[] = [
         <>
           {ps.map((p) => {
             const short = shortNames.get(p.id);
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
             const raw = ctx.costOverrides?.[p.id];
             const rawVal = raw !== undefined ? raw : (p.bomCost ?? '');
             const text = roundCost(rawVal);
@@ -2730,7 +2888,15 @@ const FIELDS: FieldRow[] = [
             return (
               <div key={p.id} className="leading-5">
                 <CostRatioRow
-                  prefix={short}
+                  prefix={short ? (
+                    <ShortNameEditor
+                      short={short}
+                      isOverridden={isShortOverridden}
+                      disabled={ctx.readOnly}
+                      onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                      onClear={() => ctx.onClearRestockShortName?.(p.id)}
+                    />
+                  ) : undefined}
                   text={text}
                   isOverridden={isOverridden}
                   ratio={ratio || '—'}
@@ -2747,6 +2913,7 @@ const FIELDS: FieldRow[] = [
           )}
           {tpl === 'mazong' && ps.map((p) => {
             const short = shortNames.get(p.id);
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
             const ov = ctx.mcostOverrides?.[p.id];
             const mpriceOv = ctx.mpriceOverrides?.[p.id];
             const hasM = p.mprice || ov !== undefined || mpriceOv !== undefined;
@@ -2758,7 +2925,15 @@ const FIELDS: FieldRow[] = [
             return (
               <div key={p.id} className="leading-5">
                 <div className="flex items-center justify-center gap-1">
-                  {short && <span className="text-[11px] text-ink-secondary whitespace-nowrap select-none">{short}</span>}
+                  {short && (
+                    <ShortNameEditor
+                      short={short}
+                      isOverridden={isShortOverridden}
+                      disabled={ctx.readOnly}
+                      onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                      onClear={() => ctx.onClearRestockShortName?.(p.id)}
+                    />
+                  )}
                   <CostEditor
                     value={text}
                     isOverridden={isOverridden}
@@ -2789,9 +2964,20 @@ const FIELDS: FieldRow[] = [
       const shortNames = computeRestockShortNames(ps, ctx.restockShortNames);
       return (
         <div className="w-full text-center text-ink-primary leading-5 space-y-1">
-          {ps.map((p) => (
-            <div key={p.id}>{renderStockForProduct(p, shortNames.get(p.id))}</div>
-          ))}
+          {ps.map((p) => {
+            const short = shortNames.get(p.id);
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
+            const shortNode = short ? (
+              <ShortNameEditor
+                short={short}
+                isOverridden={isShortOverridden}
+                disabled={ctx.readOnly}
+                onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                onClear={() => ctx.onClearRestockShortName?.(p.id)}
+              />
+            ) : null;
+            return <div key={p.id}>{renderStockForProduct(p, short, shortNode)}</div>;
+          })}
         </div>
       );
     },
@@ -2887,9 +3073,52 @@ const FIELDS: FieldRow[] = [
           title={hasAnyContent ? `编辑翻单（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询翻单（${pids.map((p) => p.toUpperCase()).join('、')}）`}
         >
           <div className={`${RED} leading-5 w-full text-center`}>
-            {hasAnyContent ? visibleRows.map(({ pid, text }) => (
-              <div key={pid} className="text-[14px] font-bold mb-0.5 last:mb-0 whitespace-pre-line text-center">{text}</div>
-            )) : (
+            {hasAnyContent ? visibleRows.map(({ pid, text }) => {
+              const lines = text.split('\n');
+              return (
+                <div key={pid} className="text-[14px] font-bold mb-0.5 last:mb-0 text-center">
+                  {lines.map((line, lineIdx) => {
+                    if (!line.trim()) return <div key={lineIdx} className="h-4" />;
+                    let matchedPid: string | null = null;
+                    let matchedShort: string = '';
+                    if (ps.length > 1) {
+                      for (const p of ps) {
+                        const s = shortNames.get(p.id);
+                        if (s && line.startsWith(s)) {
+                          if (s.length > matchedShort.length) {
+                            matchedShort = s;
+                            matchedPid = p.id;
+                          }
+                        }
+                      }
+                    }
+                    if (matchedPid && matchedShort) {
+                      const rest = line.slice(matchedShort.length);
+                      const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, matchedPid));
+                      return (
+                        <div key={lineIdx} className="flex items-center justify-center gap-1 leading-5">
+                          <ShortNameEditor
+                            short={matchedShort}
+                            isOverridden={isShortOverridden}
+                            disabled={ctx.readOnly}
+                            onSave={(v) => ctx.onSaveRestockShortName?.(matchedPid!, v)}
+                            onClear={() => ctx.onClearRestockShortName?.(matchedPid!)}
+                            className="text-action-danger-fg"
+                            textClassName={`text-[14px] font-bold ${isShortOverridden ? 'text-stage-return-fg' : 'text-action-danger-fg'}`}
+                          />
+                          <span>{rest}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={lineIdx} className="whitespace-pre-line leading-5">
+                        {line}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            }) : (
               <div className="text-[11px] leading-5 whitespace-pre-line text-ink-faint min-h-[20px] text-center" />
             )}
           </div>
@@ -4684,8 +4913,9 @@ export default function TraysPage({
     }));
   };
 
-  // 翻单行前缀（如 针织裤/开衫）手动覆盖；传空串清除覆盖、回退自动推导
+  // 翻单行/商品修饰名前缀（如 针织裤/开衫/长款小香考拉）手动覆盖；传空串清除覆盖、回退自动推导
   const setRestockShortName = (sectionId: string, lookId: string, pid: string, value: string) => {
+    const key = pid.toLowerCase().trim();
     upd((t) => ({
       ...t,
       sections: t.sections.map((s) => {
@@ -4695,9 +4925,11 @@ export default function TraysPage({
           looks: s.looks.map((l) => {
             if (l.id !== lookId) return l;
             const next = { ...(l.restockShortNames || {}) };
-            if (value.trim()) next[pid] = value.trim();
-            else delete next[pid];
-            return { ...l, restockShortNames: next };
+            for (const k of Object.keys(next)) {
+              if (k.toLowerCase() === key) delete next[k];
+            }
+            if (value.trim()) next[key] = value.trim();
+            return { ...l, restockShortNames: Object.keys(next).length > 0 ? next : undefined };
           }),
         };
       }),
@@ -5587,6 +5819,9 @@ export default function TraysPage({
                                     onClearColor: clearColor,
                                     onSaveFabricNote: saveFabricNote,
                                     onClearFabricNote: clearFabricNote,
+                                    readOnly,
+                                    onSaveRestockShortName: (pid, val) => setRestockShortName(s.id, l.id, pid, val),
+                                    onClearRestockShortName: (pid) => setRestockShortName(s.id, l.id, pid, ''),
                                   });
                               if (aggNode === null) return null;
                               return (
@@ -5655,6 +5890,9 @@ export default function TraysPage({
                                      onClearSizeRange: clearSizeRange,
                                     onSaveFabricNote: saveFabricNote,
                                     onClearFabricNote: clearFabricNote,
+                                    readOnly,
+                                    onSaveRestockShortName: (p, val) => setRestockShortName(s.id, l.id, p, val),
+                                    onClearRestockShortName: (p) => setRestockShortName(s.id, l.id, p, ''),
                                     })}
                                   </div>
                                 ))}
