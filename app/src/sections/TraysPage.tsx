@@ -1117,107 +1117,7 @@ const TYPE_COLOR: Record<string, string> = {
   渠道货盘: 'bg-tray-channel text-white',
 };
 
-// ── 面料悬停快速预览 ──
-// 鼠标移到「面料情况」单元格上 350ms 后，自动拿这个坑位里所有 pid 去 fabric_Q 查，
-// 弹出小卡片按款号展示面料明细（不阻塞用户，可继续浏览其它坑位）
-interface FabricQuickTooltipProps {
-  rect: DOMRect | null;
-  codes: string[];
-  data: any[] | null;
-  loading: boolean;
-  error: string | null;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  onOpenFullPicker: () => void;
-  onRefresh?: () => void;
-}
-function FabricQuickTooltip({ rect, codes, data, loading, error, onMouseEnter, onMouseLeave, onOpenFullPicker, onRefresh }: FabricQuickTooltipProps) {
-  if (!rect) return null;
-  // 卡片 360px 宽，贴在锚点下方 6px；左边界避免超出视口右沿
-  const W = 360;
-  const left = Math.min(Math.max(8, rect.left), (typeof window !== 'undefined' ? window.innerWidth : 1024) - W - 8);
-  const top = rect.bottom + 6;
-  // 按 pdtCode 分组：每个款号下显示它的所有面料行
-  const grouped = new Map<string, any[]>();
-  for (const r of (data || [])) {
-    const k = String(r.pdtCode || '').toUpperCase();
-    if (!grouped.has(k)) grouped.set(k, []);
-    grouped.get(k)!.push(r);
-  }
-  return (
-    <div
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      style={{ position: 'fixed', left, top, width: W, zIndex: 60 }}
-      className="rounded-md border border-edge bg-surface-card shadow-2xl print:hidden"
-    >
-      <div className="flex items-center justify-between border-b border-edge px-3 py-2">
-        <div className="text-[11px] font-semibold tracking-wide text-ink-secondary">面料快查 · {codes.length} 个款号</div>
-        <div className="flex items-center gap-2">
-          {onRefresh && (
-            <button
-              onClick={onRefresh}
-              className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-primary hover:bg-surface-subtle"
-              title="强制向领猫重新拉取最新数据并更新缓存"
-            >
-              刷新
-            </button>
-          )}
-          <button
-            onClick={onOpenFullPicker}
-            className="rounded px-1.5 py-0.5 text-[11px] text-action-link hover:bg-surface-subtle"
-          >
-            打开完整 →
-          </button>
-        </div>
-      </div>
-      <div className="max-h-[420px] overflow-y-auto px-3 py-2 text-[11.5px] leading-5">
-        {loading && (
-          <div className="flex items-center gap-2 py-6 justify-center text-ink-muted">
-            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-edge border-t-action-link" />
-            <span>查询中…</span>
-          </div>
-        )}
-        {!loading && error && (
-          <div className="py-4 text-center text-action-danger-fg">查询失败：{error}</div>
-        )}
-        {!loading && !error && data && data.length === 0 && (
-          <div className="py-6 text-center text-ink-muted">这 {codes.length} 个款号查无面料</div>
-        )}
-        {!loading && !error && data && data.length > 0 && (
-          <div className="space-y-3">
-            {[...grouped.entries()].map(([code, rows]) => (
-              <div key={code} className="border-b border-edge-muted pb-2 last:border-b-0 last:pb-0">
-                <div className="mb-1 font-mono font-semibold tracking-wide text-ink-primary">{code}</div>
-                {rows.slice(0, 4).map((r, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 text-ink-secondary">
-                    <span className="truncate">
-                      <span className="text-ink-primary">{r.mtName || '—'}</span>
-                      <span className="ml-1 text-ink-muted">· {r.mtSpecName || '—'}</span>
-                    </span>
-                    <span className="text-right tabular-nums text-ink-muted">
-                      {Number(r.useAmt) > 0 && <span className="mr-2">用 {r.useAmt}m</span>}
-                      {r.warehouse && r.warehouse !== '-' && <span>{r.warehouse}</span>}
-                    </span>
-                    <span className="col-span-2 text-[10.5px] text-ink-muted">
-                      库存 {r.stock ?? 0}m
-                      {Number(r.canProduce) > 0 && <> · 可产 <span className="text-ink-secondary">{r.canProduce}</span> 件</>}
-                      {Number(r.mtPrice) > 0 && <> · 单价 ¥{r.mtPrice}/m</>}
-                      {r.mtCategory && <> · {r.mtCategory}</>}
-                    </span>
-                  </div>
-                ))}
-                {rows.length > 4 && (
-                  <div className="mt-1 text-[10.5px] text-ink-muted">还有 {rows.length - 4} 条…</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+
 
 // 倍率：售价 / 成本，显示 1 位小数；任一缺失返回空串
 function ratioOf(price: string | number | undefined, cost: string | number | undefined): string {
@@ -2834,10 +2734,7 @@ interface FieldRenderCtx {
   sampleColorsByPid?: Record<string, string[]>;
   onSaveColor?: (lookId: string, value: string) => void;
   onClearColor?: (lookId: string) => void;
-  // 悬停自动查面料：调用方传入当前坑位所有 pid，悬停时弹快查窗
   allPids?: string[];
-  onHoverFabric?: (allPids: string[], anchorEl: HTMLElement) => void;
-  onLeaveFabric?: () => void;
   // 销量注脚：仅「已播完」的货盘（tray.date < 今天）才传日期；否则 null
   pastDate?: string | null;
   readOnly?: boolean;
@@ -3840,19 +3737,9 @@ const FIELDS: FieldRow[] = [
       });
       const visibleRows = dedupedRows.filter((r) => r.text);
       const hasAnyContent = visibleRows.length > 0;
-      // 悬停 350ms 后自动拿所有 pid 去 fabric_Q 查面料——展示在右下角小卡片里
-      const hoverHandlers = ctx.onHoverFabric
-        ? {
-            onMouseEnter: (e: React.MouseEvent<HTMLDivElement>) => {
-              ctx.onHoverFabric?.(ctx.allPids ?? ps.map((x) => x.id), e.currentTarget);
-            },
-            onMouseLeave: () => ctx.onLeaveFabric?.(),
-          }
-        : {};
       return (
         <div
           className="group relative w-full min-h-[28px] flex flex-col items-center justify-center text-center cursor-pointer"
-          {...hoverHandlers}
           onClick={() => ctx.onPickFabric?.(ctx.pid)}
           title={hasAnyContent ? `编辑面料（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询面料（${pids.map((p) => p.toUpperCase()).join('、')}）`}
         >
@@ -4771,95 +4658,10 @@ export default function TraysPage({
   // WPS 核价表登录态：null=检查中; loggedIn=true/false 在按钮旁显示状态点
   // 同步完成后通过 dataVersion 触发重新检查
   const [hengjiStatus, setHengjiStatus] = useState<HengjiStatus | null>(null);
-  // 面料悬停快查：移到某个坑位的「面料情况」上时，350ms 内自动查 fabric_Q
-  const [fabricTip, setFabricTip] = useState<{
-    sectionId: string; lookId: string; codes: string[];
-    rect: DOMRect | null; data: any[] | null; loading: boolean; error: string | null;
-  } | null>(null);
-  const fabricTipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fabricTipAbort = useRef<AbortController | null>(null);
   // fabric_Q iframe ref（提到顶层避免 IIFE 内对象字面量被 React 重置）
   const fabricIframeRef = useRef<HTMLIFrameElement | null>(null);
   // 翻单弹窗（sales.html）iframe ref，同样提到顶层避免 IIFE 内对象字面量被 React 重置
   const salesIframeRef = useRef<HTMLIFrameElement | null>(null);
-
-  // 前端款号级内存缓存：同一会话内查过的款号直接秒显，不再二次发起网络请求
-  const fabricClientCache = useRef<Map<string, any[]>>(new Map());
-
-  // 执行面料网络查询（支持 forceRefresh 绕过前端与服务端缓存）
-  const doFetchFabric = (codes: string[], forceRefresh = false) => {
-    const cacheKey = codes.map((c) => c.trim().toUpperCase()).sort().join(',');
-    if (forceRefresh) {
-      fabricClientCache.current.delete(cacheKey);
-    }
-    fabricTipAbort.current?.abort();
-    const ac = new AbortController();
-    fabricTipAbort.current = ac;
-    setFabricTip((cur) => cur ? { ...cur, loading: true, error: null } : cur);
-
-    fetch('/api/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pdtCodes: codes.map((c) => c.toUpperCase()), refresh: forceRefresh }),
-      signal: ac.signal,
-    })
-      .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
-      .then((j) => {
-        const list = j.data || [];
-        fabricClientCache.current.set(cacheKey, list);
-        setFabricTip((cur) => cur ? { ...cur, loading: false, data: list, error: null } : cur);
-      })
-      .catch((e) => {
-        if (e?.name === 'AbortError') return;
-        setFabricTip((cur) => cur ? { ...cur, loading: false, error: String(e?.message || e) } : cur);
-      });
-  };
-
-  // 鼠标进入锚点 → 500ms 后开始查（防抖：放宽至 500ms 避免快速划过打接口，若已命中缓存则秒显）
-  const onHoverFabricQuick = (codes: string[], anchorEl: HTMLElement) => {
-    if (!codes || codes.length === 0) return;
-    if (fabricTipTimer.current) clearTimeout(fabricTipTimer.current);
-    const rect = anchorEl.getBoundingClientRect();
-    const cacheKey = codes.map((c) => c.trim().toUpperCase()).sort().join(',');
-
-    // 1. 若前端内存已命中缓存，直接秒开展示，不发请求，不闪烁
-    if (fabricClientCache.current.has(cacheKey)) {
-      setFabricTip({
-        sectionId: '', lookId: '', codes,
-        rect,
-        data: fabricClientCache.current.get(cacheKey) || [],
-        loading: false,
-        error: null,
-      });
-      return;
-    }
-
-    // 2. 未命中缓存：先设置初始态，防抖 500ms 后再发起请求
-    const sameLook = fabricTip && fabricTip.codes.join(',') === codes.join(',');
-    setFabricTip({
-      sectionId: '', lookId: '', codes,
-      rect,
-      data: sameLook ? fabricTip?.data ?? null : null,
-      loading: sameLook ? !!fabricTip?.loading : true,
-      error: null,
-    });
-    fabricTipTimer.current = setTimeout(() => {
-      doFetchFabric(codes, false);
-    }, 500);
-  };
-  // 180ms 延迟关闭，让用户能移到 tooltip 上（hoverable）
-  const onLeaveFabricQuick = () => {
-    if (fabricTipTimer.current) clearTimeout(fabricTipTimer.current);
-    fabricTipTimer.current = setTimeout(() => {
-      fabricTipAbort.current?.abort();
-      setFabricTip(null);
-    }, 180);
-  };
-  // tooltip 内 hover 时保持显示
-  const onTipEnter = () => {
-    if (fabricTipTimer.current) clearTimeout(fabricTipTimer.current);
-  };
-  const onTipLeave = onLeaveFabricQuick;
   // 当前货盘的实时引用：postMessage 监听器是长生命周期闭包，若直接用闭包里的 tray，
   // 会拿旧快照覆盖整个 tray（fabric-selected 一写就把刚标记的 noRestockItems 冲掉）
   const trayRef = useRef<Tray | null>(null);
@@ -6454,14 +6256,7 @@ export default function TraysPage({
                                     restockShortNames: { ...(tray.restockShortNames || {}), ...(l.restockShortNames || {}) },
                                     noRestockItems: tray.noRestockItems,
                                     skcsByCode,
-                                    onHoverFabric: f.label === '面料情况' ? (codes, el) => {
-                                      // 重置定位 + 复用当前坑位 sectionId/lookId（点"打开完整"时用）
-                                      setFabricTip({ sectionId: s.id, lookId: l.id, codes, rect: el.getBoundingClientRect(), data: null, loading: true, error: null });
-                                      onHoverFabricQuick(codes, el);
-                                    } : undefined,
-                                    onLeaveFabric: f.label === '面料情况' ? onLeaveFabricQuick : undefined,
                                     onPickFabric: (p) => {
-                                      setFabricTip(null);
                                       setFabricPicker({ sectionId: s.id, lookId: l.id, pid: p });
                                     },
                                     onClearFabric: (p) => {
@@ -6475,7 +6270,6 @@ export default function TraysPage({
                                       toast.success('已隐藏面料信息');
                                     },
                                     onPickRestock: () => {
-                                      setFabricTip(null);
                                       setRestockPicker({ sectionId: s.id, lookId: l.id });
                                     },
                                     priceOverrides: tray.priceOverrides,
@@ -6544,7 +6338,6 @@ export default function TraysPage({
                                       skcsByCode,
                                       sampleColorsByPid: sampleColorsByCode,
                                       onPickFabric: (p) => {
-                                       setFabricTip(null);
                                        setFabricPicker({ sectionId: s.id, lookId: l.id, pid: p });
                                      },
                                       onClearFabric: (p) => {
@@ -6700,25 +6493,7 @@ export default function TraysPage({
         );
       })()}
 
-      {/* 面料悬停快查：500ms 后自动查（内存缓存秒显），移到卡片上不关，移走 180ms 后关 */}
-      {fabricTip && !fabricPicker && !restockPicker && (
-        <FabricQuickTooltip
-          rect={fabricTip.rect}
-          codes={fabricTip.codes}
-          data={fabricTip.data}
-          loading={fabricTip.loading}
-          error={fabricTip.error}
-          onMouseEnter={onTipEnter}
-          onMouseLeave={onTipLeave}
-          onRefresh={() => doFetchFabric(fabricTip.codes, true)}
-          onOpenFullPicker={() => {
-            // 把当前坑位传去 fabricPicker（复用现有 iframe 流）
-            const cur = fabricTip;
-            setFabricPicker({ sectionId: cur.sectionId, lookId: cur.lookId, pid: cur.codes[0] });
-            setFabricTip(null);
-          }}
-        />
-      )}
+
 
       {restockPicker && (() => {
         const rpSection = tray.sections.find((x) => x.id === restockPicker.sectionId);
