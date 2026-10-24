@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import {
   ArrowLeft, ArrowRight, Plus, Eye, EyeOff, ArrowUp, ArrowDown, Pencil, Trash2, X, Check,
   Download, RefreshCw, Search, Sparkles, Bot, Send, MoreHorizontal, Archive, FileText,
-  Camera, History, CircleAlert, Printer, RotateCcw,
+  Camera, History, CircleAlert, Printer, RotateCcw, Palette,
 } from 'lucide-react';
 import { toast } from 'sonner';
 // xlsx-js-style 与 exceljs 只在导出时用到，改成点击导出时再动态加载，
@@ -61,6 +61,188 @@ function CodeSuffixEditor({ value, onSave }: { value: string; onSave: (v: string
     >
       {value || '+ 注脚'}
     </span>
+  );
+}
+
+// 款号格子配色快捷选择器（背景色：黄色/蓝色/默认无色，字体色：红色/默认黑色）
+function CodeColorPicker({
+  bgColor,
+  fgColor,
+  onSelectBg,
+  onSelectFg,
+  onReset,
+  disabled = false,
+}: {
+  bgColor?: string;
+  fgColor?: string;
+  onSelectBg: (color: string) => void;
+  onSelectFg: (color: string) => void;
+  onReset: () => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleDown = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  if (disabled) return null;
+
+  const hasCustom = (bgColor && bgColor !== 'none') || (fgColor && fgColor !== 'black');
+
+  return (
+    <div className="absolute top-1 right-1 z-20 print:hidden select-none" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={`rounded p-1 transition-all cursor-pointer ${
+          open
+            ? 'bg-action-primary text-white shadow-xs'
+            : hasCustom
+              ? 'opacity-85 hover:opacity-100 bg-surface-card/90 hover:bg-surface-card text-action-primary border border-action-primary/30 shadow-2xs'
+              : 'opacity-0 group-hover/cell:opacity-100 group-hover:opacity-100 text-ink-faint hover:text-ink-primary hover:bg-surface-card/90'
+        }`}
+        title="设置款号格子颜色（背景色/字体色）"
+      >
+        <Palette size={11} />
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-edge bg-surface-card p-2.5 shadow-xl text-left select-none z-30 animate-in fade-in zoom-in-95 duration-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-[11px] font-semibold text-ink-primary mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Palette size={12} className="text-action-primary" />
+              款号格子配色
+            </span>
+            {hasCustom && (
+              <button
+                type="button"
+                onClick={() => {
+                  onReset();
+                  toast.success('已恢复款号默认配色');
+                }}
+                className="text-[10px] text-ink-muted hover:text-stage-return-fg flex items-center gap-0.5 cursor-pointer"
+                title="恢复默认无色背景与黑色字体"
+              >
+                <RotateCcw size={10} />
+                重置
+              </button>
+            )}
+          </div>
+
+          {/* 背景颜色选择 */}
+          <div className="mb-2.5">
+            <div className="text-[10px] text-ink-muted mb-1 font-medium">格子背景颜色</div>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectBg('');
+                  toast.success('已恢复默认无色背景');
+                }}
+                className={`flex items-center justify-center gap-1 py-1 px-1 rounded border text-[10.5px] transition-all cursor-pointer ${
+                  !bgColor || bgColor === 'none'
+                    ? 'border-action-primary bg-action-primary/10 font-bold text-action-primary shadow-2xs'
+                    : 'border-edge hover:bg-surface-subtle text-ink-secondary'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full border border-edge-strong bg-white" />
+                无色
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectBg('yellow');
+                  toast.success('已设款号背景为黄色');
+                }}
+                className={`flex items-center justify-center gap-1 py-1 px-1 rounded border text-[10.5px] transition-all cursor-pointer ${
+                  bgColor === 'yellow'
+                    ? 'border-amber-500 bg-[#fef08a] font-bold text-amber-950 ring-1 ring-amber-400 shadow-2xs'
+                    : 'border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-500" />
+                黄色
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectBg('blue');
+                  toast.success('已设款号背景为蓝色');
+                }}
+                className={`flex items-center justify-center gap-1 py-1 px-1 rounded border text-[10.5px] transition-all cursor-pointer ${
+                  bgColor === 'blue'
+                    ? 'border-sky-500 bg-[#bae6fd] font-bold text-sky-950 ring-1 ring-sky-400 shadow-2xs'
+                    : 'border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-900'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 border border-sky-500" />
+                蓝色
+              </button>
+            </div>
+          </div>
+
+          {/* 字体颜色选择 */}
+          <div>
+            <div className="text-[10px] text-ink-muted mb-1 font-medium">款号字体颜色</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectFg('');
+                  toast.success('已恢复默认黑色字体');
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded border text-[10.5px] transition-all cursor-pointer ${
+                  !fgColor || fgColor === 'black'
+                    ? 'border-action-primary bg-action-primary/10 font-bold text-action-primary shadow-2xs'
+                    : 'border-edge hover:bg-surface-subtle text-ink-secondary'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-900" />
+                默认黑色
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectFg('red');
+                  toast.success('已设款号字体为红色');
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded border text-[10.5px] transition-all cursor-pointer ${
+                  fgColor === 'red'
+                    ? 'border-red-500 bg-red-50 font-bold text-red-600 ring-1 ring-red-400 shadow-2xs'
+                    : 'border-red-200 bg-red-50/50 hover:bg-red-50 text-red-600'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-red-600" />
+                红色
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1675,9 +1857,18 @@ async function exportTrayLayoutExcel(
         if (f.dataStyle === 'priceGreen') {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF92D04F' } };
           cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: 'FFFF0000' } };
-        } else if (f.dataStyle === 'codeBlue') {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF04B0F1' } };
-          cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: 'FF000000' } };
+        } else if (f.dataStyle === 'codeBlue' || f.label === '款号') {
+          const bg = t.codeBgColorByLook?.[look.id] || look.codeBgColor;
+          const fg = t.codeFgColorByLook?.[look.id] || look.codeFgColor;
+          if (bg === 'yellow') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+          } else if (bg === 'blue') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF04B0F1' } };
+          } else {
+            delete (cell as any).fill;
+          }
+          const fontColor = fg === 'red' ? 'FFFF0000' : 'FF000000';
+          cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: fontColor } };
         } else if (!f.img) {
           cell.font = { name: '微软雅黑', size: 12 };
         }
@@ -2358,6 +2549,10 @@ interface FieldRenderCtx {
   readOnly?: boolean;
   onSaveRestockShortName?: (pid: string, value: string) => void;
   onClearRestockShortName?: (pid: string) => void;
+  codeBgColor?: string; // lookId 的款号格子背景颜色（yellow / blue / none）
+  codeFgColor?: string; // lookId 的款号字体颜色（red / black）
+  onSaveCodeBgColor?: (color: string) => void;
+  onSaveCodeFgColor?: (color: string) => void;
 }
 interface FieldRow {
   label: string;
@@ -2598,30 +2793,45 @@ const FIELDS: FieldRow[] = [
     rowCls: 'bg-surface-card',
     show: () => true,
     aggregate: true, // 多款号时合并展示
-    render: (p, _tpl, ctx) => (
-      // 款号在 cell 中心居中（text-center 推到 div 中央）；
-      // 注脚 absolute 挂在款号 span 右边（left-full = 款号右边缘），紧贴款号末尾，不参与居中计算；
-      // 不垂直居中——同字号下 absolute 默认 top:0 让注脚 baseline 自然对齐款号 baseline
-      <div className="text-center">
-        <span className="group relative inline-flex items-center justify-center">
-          <span className="font-mono text-[12px] font-semibold text-ink-primary">{p.id.toUpperCase()}</span>
-          <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
-            <CodeSuffixEditor
-              value={ctx.codeSuffixOverride ?? ''}
-              onSave={(v) => ctx.onSaveCodeSuffix?.(ctx.pid, v)}
-            />
+    render: (p, _tpl, ctx) => {
+      const isRed = ctx.codeFgColor === 'red';
+      const fgColorCls = isRed ? 'text-[#dc2626] font-bold' : 'text-ink-primary font-semibold';
+      return (
+        <div className="text-center relative w-full">
+          <span className="group relative inline-flex items-center justify-center">
+            <span className={`font-mono text-[12px] ${fgColorCls}`}>{p.id.toUpperCase()}</span>
+            <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
+              <CodeSuffixEditor
+                value={ctx.codeSuffixOverride ?? ''}
+                onSave={(v) => ctx.onSaveCodeSuffix?.(ctx.pid, v)}
+              />
+            </span>
           </span>
-        </span>
-      </div>
-    ),
+          {!ctx.readOnly && (
+            <CodeColorPicker
+              bgColor={ctx.codeBgColor}
+              fgColor={ctx.codeFgColor}
+              onSelectBg={(c) => ctx.onSaveCodeBgColor?.(c)}
+              onSelectFg={(c) => ctx.onSaveCodeFgColor?.(c)}
+              onReset={() => {
+                ctx.onSaveCodeBgColor?.('');
+                ctx.onSaveCodeFgColor?.('');
+              }}
+            />
+          )}
+        </div>
+      );
+    },
     aggregateRender: (ps, _tpl, ctx) => {
       // 保留坑位里款号的添加顺序（与售价、名称行顺序一致）
+      const isRed = ctx.codeFgColor === 'red';
+      const fgColorCls = isRed ? 'text-[#dc2626] font-bold' : 'text-ink-primary font-semibold';
       return (
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 relative w-full">
           {ps.map((p) => (
             <div key={p.id} className="text-center leading-5">
               <span className="group relative inline-flex items-center justify-center">
-                <span className="font-mono text-[12px] font-semibold text-ink-primary">{p.id.toUpperCase()}</span>
+                <span className={`font-mono text-[12px] ${fgColorCls}`}>{p.id.toUpperCase()}</span>
                 <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
                   <CodeSuffixEditor
                     value={ctx.codeSuffixOverrides?.[p.id] ?? ''}
@@ -2631,6 +2841,18 @@ const FIELDS: FieldRow[] = [
               </span>
             </div>
           ))}
+          {!ctx.readOnly && (
+            <CodeColorPicker
+              bgColor={ctx.codeBgColor}
+              fgColor={ctx.codeFgColor}
+              onSelectBg={(c) => ctx.onSaveCodeBgColor?.(c)}
+              onSelectFg={(c) => ctx.onSaveCodeFgColor?.(c)}
+              onReset={() => {
+                ctx.onSaveCodeBgColor?.('');
+                ctx.onSaveCodeFgColor?.('');
+              }}
+            />
+          )}
         </div>
       );
     },
@@ -4970,6 +5192,48 @@ export default function TraysPage({
     }
   };
 
+  // 设置款号格子背景颜色（黄色 / 蓝色 / 默认无色）
+  const setCodeBgColor = (_sectionId: string, lookId: string, color: string) => {
+    const val = (color === 'yellow' || color === 'blue') ? color : '';
+    upd((t) => {
+      const nextByLook = { ...(t.codeBgColorByLook || {}) };
+      if (val) nextByLook[lookId] = val;
+      else delete nextByLook[lookId];
+
+      const nextSections = t.sections.map((s) => ({
+        ...s,
+        looks: s.looks.map((l) => (l.id === lookId ? { ...l, codeBgColor: val || undefined } : l)),
+      }));
+
+      return {
+        ...t,
+        codeBgColorByLook: Object.keys(nextByLook).length > 0 ? nextByLook : undefined,
+        sections: nextSections,
+      };
+    });
+  };
+
+  // 设置款号字体颜色（红色 / 默认黑色）
+  const setCodeFgColor = (_sectionId: string, lookId: string, color: string) => {
+    const val = color === 'red' ? color : '';
+    upd((t) => {
+      const nextByLook = { ...(t.codeFgColorByLook || {}) };
+      if (val) nextByLook[lookId] = val;
+      else delete nextByLook[lookId];
+
+      const nextSections = t.sections.map((s) => ({
+        ...s,
+        looks: s.looks.map((l) => (l.id === lookId ? { ...l, codeFgColor: val || undefined } : l)),
+      }));
+
+      return {
+        ...t,
+        codeFgColorByLook: Object.keys(nextByLook).length > 0 ? nextByLook : undefined,
+        sections: nextSections,
+      };
+    });
+  };
+
   // 删除整个坑位
   const deleteLook = (sectionId: string, lookId: string) => {
     upd((t) => ({
@@ -5786,6 +6050,13 @@ export default function TraysPage({
                         <tr key={f.label} className={f.rowCls ?? ''}>
                           <td className={`${labelCell} ${f.labelCls ?? ''}`}>{f.label}</td>
                           {band.map((l) => {
+                            const isCodeRow = f.label === '款号';
+                            const codeBg = isCodeRow ? (tray.codeBgColorByLook?.[l.id] || l.codeBgColor) : undefined;
+                            const codeBgCls = codeBg === 'yellow'
+                              ? '!bg-[#fef08a] dark:!bg-[#854d0e]/40'
+                              : codeBg === 'blue'
+                                ? '!bg-[#bae6fd] dark:!bg-[#075985]/40'
+                                : '';
                             // 跨款号合并字段（如售价）：一格只渲一次，把所有款号拼起来
                             if (f.aggregate && f.aggregateRender) {
                               const ps = l.pids.map(fullByIdWithCost);
@@ -5856,16 +6127,20 @@ export default function TraysPage({
                                     readOnly,
                                     onSaveRestockShortName: (pid, val) => setRestockShortName(s.id, l.id, pid, val),
                                     onClearRestockShortName: (pid) => setRestockShortName(s.id, l.id, pid, ''),
+                                    codeBgColor: tray.codeBgColorByLook?.[l.id] || l.codeBgColor,
+                                    codeFgColor: tray.codeFgColorByLook?.[l.id] || l.codeFgColor,
+                                    onSaveCodeBgColor: (color) => setCodeBgColor(s.id, l.id, color),
+                                    onSaveCodeFgColor: (color) => setCodeFgColor(s.id, l.id, color),
                                   });
                               if (aggNode === null) return null;
                               return (
-                                <td key={l.id} className={cell}>
+                                <td key={l.id} className={`${cell} ${codeBgCls}`}>
                                   <div className="w-full text-center flex flex-col items-center justify-center">{aggNode}</div>
                                 </td>
                               );
                             }
                             return (
-                              <td key={l.id} className={cell}>
+                              <td key={l.id} className={`${cell} ${codeBgCls}`}>
                                 <div className="space-y-2">
                                 {l.pids.map((pid) => (
                                   <div key={pid} className="group relative">
@@ -5928,6 +6203,10 @@ export default function TraysPage({
                                     restockShortNames: { ...(tray.restockShortNames || {}), ...(l.restockShortNames || {}) },
                                     onSaveRestockShortName: (p, val) => setRestockShortName(s.id, l.id, p, val),
                                     onClearRestockShortName: (p) => setRestockShortName(s.id, l.id, p, ''),
+                                    codeBgColor: tray.codeBgColorByLook?.[l.id] || l.codeBgColor,
+                                    codeFgColor: tray.codeFgColorByLook?.[l.id] || l.codeFgColor,
+                                    onSaveCodeBgColor: (color) => setCodeBgColor(s.id, l.id, color),
+                                    onSaveCodeFgColor: (color) => setCodeFgColor(s.id, l.id, color),
                                     })}
                                   </div>
                                 ))}

@@ -100,6 +100,8 @@ export interface Look {
   userImg?: string | null; // 用户自传的主图 URL（'/uploads/<uuid>.<ext>'），优先级高于 cover pid 的 Product.img；为空回退到 cover pid 的 Product.img
   userImgs?: Record<string, string>; // 每个款式独立自传主图（pid -> url），优先于 userImg / Product.img
   restockShortNames?: Record<string, string>; // 翻单行前缀手动覆盖（pid → 短名，如 针织裤/开衫）；缺省时按产品名自动推导
+  codeBgColor?: 'yellow' | 'blue' | 'none' | string; // 款号格子背景颜色（黄色/蓝色/默认无色）
+  codeFgColor?: 'red' | 'black' | string; // 款号字体颜色（红色/默认黑色）
 }
 export interface TraySection {
   id: string;
@@ -144,6 +146,8 @@ export interface Tray {
   priceSuffixOverrides?: Record<string, string>; // 售价注脚手动编辑（pid → 后缀文案，如 "券后" / "秒杀" / "套装价"），渲染在售价后面；清空 = 清除 override
   mpriceOverrides?: Record<string, string>; // 马总直播价手动编辑（仅马总场显示），per-tray 优先于 BI mprice；清空 = 清除 override
   codeSuffixOverrides?: Record<string, string>; // 款号注脚手动编辑（pid → 后缀文案，如 "黑色" / "黑色/咖色"），渲染在款号后面；清空 = 清除 override
+  codeBgColorByLook?: Record<string, 'yellow' | 'blue' | 'none' | string>; // 款号格子背景颜色（lookId → 'yellow' | 'blue' | 'none'）
+  codeFgColorByLook?: Record<string, 'red' | 'black' | string>; // 款号字体颜色（lookId → 'red' | 'black'）
   colorOverrideByLook?: Record<string, string>; // 颜色文案手动覆盖（lookId → 文案，如 "棕色 / 灰"），per-tray 优先于 pid.colors union；清空 = 清除 override
   costOverrides?: Record<string, string>; // BOM 成本手动编辑（pid → "123.45"），per-tray 优先于 BI bom商品成本；清空 = 清除 override
   mcostOverrides?: Record<string, string>; // 马总 BOM 成本手动编辑（仅马总场显示），per-tray 优先；清空 = 清除 override
