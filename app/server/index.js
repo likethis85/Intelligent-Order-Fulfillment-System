@@ -13,6 +13,8 @@ import profilesRouter from './routes/profiles.js';
 import fabricRouter from './routes/fabric.js';
 import { router as uploadRouter, UPLOAD_DIR } from './uploads.js';
 import { isOssConfigured, getOssPublicUrl, syncLocalUploadsToOss } from './oss-client.js';
+import { isJushuitanConfigured } from './jushuitan-client.js';
+import jushuitanRouter from './routes/jushuitan.js';
 import { hasCredentials, clearProductsCache, clearSamplesCache } from './vscm-client.js';
 import { clearBiCache, clearBiSkcCache, refreshBiSkc, getStockSyncStatus } from './bi-client.js';
 import { clearProfileCache } from './profile-client.js';
@@ -138,6 +140,8 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     ts: new Date().toISOString(),
     vscm: hasCredentials() ? 'configured' : 'missing-creds',
+    jushuitan: isJushuitanConfigured() ? 'configured' : 'missing-creds',
+    oss: isOssConfigured() ? 'configured' : 'missing-creds',
   });
 });
 
@@ -157,6 +161,9 @@ app.use('/api/trays', access.guardWrites, traysRouter);
 
 // 销量：直播当天 + 累计总销量（数据源 e106807e，宽表关联后数据源）
 app.use('/api/sales', salesRouter);
+
+// 聚水潭 ERP：商品资料与实时库存（现存/可用/锁库/在途）
+app.use('/api/jushuitan', jushuitanRouter);
 
 // 面料与翻单相关 API（/api/fabric-data, /api/query 等）
 // 面料数据的增删改属于货盘内容编辑；查询类 GET/POST /api/query 不受影响
@@ -428,9 +435,10 @@ server.on('close', () => ssoAuth.close());
 
 server.listen(PORT, () => {
   const vscm = hasCredentials() ? '✓ 已配' : '✗ 缺凭证';
+  const jst = isJushuitanConfigured() ? '✓ 已配' : '✗ 缺凭证';
   const oss = isOssConfigured() ? '✓ 已配' : '✗ 未配';
   console.log(`[server] Listening on http://127.0.0.1:${PORT}`);
-  console.log(`[server] 领猫凭证：${vscm} | 阿里云 OSS：${oss}`);
+  console.log(`[server] 领猫凭证：${vscm} | 聚水潭 ERP：${jst} | 阿里云 OSS：${oss}`);
   syncLocalUploadsToOss(UPLOAD_DIR)
     .then(() => cleanOrphanedUploads())
     .catch(() => {});
