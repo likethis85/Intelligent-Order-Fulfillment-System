@@ -4,16 +4,27 @@
 
   function applyCodes(codes, autoSubmit) {
     if (!codes || codes.length === 0) return;
-    const key = codes.join(',');
+    const key = codes.map(function (c) { return String(c || '').trim().toUpperCase(); }).filter(Boolean).sort().join(',');
     const now = Date.now();
-    if (key === lastAppliedKey && (now - lastAppliedTime < 500)) return;
+    var textarea = document.getElementById('pdtCodes');
+    const currentVal = textarea ? textarea.value.trim().toUpperCase().split('\n').map(function (s) { return s.trim(); }).filter(Boolean).sort().join(',') : '';
+
+    if (key === lastAppliedKey && (now - lastAppliedTime < 2500 || currentVal === key)) {
+      if (typeof window.parent !== 'undefined' && window.parent !== window.self) {
+        try { window.parent.postMessage({ type: 'fabric-ready' }, '*'); } catch (e) {}
+      }
+      return;
+    }
     lastAppliedKey = key;
     lastAppliedTime = now;
 
-    var textarea = document.getElementById('pdtCodes');
     if (textarea) textarea.value = codes.join('\n');
     if (autoSubmit) {
-      setTimeout(function () { if (typeof handleQuery === 'function') handleQuery(); }, 100);
+      if (typeof handleQuery === 'function') {
+        handleQuery();
+      } else {
+        setTimeout(function () { if (typeof handleQuery === 'function') handleQuery(); }, 30);
+      }
     }
   }
 

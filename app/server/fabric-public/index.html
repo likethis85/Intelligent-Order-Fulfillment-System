@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>面料用量及库存查询</title>
+  <script>
+    try {
+      if (window.self !== window.top) {
+        document.documentElement.classList.add('iframe-mode');
+      }
+      if (/[?&](codes|pids)=/i.test(location.search)) {
+        document.documentElement.classList.add('auto-querying');
+      }
+    } catch (e) {
+      document.documentElement.classList.add('iframe-mode');
+    }
+  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -625,19 +637,23 @@
       border: none; font-size: 16px; color: #999; cursor: pointer; }
 
     /* 嵌入模式 (iframe) 优化 */
+    html.iframe-mode body,
     body.iframe-mode {
       background: #fff;
       height: 100vh;
       overflow: hidden;
     }
+    html.iframe-mode .layout,
     body.iframe-mode .layout {
       height: 100vh;
       min-height: 100vh;
       overflow: hidden;
     }
+    html.iframe-mode .left-panel,
     body.iframe-mode .left-panel {
       display: none !important; /* 嵌入弹窗内默认隐藏侧栏，全宽展示结果 */
     }
+    html.iframe-mode .left-panel.show-panel,
     body.iframe-mode .left-panel.show-panel {
       display: block !important;
       position: fixed;
@@ -649,6 +665,7 @@
       z-index: 100;
       box-shadow: 2px 0 16px rgba(0,0,0,0.25);
     }
+    html.iframe-mode .right-panel,
     body.iframe-mode .right-panel {
       padding: 12px 16px;
       height: 100vh;
@@ -658,14 +675,17 @@
       overflow: hidden;
       box-sizing: border-box;
     }
+    html.iframe-mode .mobile-panel-toggle,
     body.iframe-mode .mobile-panel-toggle {
       display: inline-flex !important;
     }
+    html.iframe-mode .result-card,
     body.iframe-mode .result-card {
       padding: 14px 18px;
       box-shadow: none;
       border: 1px solid #eee;
     }
+    html.iframe-mode .result-card:not([style*="display: none"]),
     body.iframe-mode .result-card:not([style*="display: none"]) {
       flex: 1;
       min-height: 0;
@@ -673,23 +693,43 @@
       flex-direction: column;
       overflow: hidden;
     }
+    html.iframe-mode .result-card[style*="display: none"],
     body.iframe-mode .result-card[style*="display: none"] {
       display: none !important;
     }
+    html.iframe-mode .result-header,
     body.iframe-mode .result-header {
       margin-bottom: 10px;
       flex-shrink: 0;
     }
+    html.iframe-mode #bomWarning,
     body.iframe-mode #bomWarning {
       flex-shrink: 0;
       padding: 8px 12px;
       margin-bottom: 8px;
     }
+    html.iframe-mode .table-container,
     body.iframe-mode .table-container {
       flex: 1;
       min-height: 0;
       max-height: none !important;
       height: 100%;
+    }
+
+    /* 自动查询态：第一帧立即显示居中加载动画，防止白屏 */
+    html.auto-querying #loading,
+    .loading.show {
+      display: flex !important;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      min-height: 260px;
+      text-align: center;
+      color: #666;
+    }
+    html.auto-querying #emptyState {
+      display: none !important;
     }
 
     /* 移动端响应式 (@media (max-width: 768px)) */
@@ -1258,7 +1298,10 @@
         if (config?.supabase?.url && config?.supabase?.key && window.supabase && typeof window.supabase.createClient === 'function') {
           try {
             supabaseClient = window.supabase.createClient(config.supabase.url, config.supabase.key);
-            const { data } = await supabaseClient.auth.getSession();
+            // 设置 600ms 超时限制，避免海外 Supabase Auth 连接受阻时阻塞整个页面初始化
+            const sessionPromise = supabaseClient.auth.getSession();
+            const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: null }), 600));
+            const { data } = await Promise.race([sessionPromise, timeoutPromise]);
             if (data?.session?.user) {
               currentUser = data.session.user;
               accessToken = data.session.access_token;
@@ -1657,7 +1700,9 @@
       if (errEl) errEl.style.display = 'none';
     }
 
+    let isQueryRunning = false;
     async function handleQuery() {
+      if (isQueryRunning) return;
       const textarea = document.getElementById('pdtCodes');
       const input = textarea ? textarea.value.trim() : '';
       
@@ -1673,6 +1718,7 @@
         return;
       }
 
+      isQueryRunning = true;
       // 显示loading
       hideErrorState();
       const loadingEl = document.getElementById('loading');
@@ -1723,8 +1769,11 @@
         console.error('[handleQuery] error:', error);
         showErrorState('请求异常', error.message || '网络连接超时或服务不可用，请稍后重试。');
       } finally {
+        isQueryRunning = false;
+        document.documentElement.classList.remove('auto-querying');
         if (loadingEl) loadingEl.classList.remove('show');
         if (queryBtn) queryBtn.disabled = false;
+        try { window.parent?.postMessage({ type: 'fabric-ready' }, '*'); } catch {}
         // 防空白兜底：若既无结果展示也无错误提示，则恢复 emptyState，绝对不留空白屏
         const currentRes = document.getElementById('resultSection');
         const currentErr = document.getElementById('errorState');

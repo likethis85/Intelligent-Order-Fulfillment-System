@@ -4662,6 +4662,11 @@ export default function TraysPage({
   const fabricIframeRef = useRef<HTMLIFrameElement | null>(null);
   // 翻单弹窗（sales.html）iframe ref，同样提到顶层避免 IIFE 内对象字面量被 React 重置
   const salesIframeRef = useRef<HTMLIFrameElement | null>(null);
+  // 面料弹窗 iframe 加载中状态（避免初次打开白屏无反馈）
+  const [fabricIframeLoading, setFabricIframeLoading] = useState(true);
+  useEffect(() => {
+    if (fabricPicker) setFabricIframeLoading(true);
+  }, [fabricPicker]);
   // 当前货盘的实时引用：postMessage 监听器是长生命周期闭包，若直接用闭包里的 tray，
   // 会拿旧快照覆盖整个 tray（fabric-selected 一写就把刚标记的 noRestockItems 冲掉）
   const trayRef = useRef<Tray | null>(null);
@@ -4676,6 +4681,10 @@ export default function TraysPage({
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
       if (!ev.data || typeof ev.data !== 'object') return;
+      if (ev.data.type === 'fabric-ready') {
+        setFabricIframeLoading(false);
+        return;
+      }
       // 面料文本回填
       if (ev.data.type === 'fabric-selected' && ev.data.source === 'fabric-query') {
         const text: string = String(ev.data.payload?.text || '').trim();
@@ -6440,7 +6449,7 @@ export default function TraysPage({
           win.postMessage({
             type: 'fabric-prefill',
             codes: fpPids.map((p) => p.toUpperCase()),
-            autoSubmit: true,
+            autoSubmit: false,
           }, window.location.origin);
         }
         // 聚合所有 pid 的 noRestock 计数（占位标记且该款已有真实面料时不算数，跟面料格渲染口径一致）
@@ -6468,17 +6477,34 @@ export default function TraysPage({
                   <X size={16} />
                 </button>
               </div>
-              <iframe
-                key="fabric-q-iframe"
-                ref={fabricIframeRef}
-                src={`${FABRIC_BASE}/index.html?codes=${fpPids.map((p) => p.toUpperCase()).join(',')}`}
-                className="flex-1 w-full border-0"
-                title="fabric_Q 面料查询"
-                onLoad={() => {
-                  // iframe 重新加载完成后再 prefill，避免父组件 render 导致反复查询
-                  setTimeout(prefillFabricQ, 200);
-                }}
-              />
+              <div className="relative flex-1 w-full min-h-[360px] flex flex-col bg-surface-card overflow-hidden">
+                {fabricIframeLoading && (
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-surface-card/95 backdrop-blur-[1px]">
+                    <div className="flex flex-col items-center gap-3 p-6 rounded-xl border border-edge bg-surface-card shadow-lg text-center max-w-[360px]">
+                      <span className="inline-block h-8 w-8 animate-spin rounded-full border-3 border-edge-strong border-t-action-link" />
+                      <div>
+                        <div className="text-[13px] font-semibold text-ink-primary">
+                          正在查询面料与库存…
+                        </div>
+                        <div className="mt-1 text-[11.5px] text-ink-muted font-mono">
+                          {fpPids.join(' / ')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <iframe
+                  key="fabric-q-iframe"
+                  ref={fabricIframeRef}
+                  src={`${FABRIC_BASE}/index.html?codes=${fpPids.map((p) => p.toUpperCase()).join(',')}`}
+                  className="flex-1 w-full border-0"
+                  title="fabric_Q 面料查询"
+                  onLoad={() => {
+                    setFabricIframeLoading(false);
+                    setTimeout(prefillFabricQ, 100);
+                  }}
+                />
+              </div>
               {/* 底部说明：勾选操作在 fabric_Q 内部完成（结果表格最右列「翻单」checkbox） */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-edge bg-surface-subtle px-3 py-2 sm:px-5 sm:py-2.5 text-[11px] sm:text-[11.5px] gap-1 sm:gap-2">
                 <span className="text-ink-secondary">
