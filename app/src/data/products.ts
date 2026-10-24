@@ -126,6 +126,7 @@ export interface NoRestockItem {
 export interface CustomProduct {
   id: string; // 款号
   name: string; // 商品名称
+  colors?: string[]; // 自定义颜色列表（如 ['黑色', '驼色']）
 }
 
 export interface Tray {

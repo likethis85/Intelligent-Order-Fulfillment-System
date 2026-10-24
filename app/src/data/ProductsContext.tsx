@@ -93,16 +93,18 @@ export function useProductResolver(
       const sample = sampleMap.get(lower);
       if (sample) return sample;
 
-      // 3. 再次查自定义未入库款（展示用户自填名称）
+      // 3. 再次查自定义未入库款（展示用户自填名称与自定义颜色）
       if (customMap) {
         const custom = customMap[lower];
         if (custom) {
           const customName = typeof custom === 'string' ? custom : custom.name;
           const customId = typeof custom === 'object' && custom.id ? custom.id : id;
+          const customColors = typeof custom === 'object' && Array.isArray((custom as any).colors) ? (custom as any).colors : [];
           return {
             ...EMPTY_PRODUCT(id),
             id: customId || id,
             name: customName || id.toUpperCase(),
+            colors: customColors,
             isCustom: true,
           };
         }

@@ -75,8 +75,9 @@ export function mergeTray(local: Tray, remote: Tray): Tray {
 function valStr(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'object') {
-    const o = v as { id?: string; name?: string };
-    return o.name ? `${o.id || ''}:${o.name}` : JSON.stringify(o);
+    const o = v as { id?: string; name?: string; colors?: string[] };
+    const colorStr = o.colors && o.colors.length > 0 ? ` (${o.colors.join('/')})` : '';
+    return o.name ? `${o.id || ''}:${o.name}${colorStr}` : JSON.stringify(o);
   }
   return String(v);
 }
