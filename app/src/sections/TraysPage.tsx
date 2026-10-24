@@ -64,187 +64,229 @@ function CodeSuffixEditor({ value, onSave }: { value: string; onSave: (v: string
   );
 }
 
-// 款号格子配色快捷选择器（背景色：黄色/蓝色/默认无色，字体色：红色/默认黑色）
-function CodeColorPicker({
-  bgColor,
-  fgColor,
-  onSelectBg,
-  onSelectFg,
+// ── 款号格子配色设置弹窗：全屏遮罩/居中弹窗，在移动端 100% 比例清晰展示，彻底杜绝遮挡注脚与触控困难 ──
+function CodeColorPickerDialog({
+  target,
+  tray,
+  readOnly = false,
+  onClose,
+  onSetBgColor,
+  onSetFgColor,
   onReset,
-  disabled = false,
 }: {
-  bgColor?: string;
-  fgColor?: string;
-  onSelectBg: (color: string) => void;
-  onSelectFg: (color: string) => void;
+  target: { sectionId: string; lookId: string; pids: string[]; lookIdx?: number };
+  tray: Tray;
+  readOnly?: boolean;
+  onClose: () => void;
+  onSetBgColor: (color: string) => void;
+  onSetFgColor: (color: string) => void;
   onReset: () => void;
-  disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
+  const section = tray.sections.find((x) => x.id === target.sectionId);
+  const look = section?.looks.find((y) => y.id === target.lookId);
+  if (!section || !look) return null;
 
-  useEffect(() => {
-    if (!open) return;
-    const handleDown = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', handleDown);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleDown);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [open]);
-
-  if (disabled) return null;
-
-  const hasCustom = (bgColor && bgColor !== 'none') || (fgColor && fgColor !== 'black');
+  const currentBg = tray.codeBgColorByLook?.[look.id] || look.codeBgColor || '';
+  const currentFg = tray.codeFgColorByLook?.[look.id] || look.codeFgColor || '';
+  const hasCustom = Boolean((currentBg && currentBg !== 'none') || (currentFg && currentFg !== 'black'));
 
   return (
-    <div className="absolute top-1 right-1 z-20 print:hidden select-none" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className={`rounded p-1 transition-all cursor-pointer ${
-          open
-            ? 'bg-action-primary text-white shadow-xs'
-            : hasCustom
-              ? 'opacity-85 hover:opacity-100 bg-surface-card/90 hover:bg-surface-card text-action-primary border border-action-primary/30 shadow-2xs'
-              : 'opacity-0 group-hover/cell:opacity-100 group-hover:opacity-100 text-ink-faint hover:text-ink-primary hover:bg-surface-card/90'
-        }`}
-        title="设置款号格子颜色（背景色/字体色）"
+    <div className="code-color-dialog fixed inset-0 z-50 flex items-center justify-center p-3 select-none">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="款号格子配色设置"
+        className="relative flex flex-col w-[390px] max-w-[95vw] rounded-2xl border border-edge bg-surface-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
       >
-        <Palette size={11} />
-      </button>
+        {/* 标题栏 */}
+        <div className="flex items-center justify-between border-b border-edge px-5 py-3.5 bg-surface-base">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-primary/10 text-action-primary">
+              <Palette size={16} />
+            </div>
+            <div>
+              <h3 className="text-[14px] font-semibold text-ink-primary">款号格子配色</h3>
+              <p className="text-[11px] text-ink-muted">
+                {section.label} · 坑位 {typeof target.lookIdx === 'number' ? target.lookIdx + 1 : ''}（{target.pids.length} 款）
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-ink-muted hover:bg-surface-subtle hover:text-ink-primary transition-colors cursor-pointer"
+            aria-label="关闭"
+          >
+            <X size={16} />
+          </button>
+        </div>
 
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-edge bg-surface-card p-2.5 shadow-xl text-left select-none z-30 animate-in fade-in zoom-in-95 duration-100"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="text-[11px] font-semibold text-ink-primary mb-2 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <Palette size={12} className="text-action-primary" />
-              款号格子配色
-            </span>
-            {hasCustom && (
-              <button
-                type="button"
-                onClick={() => {
-                  onReset();
-                  toast.success('已恢复款号默认配色');
-                }}
-                className="text-[10px] text-ink-muted hover:text-stage-return-fg flex items-center gap-0.5 cursor-pointer"
-                title="恢复默认无色背景与黑色字体"
-              >
-                <RotateCcw size={10} />
-                重置
-              </button>
-            )}
+        {/* 主体设置区 */}
+        <div className="p-5 space-y-4">
+          {/* 实时预览 */}
+          <div>
+            <div className="text-[11px] font-medium text-ink-muted mb-1.5 flex items-center justify-between">
+              <span>效果预览</span>
+              {hasCustom && (
+                <span className="text-[10px] text-action-primary font-medium">已设置自定义颜色</span>
+              )}
+            </div>
+            <div
+              className={`rounded-xl border border-ink-disabled/60 p-3.5 text-center transition-all ${
+                currentBg === 'yellow'
+                  ? '!bg-[#fef08a] dark:!bg-[#854d0e]/40'
+                  : currentBg === 'blue'
+                    ? '!bg-[#bae6fd] dark:!bg-[#075985]/40'
+                    : 'bg-surface-card'
+              }`}
+            >
+              <div className="space-y-1">
+                {target.pids.map((pid) => (
+                  <div
+                    key={pid}
+                    className={`font-mono text-[13px] ${
+                      currentFg === 'red' ? 'text-[#dc2626] font-bold' : 'text-ink-primary font-semibold'
+                    }`}
+                  >
+                    {pid.toUpperCase()}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* 背景颜色选择 */}
-          <div className="mb-2.5">
-            <div className="text-[10px] text-ink-muted mb-1 font-medium">格子背景颜色</div>
-            <div className="grid grid-cols-3 gap-1">
+          {/* 格子背景颜色 */}
+          <div>
+            <div className="text-[11.5px] font-semibold text-ink-primary mb-2">格子背景颜色</div>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => {
-                  onSelectBg('');
-                  toast.success('已恢复默认无色背景');
+                  onSetBgColor('');
+                  toast.success('已设为默认无色背景');
                 }}
-                className={`flex items-center justify-center gap-1 py-1 px-1 rounded border text-[10.5px] transition-all cursor-pointer ${
-                  !bgColor || bgColor === 'none'
-                    ? 'border-action-primary bg-action-primary/10 font-bold text-action-primary shadow-2xs'
-                    : 'border-edge hover:bg-surface-subtle text-ink-secondary'
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl border text-[12px] font-medium transition-all cursor-pointer ${
+                  !currentBg || currentBg === 'none'
+                    ? 'border-action-primary bg-action-primary/10 text-action-primary ring-2 ring-action-primary/30 shadow-xs font-bold'
+                    : 'border-edge bg-surface-subtle hover:bg-surface-card text-ink-secondary'
                 }`}
               >
-                <span className="w-2.5 h-2.5 rounded-full border border-edge-strong bg-white" />
-                无色
+                <div className="w-5 h-5 rounded-full border border-dashed border-ink-muted bg-white flex items-center justify-center">
+                  <span className="w-3 h-0.5 bg-red-400 rotate-45 transform" />
+                </div>
+                <span>默认无色</span>
               </button>
+
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => {
-                  onSelectBg('yellow');
-                  toast.success('已设款号背景为黄色');
+                  onSetBgColor('yellow');
+                  toast.success('已设为黄色背景');
                 }}
-                className={`flex items-center justify-center gap-1 py-1 px-1 rounded border text-[10.5px] transition-all cursor-pointer ${
-                  bgColor === 'yellow'
-                    ? 'border-amber-500 bg-[#fef08a] font-bold text-amber-950 ring-1 ring-amber-400 shadow-2xs'
-                    : 'border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900'
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl border text-[12px] font-medium transition-all cursor-pointer ${
+                  currentBg === 'yellow'
+                    ? 'border-amber-500 bg-[#fef08a] text-amber-950 ring-2 ring-amber-400 shadow-xs font-bold'
+                    : 'border-amber-200 bg-amber-50/70 hover:bg-amber-100 text-amber-900'
                 }`}
               >
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-500" />
-                黄色
+                <span className="w-5 h-5 rounded-full bg-[#fef08a] border-2 border-amber-400 shadow-2xs" />
+                <span>黄色</span>
               </button>
+
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => {
-                  onSelectBg('blue');
-                  toast.success('已设款号背景为蓝色');
+                  onSetBgColor('blue');
+                  toast.success('已设为蓝色背景');
                 }}
-                className={`flex items-center justify-center gap-1 py-1 px-1 rounded border text-[10.5px] transition-all cursor-pointer ${
-                  bgColor === 'blue'
-                    ? 'border-sky-500 bg-[#bae6fd] font-bold text-sky-950 ring-1 ring-sky-400 shadow-2xs'
-                    : 'border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-900'
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl border text-[12px] font-medium transition-all cursor-pointer ${
+                  currentBg === 'blue'
+                    ? 'border-sky-500 bg-[#bae6fd] text-sky-950 ring-2 ring-sky-400 shadow-xs font-bold'
+                    : 'border-sky-200 bg-sky-50/70 hover:bg-sky-100 text-sky-900'
                 }`}
               >
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 border border-sky-500" />
-                蓝色
+                <span className="w-5 h-5 rounded-full bg-[#bae6fd] border-2 border-sky-400 shadow-2xs" />
+                <span>蓝色</span>
               </button>
             </div>
           </div>
 
-          {/* 字体颜色选择 */}
+          {/* 字体颜色 */}
           <div>
-            <div className="text-[10px] text-ink-muted mb-1 font-medium">款号字体颜色</div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="text-[11.5px] font-semibold text-ink-primary mb-2">款号字体颜色</div>
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => {
-                  onSelectFg('');
+                  onSetFgColor('');
                   toast.success('已恢复默认黑色字体');
                 }}
-                className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded border text-[10.5px] transition-all cursor-pointer ${
-                  !fgColor || fgColor === 'black'
-                    ? 'border-action-primary bg-action-primary/10 font-bold text-action-primary shadow-2xs'
-                    : 'border-edge hover:bg-surface-subtle text-ink-secondary'
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-[12px] font-medium transition-all cursor-pointer ${
+                  !currentFg || currentFg === 'black'
+                    ? 'border-action-primary bg-action-primary/10 text-action-primary ring-2 ring-action-primary/30 shadow-xs font-bold'
+                    : 'border-edge bg-surface-subtle hover:bg-surface-card text-ink-secondary'
                 }`}
               >
-                <span className="w-2.5 h-2.5 rounded-full bg-gray-900" />
-                默认黑色
+                <span className="w-3.5 h-3.5 rounded-full bg-slate-900" />
+                <span>默认黑色</span>
               </button>
+
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => {
-                  onSelectFg('red');
-                  toast.success('已设款号字体为红色');
+                  onSetFgColor('red');
+                  toast.success('已设为红色字体');
                 }}
-                className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded border text-[10.5px] transition-all cursor-pointer ${
-                  fgColor === 'red'
-                    ? 'border-red-500 bg-red-50 font-bold text-red-600 ring-1 ring-red-400 shadow-2xs'
-                    : 'border-red-200 bg-red-50/50 hover:bg-red-50 text-red-600'
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-[12px] font-medium transition-all cursor-pointer ${
+                  currentFg === 'red'
+                    ? 'border-red-500 bg-red-50 text-red-600 ring-2 ring-red-400 shadow-xs font-bold'
+                    : 'border-red-200 bg-red-50/60 hover:bg-red-100 text-red-600'
                 }`}
               >
-                <span className="w-2.5 h-2.5 rounded-full bg-red-600" />
-                红色
+                <span className="w-3.5 h-3.5 rounded-full bg-red-600" />
+                <span>红色字体</span>
               </button>
             </div>
           </div>
         </div>
-      )}
+
+        {/* 底部按钮栏 */}
+        <div className="flex items-center justify-between border-t border-edge bg-surface-base px-5 py-3">
+          {hasCustom && !readOnly ? (
+            <button
+              type="button"
+              onClick={() => {
+                onReset();
+                toast.success('已恢复款号默认配色');
+              }}
+              className="flex items-center gap-1.5 text-[11.5px] text-ink-muted hover:text-stage-return-fg transition-colors cursor-pointer py-1"
+            >
+              <RotateCcw size={12} />
+              恢复默认
+            </button>
+          ) : (
+            <div />
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg bg-action-primary px-5 py-2 text-[12.5px] font-medium text-white hover:bg-action-primary-hover transition-colors shadow-sm cursor-pointer"
+          >
+            完成
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+
 
 // 稳健解析坑位当前封面款号：优先有效 cover，回退到 pids[0]
 export function getCoverPid(look: { cover?: string | null; pids: string[] }): string {
@@ -2551,6 +2593,7 @@ interface FieldRenderCtx {
   onClearRestockShortName?: (pid: string) => void;
   codeBgColor?: string; // lookId 的款号格子背景颜色（yellow / blue / none）
   codeFgColor?: string; // lookId 的款号字体颜色（red / black）
+  onOpenColorPicker?: () => void;
   onSaveCodeBgColor?: (color: string) => void;
   onSaveCodeFgColor?: (color: string) => void;
 }
@@ -2798,8 +2841,33 @@ const FIELDS: FieldRow[] = [
       const fgColorCls = isRed ? 'text-[#dc2626] font-bold' : 'text-ink-primary font-semibold';
       return (
         <div className="text-center relative w-full">
+          {/* 桌面端悬停调色板图标：放在左侧，绝不遮挡右侧注脚 */}
+          {!ctx.readOnly && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.onOpenColorPicker?.();
+              }}
+              className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded text-ink-faint hover:text-ink-primary hover:bg-black/5 dark:hover:bg-white/10 opacity-0 group-hover/cell:opacity-100 transition-opacity hidden sm:block cursor-pointer print:hidden"
+              title="设置款号格子颜色（黄色/蓝色/红字）"
+            >
+              <Palette size={11} />
+            </button>
+          )}
           <span className="group relative inline-flex items-center justify-center">
-            <span className={`font-mono text-[12px] ${fgColorCls}`}>{p.id.toUpperCase()}</span>
+            {/* 点击款号文本本身：电脑与手机触控均可直接调出配色弹窗 */}
+            <span
+              onClick={() => {
+                if (!ctx.readOnly) ctx.onOpenColorPicker?.();
+              }}
+              className={`font-mono text-[12px] ${fgColorCls} ${
+                !ctx.readOnly ? 'cursor-pointer hover:opacity-80 active:scale-95 transition-all' : ''
+              }`}
+              title={!ctx.readOnly ? '点击设置款号格子颜色（黄色/蓝色/红字）' : undefined}
+            >
+              {p.id.toUpperCase()}
+            </span>
             <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
               <CodeSuffixEditor
                 value={ctx.codeSuffixOverride ?? ''}
@@ -2807,18 +2875,6 @@ const FIELDS: FieldRow[] = [
               />
             </span>
           </span>
-          {!ctx.readOnly && (
-            <CodeColorPicker
-              bgColor={ctx.codeBgColor}
-              fgColor={ctx.codeFgColor}
-              onSelectBg={(c) => ctx.onSaveCodeBgColor?.(c)}
-              onSelectFg={(c) => ctx.onSaveCodeFgColor?.(c)}
-              onReset={() => {
-                ctx.onSaveCodeBgColor?.('');
-                ctx.onSaveCodeFgColor?.('');
-              }}
-            />
-          )}
         </div>
       );
     },
@@ -2828,10 +2884,34 @@ const FIELDS: FieldRow[] = [
       const fgColorCls = isRed ? 'text-[#dc2626] font-bold' : 'text-ink-primary font-semibold';
       return (
         <div className="space-y-0.5 relative w-full">
+          {/* 桌面端悬停调色板图标：放在左侧，绝不遮挡右侧注脚 */}
+          {!ctx.readOnly && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.onOpenColorPicker?.();
+              }}
+              className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded text-ink-faint hover:text-ink-primary hover:bg-black/5 dark:hover:bg-white/10 opacity-0 group-hover/cell:opacity-100 transition-opacity hidden sm:block cursor-pointer print:hidden"
+              title="设置款号格子颜色（黄色/蓝色/红字）"
+            >
+              <Palette size={11} />
+            </button>
+          )}
           {ps.map((p) => (
             <div key={p.id} className="text-center leading-5">
               <span className="group relative inline-flex items-center justify-center">
-                <span className={`font-mono text-[12px] ${fgColorCls}`}>{p.id.toUpperCase()}</span>
+                <span
+                  onClick={() => {
+                    if (!ctx.readOnly) ctx.onOpenColorPicker?.();
+                  }}
+                  className={`font-mono text-[12px] ${fgColorCls} ${
+                    !ctx.readOnly ? 'cursor-pointer hover:opacity-80 active:scale-95 transition-all' : ''
+                  }`}
+                  title={!ctx.readOnly ? '点击设置款号格子颜色（黄色/蓝色/红字）' : undefined}
+                >
+                  {p.id.toUpperCase()}
+                </span>
                 <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
                   <CodeSuffixEditor
                     value={ctx.codeSuffixOverrides?.[p.id] ?? ''}
@@ -2841,18 +2921,6 @@ const FIELDS: FieldRow[] = [
               </span>
             </div>
           ))}
-          {!ctx.readOnly && (
-            <CodeColorPicker
-              bgColor={ctx.codeBgColor}
-              fgColor={ctx.codeFgColor}
-              onSelectBg={(c) => ctx.onSaveCodeBgColor?.(c)}
-              onSelectFg={(c) => ctx.onSaveCodeFgColor?.(c)}
-              onReset={() => {
-                ctx.onSaveCodeBgColor?.('');
-                ctx.onSaveCodeFgColor?.('');
-              }}
-            />
-          )}
         </div>
       );
     },
@@ -4281,6 +4349,7 @@ export default function TraysPage({
   const [fabricPicker, setFabricPicker] = useState<{ sectionId: string; lookId: string; pid: string } | null>(null);
   const [restockPicker, setRestockPicker] = useState<{ sectionId: string; lookId: string } | null>(null);
   const [deletePidTarget, setDeletePidTarget] = useState<{ sectionId: string; lookId: string; lookIdx: number } | null>(null);
+  const [colorPickerTarget, setColorPickerTarget] = useState<{ sectionId: string; lookId: string; pids: string[]; lookIdx?: number } | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   // 修改记录抽屉：右侧滑出，读 /api/trays/log
@@ -4432,12 +4501,12 @@ export default function TraysPage({
     const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
-    const dialog = document.querySelector<HTMLElement>('.product-picker, .cover-dialog, .tray-iframe-dialog, .tray-history, .delete-pid-dialog');
+    const dialog = document.querySelector<HTMLElement>('.product-picker, .cover-dialog, .tray-iframe-dialog, .tray-history, .delete-pid-dialog, .code-color-dialog');
     const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select, textarea, iframe, [tabindex="0"]') ?? []).filter((el) => el.getClientRects().length > 0);
     focusable()[0]?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setPicker(null); setCoverMenu(null); setFabricPicker(null); setRestockPicker(null); setShowLog(false); setDeletePidTarget(null);
+        setPicker(null); setCoverMenu(null); setFabricPicker(null); setRestockPicker(null); setShowLog(false); setDeletePidTarget(null); setColorPickerTarget(null);
       }
       if (event.key === 'Tab') {
         const items = focusable();
@@ -4452,7 +4521,7 @@ export default function TraysPage({
       document.removeEventListener('keydown', onKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
-  }, [picker, coverMenu, fabricPicker, restockPicker, showLog, deletePidTarget]);
+  }, [picker, coverMenu, fabricPicker, restockPicker, showLog, deletePidTarget, colorPickerTarget]);
   // 删除确认弹窗：点击 trash 图标先 set 这个，再渲染 Radix AlertDialog 二次确认
   //   避免之前 window.confirm 在某些场景下被自动 dismiss 或被误点
   const [pendingDelete, setPendingDelete] = useState<Tray | null>(null);
@@ -5825,6 +5894,15 @@ export default function TraysPage({
                                         >
                                           <ArrowRight size={10} /> 右移一位
                                         </button>
+                                        <button
+                                          onClick={() => {
+                                            setColorPickerTarget({ sectionId: s.id, lookId: l.id, pids: l.pids, lookIdx: gi });
+                                            setMenuLookId(null);
+                                          }}
+                                          className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-surface-subtle text-action-primary font-medium"
+                                        >
+                                          <Palette size={10} /> 款号配色
+                                        </button>
                                         <div className="my-1 border-t border-edge-muted" />
                                         <div className="px-3 py-1 text-[10px] tracking-wider text-ink-faint">移至版块</div>
                                         {tray.sections.filter((x) => x.id !== s.id).map((target) => (
@@ -6131,6 +6209,7 @@ export default function TraysPage({
                                     codeFgColor: tray.codeFgColorByLook?.[l.id] || l.codeFgColor,
                                     onSaveCodeBgColor: (color) => setCodeBgColor(s.id, l.id, color),
                                     onSaveCodeFgColor: (color) => setCodeFgColor(s.id, l.id, color),
+                                    onOpenColorPicker: () => setColorPickerTarget({ sectionId: s.id, lookId: l.id, pids: l.pids, lookIdx: s.looks.indexOf(l) }),
                                   });
                               if (aggNode === null) return null;
                               return (
@@ -6207,6 +6286,7 @@ export default function TraysPage({
                                     codeFgColor: tray.codeFgColorByLook?.[l.id] || l.codeFgColor,
                                     onSaveCodeBgColor: (color) => setCodeBgColor(s.id, l.id, color),
                                     onSaveCodeFgColor: (color) => setCodeFgColor(s.id, l.id, color),
+                                    onOpenColorPicker: () => setColorPickerTarget({ sectionId: s.id, lookId: l.id, pids: l.pids, lookIdx: s.looks.indexOf(l) }),
                                     })}
                                   </div>
                                 ))}
@@ -6511,6 +6591,21 @@ export default function TraysPage({
             </div>
           </div>
         </div>
+      )}
+
+      {colorPickerTarget && (
+        <CodeColorPickerDialog
+          target={colorPickerTarget}
+          tray={tray}
+          readOnly={readOnly}
+          onClose={() => setColorPickerTarget(null)}
+          onSetBgColor={(c) => setCodeBgColor(colorPickerTarget.sectionId, colorPickerTarget.lookId, c)}
+          onSetFgColor={(c) => setCodeFgColor(colorPickerTarget.sectionId, colorPickerTarget.lookId, c)}
+          onReset={() => {
+            setCodeBgColor(colorPickerTarget.sectionId, colorPickerTarget.lookId, '');
+            setCodeFgColor(colorPickerTarget.sectionId, colorPickerTarget.lookId, '');
+          }}
+        />
       )}
 
       {tray && (

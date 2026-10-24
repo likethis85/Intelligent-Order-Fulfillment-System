@@ -29,8 +29,8 @@ test('TraysPage: style code cell background and font color customization', async
     assert.ok(syncCode.includes("put('款号字体色',"));
   });
 
-  await t.test('defines CodeColorPicker component with yellow, blue, and red options', () => {
-    assert.match(code, /function CodeColorPicker\(/);
+  await t.test('defines CodeColorPicker/CodeColorPickerDialog component with yellow, blue, and red options', () => {
+    assert.match(code, /function CodeColorPicker(Dialog)?\(/);
     assert.ok(code.includes('格子背景颜色'));
     assert.ok(code.includes('字体颜色'));
     assert.ok(code.includes('黄色'));
