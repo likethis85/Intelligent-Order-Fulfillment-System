@@ -1726,7 +1726,8 @@ async function exportTrayLayoutExcel(
   const ExcelJSWorkbook = await loadExcelJS();
   const visible = t.sections.filter((s) => s.visible);
   const isMazong = t.template === 'mazong';
-  const isPast = Boolean(t.date && t.date < todayStr);
+  const hasSales = Object.values(salesByPid?.daily || {}).some((v) => v > 0) || Object.values(salesByPid?.cumulative || {}).some((v) => v > 0);
+  const isAired = Boolean(t.date && t.date < todayStr && hasSales);
 
   type Look = typeof visible[0]['looks'][0];
   // 售价：多款号坑位带有短名前缀修饰
@@ -1809,7 +1810,7 @@ async function exportTrayLayoutExcel(
       },
     },
   ];
-  if (isPast) {
+  if (isAired) {
     // 跟 UI 顺序一致：面料情况 → 直播当天销量 → 累计销量
     mainRows.splice(9, 0,
       { label: '直播当天销量', height: 35, get: (l) => { const total = l.pids.reduce((s, p) => s + ((salesByPid.daily || {})[p] || 0), 0); return total > 0 ? `${total} 件` : ''; } },
@@ -5238,7 +5239,13 @@ export default function TraysPage({
   // 销量（直播当天 + 累计总销量）：只在「已播完」的货盘（tray.date < 今天）才请求；未开播的不显示也不请求
   // 数据源：BI ETL e106807e71f8045669969e95「宽表关联后数据源」
   // 按 (tray.date, pids) 分组缓存 → 不同货盘不同日期各自一份
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }, []);
   // salesByDate[date] = { daily, cumulative } —— 仅缓存「已播完」日期（tray.date < todayStr）
   const [salesByDate, setSalesByDate] = useState<Record<string, {
     daily: Record<string, number>;
@@ -5320,7 +5327,25 @@ export default function TraysPage({
   // 每次渲染刷新引用，保证 postMessage 回写基于最新货盘
   trayRef.current = tray;
   const visible = tray.sections.filter((s) => s.visible);
-  const visibleFields = FIELDS.filter((f) => f.show(tray.template));
+
+  // 是否已开播：场次日期早于今天，且已拉取到销量并存在实际销售数据（排除未来日期、当天未播、无销量的测试/废弃场次）
+  // 未开播场次不展示「直播当天销量」与「累计销量」行
+  const isAired = useMemo(() => {
+    if (!tray?.date || tray.date >= todayStr) return false;
+    const slot = salesByDate[tray.date];
+    if (!slot) return false;
+    const hasDaily = Object.values(slot.daily || {}).some((v) => v > 0);
+    const hasCumu = Object.values(slot.cumulative || {}).some((v) => v > 0);
+    return hasDaily || hasCumu;
+  }, [tray?.date, todayStr, salesByDate]);
+
+  const visibleFields = FIELDS.filter((f) => {
+    if (!f.show(tray.template)) return false;
+    if (f.label === '直播当天销量' || f.label === '累计销量') {
+      return isAired;
+    }
+    return true;
+  });
 
   // 用户自传主图：per-look，键值 lookup。支持款式级（coverPid）自传图与坑位级（userImg）兼容。
   // 必须在 const tray 声明之后（依赖 tray.sections），否则触发 TDZ ReferenceError → 白屏
