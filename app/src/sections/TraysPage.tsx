@@ -2990,7 +2990,7 @@ const FIELDS: FieldRow[] = [
     labelCls: BLUE,
     show: (t) => t !== 'talent',
     aggregate: true,
-    render: (p) => <div className={`${RED} text-[14px] font-bold w-full leading-5 whitespace-pre-line`}>{p.restock}</div>,
+    render: (p) => <div className={`${RED} text-[12.5px] font-bold w-full leading-snug whitespace-pre-line`}>{p.restock}</div>,
     aggregateRender: (ps, _tpl, ctx) => {
       const pids = ps.map((p) => p.id);
       const restockOverrides = ctx.restockOverrides || {};
@@ -3079,7 +3079,7 @@ const FIELDS: FieldRow[] = [
             {hasAnyContent ? visibleRows.map(({ pid, text }) => {
               const lines = text.split('\n');
               return (
-                <div key={pid} className="text-[14px] font-bold mb-0.5 last:mb-0 text-center">
+                <div key={pid} className="text-[12.5px] font-bold mb-1 last:mb-0 text-center">
                   {lines.map((line, lineIdx) => {
                     if (!line.trim()) return <div key={lineIdx} className="h-4" />;
                     let matchedPid: string | null = null;
@@ -3096,26 +3096,38 @@ const FIELDS: FieldRow[] = [
                       }
                     }
                     if (matchedPid && matchedShort) {
-                      const rest = line.slice(matchedShort.length);
+                      const rest = line.slice(matchedShort.length).trim();
+                      const tokens = rest ? rest.split(/\s+/) : [];
                       const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, matchedPid));
                       return (
-                        <div key={lineIdx} className="flex items-center justify-center gap-1 leading-5">
-                          <ShortNameEditor
-                            short={matchedShort}
-                            isOverridden={isShortOverridden}
-                            disabled={ctx.readOnly}
-                            onSave={(v) => ctx.onSaveRestockShortName?.(matchedPid!, v)}
-                            onClear={() => ctx.onClearRestockShortName?.(matchedPid!)}
-                            className="text-action-danger-fg"
-                            textClassName={`text-[14px] font-bold ${isShortOverridden ? 'text-stage-return-fg' : 'text-action-danger-fg'}`}
-                          />
-                          <span>{rest}</span>
+                        <div key={lineIdx} className="text-[12.5px] font-bold leading-snug mb-1 last:mb-0 text-center [word-break:keep-all]">
+                          <span className="inline-block align-baseline mr-1">
+                            <ShortNameEditor
+                              short={matchedShort}
+                              isOverridden={isShortOverridden}
+                              disabled={ctx.readOnly}
+                              onSave={(v) => ctx.onSaveRestockShortName?.(matchedPid!, v)}
+                              onClear={() => ctx.onClearRestockShortName?.(matchedPid!)}
+                              className="text-action-danger-fg"
+                              textClassName={`text-[12.5px] font-bold ${isShortOverridden ? 'text-stage-return-fg' : 'text-action-danger-fg'}`}
+                            />
+                          </span>
+                          {tokens.map((tok, ti) => (
+                            <span key={ti} className="inline-block whitespace-nowrap mx-0.5 align-baseline">
+                              {tok}
+                            </span>
+                          ))}
                         </div>
                       );
                     }
+                    const tokens = line.trim().split(/\s+/);
                     return (
-                      <div key={lineIdx} className="whitespace-pre-line leading-5">
-                        {line}
+                      <div key={lineIdx} className="text-[12.5px] font-bold leading-snug mb-1 last:mb-0 text-center [word-break:keep-all]">
+                        {tokens.map((tok, ti) => (
+                          <span key={ti} className="inline-block whitespace-nowrap mx-0.5 align-baseline">
+                            {tok}
+                          </span>
+                        ))}
                       </div>
                     );
                   })}
