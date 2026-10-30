@@ -1,16 +1,18 @@
 // 货盘云端存储：单用户场景，磁盘 JSON 存一份
 // 路径：.cache/trays.json
 // 写盘时同时留一份带时间戳的历史快照（最多 50 份），误删可恢复
-import { mkdir, readFile, writeFile, readdir, unlink, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { getOssPublicUrl } from './oss-client.js';
 import { deleteUploadedImage, extractFilenameFromUploadUrl, UPLOAD_DIR } from './uploads.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const CACHE_DIR = join(__dirname, '.cache');
+// 允许测试把整份缓存目录指到临时目录（TRAYS_CACHE_DIR），避免碰到线上 trays.json
+const CACHE_DIR = process.env.TRAYS_CACHE_DIR || join(__dirname, '.cache');
 const TRAYS_FILE = join(CACHE_DIR, 'trays.json');
 const SNAPSHOT_DIR = join(CACHE_DIR, 'trays-snapshots');
 const MAX_SNAPSHOTS = 50;
@@ -369,34 +371,47 @@ async function load() {
   return res.trays;
 }
 
+// 写盘串行化：save() 会「读旧数据 → 快照 → 覆盖」，这两步并发就会互相踩。
+// 以前所有请求共用 `<trays>.tmp` 一个临时文件：A 写完 tmp、B 又写同一个 tmp，
+// A 先 rename 成功，B 再 rename 就是 ENOENT（接口 500，这一笔写丢）。
+// 即便不报错，两个响应的顺序也会乱（旧数据覆盖新数据）。
+// 把整个 save 排进队列，最后发起的那次写就是最终落盘的版本。
+// （临时文件本身的原子写由 atomic-write.js 统一处理，vscm 缓存也走同一份实现）
+let saveChain = Promise.resolve();
+
+function enqueueSave(task) {
+  const run = saveChain.then(task);
+  saveChain = run.then(() => {}, () => {}); // 一次失败不能卡死后续写盘
+  return run;
+}
+
 async function save(trays) {
-  await mkdir(CACHE_DIR, { recursive: true });
-  // 读取旧托盘以便对比哪些图片被废弃（恢复原图/删除坑位/删除货盘）
-  let prevTrays = [];
-  try {
-    const status = await loadTraysWithStatus();
-    if (status.ok && Array.isArray(status.trays)) {
-      prevTrays = status.trays;
-    }
-  } catch {}
+  return enqueueSave(async () => {
+    await mkdir(CACHE_DIR, { recursive: true });
+    // 读取旧托盘以便对比哪些图片被废弃（恢复原图/删除坑位/删除货盘）
+    let prevTrays = [];
+    try {
+      const status = await loadTraysWithStatus();
+      if (status.ok && Array.isArray(status.trays)) {
+        prevTrays = status.trays;
+      }
+    } catch {}
 
-  // 先留一份当前快照，再覆盖
-  await snapshot(trays);
-  // 清洗上游可能带进来的括号与自传图地址（自动迁移至阿里云 OSS 高速 CDN 地址）
-  const cleaned = trays.map((t) => cleanTrayImages(cleanTrayFabric(t)));
-  const payload = {
-    at: Date.now(),
-    count: cleaned.length,
-    trays: cleaned,
-  };
-  const tmp = TRAYS_FILE + '.tmp';
-  await writeFile(tmp, JSON.stringify(payload), 'utf8');
-  const { rename } = await import('node:fs/promises');
-  await rename(tmp, TRAYS_FILE);
+    // 先留一份当前快照，再覆盖
+    await snapshot(trays);
+    // 清洗上游可能带进来的括号与自传图地址（自动迁移至阿里云 OSS 高速 CDN 地址）
+    const cleaned = trays.map((t) => cleanTrayImages(cleanTrayFabric(t)));
+    const payload = {
+      at: Date.now(),
+      count: cleaned.length,
+      trays: cleaned,
+    };
+    await writeJsonAtomic(TRAYS_FILE, payload);
 
-  // 异步执行废弃自传图片物理清理（不阻塞主响应）
-  cleanupAbandonedImages(prevTrays, cleaned).catch((err) => {
-    console.warn('[trays-store] 清理废弃图片异常:', err.message);
+    // 异步执行废弃自传图片物理清理（不阻塞主响应）
+    cleanupAbandonedImages(prevTrays, cleaned).catch((err) => {
+      console.warn('[trays-store] 清理废弃图片异常:', err.message);
+    });
   });
 }
 

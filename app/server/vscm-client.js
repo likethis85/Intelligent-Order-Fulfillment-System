@@ -14,7 +14,8 @@
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { writeJsonAtomic } from './atomic-write.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -122,11 +123,7 @@ async function loadFromDisk() {
 
 async function saveToDisk(payload) {
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
-    const tmp = `${CACHE_FILE}.tmp`;
-    await writeFile(tmp, JSON.stringify({ at: Date.now(), payload }), 'utf8');
-    const { rename } = await import('node:fs/promises');
-    await rename(tmp, CACHE_FILE);
+    await writeJsonAtomic(CACHE_FILE, { at: Date.now(), payload });
   } catch (err) {
     console.warn('[vscm] 写盘失败（不影响内存缓存）:', err.message);
   }
@@ -308,11 +305,7 @@ async function loadSamplesFromDisk() {
 
 async function saveSamplesToDisk(payload) {
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
-    const tmp = `${SAMPLE_CACHE_FILE}.tmp`;
-    await writeFile(tmp, JSON.stringify({ at: Date.now(), payload }), 'utf8');
-    const { rename } = await import('node:fs/promises');
-    await rename(tmp, SAMPLE_CACHE_FILE);
+    await writeJsonAtomic(SAMPLE_CACHE_FILE, { at: Date.now(), payload });
   } catch (err) {
     console.warn('[vscm/samples] 写盘失败（不影响内存缓存）:', err.message);
   }
