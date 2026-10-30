@@ -16,7 +16,7 @@ import { isOssConfigured, getOssPublicUrl, syncLocalUploadsToOss } from './oss-c
 import { isJushuitanConfigured } from './jushuitan-client.js';
 import jushuitanRouter from './routes/jushuitan.js';
 import { hasCredentials, clearProductsCache, clearSamplesCache } from './vscm-client.js';
-import { clearBiCache, clearBiSkcCache, refreshBiSkc, getStockSyncStatus } from './bi-client.js';
+import { clearBiCache, clearBiSkcCache, refreshBiSkc, refreshBiProductMaster, getStockSyncStatus, setBiRefreshListener } from './bi-client.js';
 import { clearProfileCache } from './profile-client.js';
 import { clearSizeCache } from './size-client.js';
 import { clearCostCache } from './cost-client.js';
@@ -268,7 +268,7 @@ app.post('/api/sync', async (req, res) => {
 
     if (kind === '库存') {
       // 方案 1：异步后台同步 + 防重锁 + 旧缓存平滑过渡（Stale-While-Revalidate）
-      const result = await refreshBiSkc();
+      const result = await refreshBiSkc({ trigger: 'manual' });
       if (result.status === 'already_running') {
         return res.json({
           ok: true,
@@ -279,18 +279,8 @@ app.post('/api/sync', async (req, res) => {
         });
       }
 
-      // 后台任务执行完毕回调：清理关联衍生缓存并通过 WebSocket 广播给所有客户端
+      // 成功回调统一由 setBiRefreshListener 处理（清尺码/成本缓存 + WebSocket 广播），这里只兜失败
       result.promise
-        .then(({ count, elapsed }) => {
-          clearSizeCache();
-          clearCostCache();
-          broadcastToAll({
-            type: 'stock-synced',
-            at: new Date().toISOString(),
-            count,
-            message: `观远 BI 最新库存已同步完成（${count} 款，耗时 ${elapsed}s）`,
-          });
-        })
         .catch((err) => {
           broadcastToAll({
             type: 'stock-sync-failed',
@@ -315,6 +305,9 @@ app.post('/api/sync', async (req, res) => {
     clearProductsCache({ hard: true });
     clearSamplesCache({ hard: true });
     clearBiCache();
+    // 款式卡必须强制回源：SWR 读盘时旧数据仍算「未过期」不会自动刷新，按钮语义是要最新款级字段
+    const masterRefresh = refreshBiProductMaster({ trigger: 'manual' });
+    masterRefresh.promise?.catch(() => {});
     clearSizeCache();
     clearCostCache();
     clearProfileCache();
@@ -337,7 +330,8 @@ app.post('/api/sync', async (req, res) => {
       syncedAt: new Date().toISOString(),
       source: json.source,
       count: json.count,
-      message: `已从领猫 + BI 款式卡重新拉取 ${json.count} 款商品`,
+      refreshing: masterRefresh.status === 'started',
+      message: `已从领猫 + BI 款式卡重新拉取 ${json.count} 款商品${masterRefresh.status === 'started' ? '（BI 款式卡正在后台刷新，完成后自动生效）' : ''}`,
     });
   } catch (err) {
     console.error(`[sync] ${kind} 同步失败:`, err.message);
@@ -432,6 +426,25 @@ app.use((err, _req, res, _next) => {
 const server = http.createServer(app);
 attachTrayWs(server, ssoAuth, access);
 server.on('close', () => ssoAuth.close());
+
+// BI 缓存刷新成功后的联动：清掉依赖 BI 的衍生缓存（尺码/成本 ETL），并广播让前端重新拉数据。
+// 刷新可能来自后台 SWR，也可能来自「同步库存」按钮，统一在这里收口，避免重复广播。
+// 注意：只有手动同步才清尺码/成本（它们有 7 天缓存且来自数据集而不是 SKC 卡），
+// 否则每 30 分钟一次的后台刷新会把它们反复打回冷启动，反而增加 BI 压力。
+setBiRefreshListener(({ card, trigger, count, elapsed }) => {
+  if (card !== 'skc') return;
+  if (trigger === 'manual') {
+    clearSizeCache();
+    clearCostCache();
+  }
+  broadcastToAll({
+    type: 'stock-synced',
+    at: new Date().toISOString(),
+    count,
+    trigger: trigger || 'auto',
+    message: `观远 BI 最新库存已同步完成（${count} 款，耗时 ${elapsed}s）`,
+  });
+});
 
 server.listen(PORT, () => {
   const vscm = hasCredentials() ? '✓ 已配' : '✗ 缺凭证';

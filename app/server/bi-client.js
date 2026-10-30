@@ -4,8 +4,10 @@
 // 卡片 id：df3a2f4fdcfda4e09801fcb4（商品全表数据(SKC)）
 // 路径：根目录 > 商品看板 > 商品全表
 //
-// 双层缓存：
-//   内存 60s（避免并发重读盘）+ 磁盘 12h（BI 重拉一次 86s+，能省就省）
+// 缓存策略（Stale-While-Revalidate）：
+//   - 读请求永不等待回源：内存命中直接返回；没有内存就读磁盘（过期也照用）；磁盘也没有就先返回空并后台拉
+//   - 回源只走后台车道（guancli background lane），10 分钟超时 + 失败重试 + 冷却，不挤占用户请求
+//   - 数据年龄 > 12h 才算「不可信」（getBiCacheStatus().usable=false，货盘切聚水潭实时库存兜底）
 
 import { previewGuancliCard } from './guancli.js';
 import { fileURLToPath } from 'node:url';
@@ -26,13 +28,110 @@ const PRODUCT_CACHE_FILE = join(CACHE_DIR, 'bi_product_card.csv');
 const SKC_CARD_ID = 'df3a2f4fdcfda4e09801fcb4';
 const PRODUCT_CARD_ID = 'a6169c0395f884ed6a3d64f2';
 
-const MEM_TTL_MS = 60_000;
-const DISK_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+const DISK_TTL_MS = 12 * 60 * 60 * 1000; // 12h：超过即视为「不可信」，前端货盘切聚水潭实时库存兜底
+// 后台回源周期：数据超过这个年龄就发起后台重拉（不阻塞任何 HTTP 请求）
+const REFRESH_TTL_MS = Number(process.env.BI_REFRESH_TTL_MS) || 30 * 60 * 1000;
+// 内存命中窗口：期间直接返回内存缓存，避免反复解析 50MB+ 的磁盘 JSON
+const MEM_TTL_MS = Number(process.env.BI_MEM_TTL_MS) || REFRESH_TTL_MS;
+// 全量 SKC 卡实测 5 分钟级（2026-10-30 实测 296s / 15180 行 / 12MB），
+// 旧的 30s 超时注定失败。现在回源只走后台车道，超时给足，且绝不阻塞 HTTP 请求。
+const REFRESH_TIMEOUT_MS = Number(process.env.BI_REFRESH_TIMEOUT_MS) || 10 * 60 * 1000;
+const REFRESH_ATTEMPTS = Number(process.env.BI_REFRESH_ATTEMPTS) || 2;
+const RETRY_DELAY_MS = Number(process.env.BI_RETRY_DELAY_MS) || 60 * 1000;
+const FAIL_COOLDOWN_MS = Number(process.env.BI_FAIL_COOLDOWN_MS) || 10 * 60 * 1000;
+
 let cache = { at: 0, byCode: new Map(), totalRows: 0 };
 let productCache = { at: 0, byPdtCode: new Map(), totalRows: 0 };
 
-function runGuancliCardPreview(cardId) {
-  return previewGuancliCard(cardId, { limit: 100000 });
+// 后台刷新状态（SKC 卡 / 款式卡各一份）
+const refreshState = {
+  skc: { promise: null, startedAt: null, lastFailureAt: 0, lastError: null, lastSuccessAt: 0 },
+  master: { promise: null, startedAt: null, lastFailureAt: 0, lastError: null, lastSuccessAt: 0 },
+};
+
+// 刷新成功回调：由 index.js 接入「清衍生缓存 + WebSocket 广播」，避免 bi-client 反向依赖 ws 模块
+let onRefreshed = null;
+export function setBiRefreshListener(fn) {
+  onRefreshed = typeof fn === 'function' ? fn : null;
+}
+function notifyRefreshed(info) {
+  if (!onRefreshed) return;
+  try { onRefreshed(info); } catch (err) { console.warn('[bi] 刷新回调异常:', err.message); }
+}
+
+// 数据本身的生产时间（at 是「本次装载时间」，不能用来判断数据新不新）
+function dataAt(c) {
+  return c.sourceAt || c.at || 0;
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 是否该发起后台刷新（纯函数，便于单测）
+export function shouldStartRefresh({
+  hasData,
+  dataAt: at,
+  now = Date.now(),
+  refreshing = false,
+  lastFailureAt = 0,
+  cooldownMs = FAIL_COOLDOWN_MS,
+  ttlMs = REFRESH_TTL_MS,
+}) {
+  if (refreshing) return false;
+  if (hasData && at && now - at < ttlMs) return false;
+  if (lastFailureAt && now - lastFailureAt < cooldownMs) return false;
+  return true;
+}
+
+function maybeRefreshSkc() {
+  // 单飞句柄是 stockSyncState.isSyncing（refreshBiSkc 内部维护），这里不重复记账
+  if (stockSyncState.isSyncing) return;
+  const ok = shouldStartRefresh({
+    hasData: cache.byCode.size > 0,
+    dataAt: dataAt(cache),
+    refreshing: false,
+    lastFailureAt: refreshState.skc.lastFailureAt,
+  });
+  if (!ok) return;
+  runRefreshWithRetry('skc');
+}
+
+function maybeRefreshMaster() {
+  // 单飞句柄是 refreshState.master.promise（refreshBiProductMaster 内部维护）
+  if (refreshState.master.promise) return;
+  const ok = shouldStartRefresh({
+    hasData: productCache.byPdtCode.size > 0,
+    dataAt: dataAt(productCache),
+    refreshing: false,
+    lastFailureAt: refreshState.master.lastFailureAt,
+  });
+  if (!ok) return;
+  runRefreshWithRetry('master');
+}
+
+async function runRefreshWithRetry(kind) {
+  const st = refreshState[kind];
+  for (let attempt = 1; attempt <= REFRESH_ATTEMPTS; attempt++) {
+    try {
+      const r = kind === 'skc'
+        ? await refreshBiSkc({ timeoutMs: REFRESH_TIMEOUT_MS })
+        : await refreshBiProductMaster({ timeoutMs: REFRESH_TIMEOUT_MS });
+      if (r.status === 'already_running') return;
+      await r.promise;
+      st.lastFailureAt = 0;
+      return;
+    } catch (err) {
+      st.lastError = err.message;
+      console.warn(`[bi] ${kind} 后台刷新第 ${attempt}/${REFRESH_ATTEMPTS} 次失败:`, err.message);
+      if (attempt < REFRESH_ATTEMPTS) await sleep(RETRY_DELAY_MS);
+    }
+  }
+  st.lastFailureAt = Date.now();
+  console.warn(`[bi] ${kind} 连续失败 ${REFRESH_ATTEMPTS} 次，冷却 ${Math.round(FAIL_COOLDOWN_MS / 60000)} 分钟后再试`);
+}
+
+function runGuancliCardPreview(cardId, { background = false, timeoutMs } = {}) {
+  return previewGuancliCard(cardId, { limit: 100000, background, timeoutMs });
 }
 
 function parseCsv(text) {
@@ -81,31 +180,26 @@ function rowsToMap(rows) {
 }
 
 export async function loadBiProducts() {
-  // 1) 内存
+  // 1) 内存新鲜 → 直接返回（ETA 卡不阻塞请求：没有就先不显示交期，后续请求会补上）
   if (cache.byCode.size && Date.now() - cache.at < MEM_TTL_MS) {
-    // 内存命中也要确保 ETA 已加载（避免首次磁盘命中后 ETA 内存空）
-    await loadEtaMap().catch((err) => console.warn('[bi] eta 卡加载失败:', err.message));
+    // 内存里可能装的是过期数据（PM2 重启后从磁盘装载），有请求就顺手判断要不要回源，
+    // 不必等内存窗口到期
+    maybeRefreshSkc();
+    loadEtaMap().catch((err) => console.warn('[bi] eta 卡加载失败:', err.message));
     return cache;
   }
-  // 2) 磁盘（每次 miss 都重读；磁盘 ~1ms，远快于 86s 网拉）
-  const fromDisk = await loadBiFromDisk();
-  if (fromDisk) {
-    cache = fromDisk;
-    // 磁盘命中也要加载 ETA
-    await loadEtaMap().catch((err) => console.warn('[bi] eta 卡加载失败:', err.message));
+  // 2) 磁盘（过期也照用：比整列库存空着强，同时后台刷新）
+  if (!cache.byCode.size) {
+    const fromDisk = await loadBiFromDiskShared();
+    if (fromDisk && !cache.byCode.size) cache = fromDisk;
+  }
+  if (cache.byCode.size) {
+    maybeRefreshSkc();
+    loadEtaMap().catch((err) => console.warn('[bi] eta 卡加载失败:', err.message));
     return cache;
   }
-  // 3) 都没有 → guancli 拉
-  const csv = await runGuancliCardPreview(SKC_CARD_ID);
-  const rows = parseCsv(csv);
-  const byCode = rowsToMap(rows);
-  cache = { at: Date.now(), byCode, totalRows: rows.length };
-  // 同步加载 ETA（disk 命中 ~1ms；首次拉取 ~80s，缓存后可复用）
-  await loadEtaMap().catch((err) => console.warn('[bi] eta 卡加载失败:', err.message));
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[bi] SKC card loaded ${rows.length} rows, ${byCode.size} distinct codes`);
-  }
-  saveToDisk(cache).catch((err) => console.warn('[bi] 写盘失败:', err.message));
+  // 3) 一点缓存都没有：不阻塞请求，后台拉，本次返回空（库存由聚水潭兜底）
+  maybeRefreshSkc();
   return cache;
 }
 
@@ -114,27 +208,14 @@ export async function loadBiProducts() {
 // 权威字段：小名/产品名称/销售价/价格定位/价格段/图片/面料/波段/产品分类
 export async function loadBiProductMaster() {
   if (productCache.byPdtCode.size && Date.now() - productCache.at < MEM_TTL_MS) {
+    maybeRefreshMaster();
     return productCache;
   }
-  const fromDisk = await loadProductMasterFromDisk();
-  if (fromDisk) {
-    productCache = fromDisk;
-    return productCache;
+  if (!productCache.byPdtCode.size) {
+    const fromDisk = await loadProductMasterFromDiskShared();
+    if (fromDisk && !productCache.byPdtCode.size) productCache = fromDisk;
   }
-  const csv = await runGuancliCardPreview(PRODUCT_CARD_ID);
-  const rows = parseCsv(csv);
-  const byPdtCode = new Map();
-  for (const r of rows) {
-    const code = String(r['款号'] || '').trim();
-    if (!code) continue;
-    const key = code.toLowerCase();
-    if (!byPdtCode.has(key)) byPdtCode.set(key, { pdtCode: code, raw: r });
-  }
-  productCache = { at: Date.now(), byPdtCode, totalRows: rows.length };
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[bi] 款式 card loaded ${rows.length} rows, ${byPdtCode.size} distinct codes`);
-  }
-  saveProductMasterToDisk(productCache).catch((err) => console.warn('[bi/product] 写盘失败:', err.message));
+  maybeRefreshMaster();
   return productCache;
 }
 
@@ -174,21 +255,31 @@ export function getStockSyncStatus() {
 // usable=false 时货盘会切到聚水潭实时库存兜底（见 server/jushuitan-stock.js）
 export function getBiCacheStatus() {
   const now = Date.now();
-  const describe = (c) => {
+  const describe = (c, kind) => {
     const dataAt = c.sourceAt || c.at || 0;
     const ageMs = dataAt ? now - dataAt : null;
+    const st = refreshState[kind] || {};
+    const exhausting = st.lastFailureAt
+      ? Math.max(0, st.lastFailureAt + FAIL_COOLDOWN_MS - now)
+      : 0;
     return {
       rows: c.totalRows || 0,
       codes: c.byCode?.size ?? c.byPdtCode?.size ?? 0,
       dataAt: dataAt ? new Date(dataAt).toISOString() : null,
       ageMs,
+      // 只有 12h 内的数据才算「可信」；过期数据仍然会被使用（前端会标成旧数据/聚水潭兜底）
       usable: Boolean(dataAt) && ageMs !== null && ageMs < DISK_TTL_MS,
+      refreshing: Boolean(st.promise) || (kind === 'skc' && stockSyncState.isSyncing),
+      lastSuccessAt: st.lastSuccessAt ? new Date(st.lastSuccessAt).toISOString() : null,
+      lastError: kind === 'skc' ? (stockSyncState.lastError || st.lastError || null) : (st.lastError || null),
+      retryAfterMs: exhausting || null,
     };
   };
   return {
-    skc: describe(cache),
-    product: describe(productCache),
+    skc: describe(cache, 'skc'),
+    product: describe(productCache, 'master'),
     diskTtlMs: DISK_TTL_MS,
+    refreshTimeoutMs: REFRESH_TIMEOUT_MS,
     sync: { ...stockSyncState },
     checkedAt: new Date(now).toISOString(),
   };
@@ -196,7 +287,7 @@ export function getBiCacheStatus() {
 
 // 异步从观远 BI 刷新 SKC 卡（现货/在途/占单/交期），平滑过渡（Stale-While-Revalidate）：
 // 拉取期间旧缓存继续生效，新数据下载并校验成功后原子替换磁盘与内存缓存
-export async function refreshBiSkc({ timeoutMs = 300_000 } = {}) {
+export async function refreshBiSkc({ timeoutMs = REFRESH_TIMEOUT_MS, trigger = 'auto' } = {}) {
   if (stockSyncState.isSyncing) {
     return { status: 'already_running', startedAt: stockSyncState.startedAt };
   }
@@ -208,14 +299,14 @@ export async function refreshBiSkc({ timeoutMs = 300_000 } = {}) {
     const t0 = Date.now();
     try {
       console.log('[bi] 开始后台刷新观远 BI SKC 库存卡...');
-      const csv = await previewGuancliCard(SKC_CARD_ID, { limit: 100000, timeoutMs });
+      const csv = await runGuancliCardPreview(SKC_CARD_ID, { background: true, timeoutMs });
       const rows = parseCsv(csv);
       if (!rows || rows.length === 0) {
         throw new Error('观远 BI 返回了空数据');
       }
       const byCode = rowsToMap(rows);
-      // 原子替换内存缓存
-      cache = { at: Date.now(), byCode, totalRows: rows.length };
+      // 原子替换内存缓存（sourceAt = 数据生产时间，at = 装载时间）
+      cache = { at: Date.now(), sourceAt: Date.now(), byCode, totalRows: rows.length };
       // 原子保存磁盘缓存（saveToDisk 先写 .tmp 再 rename）
       await saveToDisk(cache);
       // 联动加载/刷新 ETA 卡
@@ -226,6 +317,9 @@ export async function refreshBiSkc({ timeoutMs = 300_000 } = {}) {
 
       stockSyncState.lastSyncedAt = new Date().toISOString();
       stockSyncState.lastCount = byCode.size;
+      refreshState.skc.lastSuccessAt = Date.now();
+      refreshState.skc.lastError = null;
+      notifyRefreshed({ card: 'skc', trigger, rows: rows.length, count: byCode.size, elapsed });
       return { success: true, count: byCode.size, rows: rows.length, elapsed };
     } catch (err) {
       console.error('[bi] SKC 库存卡后台刷新失败 (旧缓存仍有效):', err.message);
@@ -237,6 +331,50 @@ export async function refreshBiSkc({ timeoutMs = 300_000 } = {}) {
   })();
 
   return { status: 'started', startedAt: stockSyncState.startedAt, promise };
+}
+
+// 款式卡独立后台刷新（名称/小名/售价/图片等款级字段）
+export async function refreshBiProductMaster({ timeoutMs = REFRESH_TIMEOUT_MS, trigger = 'auto' } = {}) {
+  if (refreshState.master.promise) {
+    return { status: 'already_running', promise: refreshState.master.promise };
+  }
+
+  const promise = (async () => {
+    const t0 = Date.now();
+    try {
+      console.log('[bi] 开始后台刷新观远 BI 款式卡...');
+      const csv = await runGuancliCardPreview(PRODUCT_CARD_ID, { background: true, timeoutMs });
+      const rows = parseCsv(csv);
+      if (!rows || rows.length === 0) {
+        throw new Error('观远 BI 返回了空数据');
+      }
+      const byPdtCode = new Map();
+      for (const r of rows) {
+        const code = String(r['款号'] || '').trim();
+        if (!code) continue;
+        const key = code.toLowerCase();
+        if (!byPdtCode.has(key)) byPdtCode.set(key, { pdtCode: code, raw: r });
+      }
+      productCache = { at: Date.now(), sourceAt: Date.now(), byPdtCode, totalRows: rows.length };
+      await saveProductMasterToDisk(productCache);
+
+      const elapsed = Math.round((Date.now() - t0) / 1000);
+      console.log(`[bi] 款式卡后台刷新成功: ${rows.length} 行，${byPdtCode.size} 款，耗时 ${elapsed}s`);
+
+      refreshState.master.lastSuccessAt = Date.now();
+      refreshState.master.lastError = null;
+      notifyRefreshed({ card: 'product', trigger, rows: rows.length, count: byPdtCode.size, elapsed });
+      return { success: true, count: byPdtCode.size, rows: rows.length, elapsed };
+    } catch (err) {
+      console.error('[bi] 款式卡后台刷新失败 (旧缓存仍有效):', err.message);
+      throw err;
+    }
+  })();
+
+  refreshState.master.promise = promise;
+  refreshState.master.startedAt = new Date().toISOString();
+  promise.catch(() => {}).finally(() => { refreshState.master.promise = null; });
+  return { status: 'started', startedAt: refreshState.master.startedAt, promise };
 }
 
 export function clearBiCache({ hard = false } = {}) {
@@ -257,6 +395,22 @@ export function clearBiSkcCache({ hard = false } = {}) {
   }
 }
 
+// 单飞：冷启动时多个请求同时到达，避免并发 JSON.parse 同一个 50MB+ 文件
+let skcDiskLoad = null;
+let masterDiskLoad = null;
+function loadBiFromDiskShared() {
+  if (!skcDiskLoad) {
+    skcDiskLoad = loadBiFromDisk().finally(() => { skcDiskLoad = null; });
+  }
+  return skcDiskLoad;
+}
+function loadProductMasterFromDiskShared() {
+  if (!masterDiskLoad) {
+    masterDiskLoad = loadProductMasterFromDisk().finally(() => { masterDiskLoad = null; });
+  }
+  return masterDiskLoad;
+}
+
 async function loadBiFromDisk() {
   try {
     const text = await readFile(CACHE_FILE, 'utf8');
@@ -264,7 +418,9 @@ async function loadBiFromDisk() {
     const trimmed = text.trim();
     if (trimmed.startsWith('{')) {
       const j = JSON.parse(trimmed);
-      if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byCode) {
+      if (j && j.at && j.byCode) {
+        // 过期也照用（stale-while-revalidate）：数据旧总比整表库存空白强，
+        // 是否回源由 maybeRefreshSkc() 判定，不阻塞本次请求。
         return {
           at: Date.now(),
           // 数据本身的生产时间（at 是「本次装载时间」，不能用来判断数据新不新）
@@ -294,7 +450,8 @@ async function loadProductMasterFromDisk() {
     const trimmed = text.trim();
     if (trimmed.startsWith('{')) {
       const j = JSON.parse(trimmed);
-      if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byPdtCode) {
+      if (j && j.at && j.byPdtCode) {
+        // 过期也照用（stale-while-revalidate），回源由 maybeRefreshMaster() 判定
         return {
           at: Date.now(),
           sourceAt: j.at,
@@ -321,19 +478,19 @@ async function loadProductMasterFromDisk() {
   return null;
 }
 
-async function saveToDisk({ byCode, totalRows }) {
+async function saveToDisk({ byCode, totalRows, sourceAt, at }) {
   await mkdir(CACHE_DIR, { recursive: true });
   const tmp = `${CACHE_FILE}.tmp`;
-  const serializable = { at: Date.now(), totalRows, byCode: Array.from(byCode.entries()) };
+  const serializable = { at: at || Date.now(), sourceAt: sourceAt || at || Date.now(), totalRows, byCode: Array.from(byCode.entries()) };
   await writeFile(tmp, JSON.stringify(serializable), 'utf8');
   const { rename } = await import('node:fs/promises');
   await rename(tmp, CACHE_FILE);
 }
 
-async function saveProductMasterToDisk({ byPdtCode, totalRows }) {
+async function saveProductMasterToDisk({ byPdtCode, totalRows, sourceAt, at }) {
   await mkdir(CACHE_DIR, { recursive: true });
   const tmp = `${PRODUCT_CACHE_FILE}.tmp`;
-  const serializable = { at: Date.now(), totalRows, byPdtCode: Array.from(byPdtCode.entries()) };
+  const serializable = { at: at || Date.now(), sourceAt: sourceAt || at || Date.now(), totalRows, byPdtCode: Array.from(byPdtCode.entries()) };
   await writeFile(tmp, JSON.stringify(serializable), 'utf8');
   const { rename } = await import('node:fs/promises');
   await rename(tmp, PRODUCT_CACHE_FILE);
