@@ -238,25 +238,34 @@ export function parseColorAndSizeFromProps(propValue) {
   return { color: '', size: '' };
 }
 
+// 聚水潭查询接口的硬限制：i_ids 一次最多 20 个，且不能重复。
+// 超了接口直接报 code=170（实时库存）/ code=130（商品资料），整批失败——
+// 所以只要一次请求超过 20 款，这批的库存和商品资料就全拿不到（BI 兜底形同失效）。
+export const JST_MAX_IDS = 20;
+
+/** 按接口上限切批：去重、去空、每批不超过 max 个款号 */
+export function chunkPidsByMax(pids = [], max = JST_MAX_IDS) {
+  const clean = [...new Set(pids.map((p) => String(p).trim()).filter(Boolean))];
+  const out = [];
+  for (let i = 0; i < clean.length; i += max) out.push(clean.slice(i, i + max));
+  return out;
+}
+
 // ── 业务接口 1: 按款号列表查询商品资料（SPU 维度 + SKU 列表） ──
 export async function getItemsByPids(pids = []) {
   if (!Array.isArray(pids) || pids.length === 0) {
     return { items: [], byPid: {} };
   }
 
-  const cleanPids = [...new Set(pids.map((p) => String(p).trim()).filter(Boolean))];
   const items = [];
   const byPid = {};
 
-  // 聚水潭接口每页最大建议 50 款
-  const CHUNK_SIZE = 50;
-  for (let i = 0; i < cleanPids.length; i += CHUNK_SIZE) {
-    const chunk = cleanPids.slice(i, i + CHUNK_SIZE);
+  for (const chunk of chunkPidsByMax(pids)) {
     try {
       const data = await requestJushuitan('/open/mall/item/query', {
         i_ids: chunk,
         page_index: 1,
-        page_size: CHUNK_SIZE,
+        page_size: JST_MAX_IDS,
       });
 
       const rawItems = Array.isArray(data?.datas) ? data.datas : [];
@@ -303,7 +312,7 @@ export async function getItemsByPids(pids = []) {
 
 // ── 业务接口 2: 按款号列表查询实时库存 ──
 // 可查各仓现存总数 (qty)、可用数 (available = qty - order_lock - pick_lock)、订单锁库 (order_lock)、在途采购数 (purchase_qty)
-// 注意：单个款号可能有多个 SKU 行（一色一码一行），50 个款号轻松超过单页 100 条，
+// 注意：单个款号可能有多个 SKU 行（一色一码一行），20 个款号就能超过单页 100 条，
 // 所以必须翻页，否则库存会被静默截断（只统计到前 100 行）。
 export async function getInventoryByPids(pids = [], { pageSize = 100, maxPages = 20 } = {}) {
   if (!Array.isArray(pids) || pids.length === 0) {
@@ -315,9 +324,7 @@ export async function getInventoryByPids(pids = [], { pageSize = 100, maxPages =
   const allInventories = [];
   const seenRows = new Set();
 
-  const CHUNK_SIZE = 50;
-  for (let i = 0; i < cleanPids.length; i += CHUNK_SIZE) {
-    const chunk = cleanPids.slice(i, i + CHUNK_SIZE);
+  for (const chunk of chunkPidsByMax(cleanPids)) {
     try {
       for (let page = 1; page <= maxPages; page++) {
         const data = await requestJushuitan('/open/inventory/query', {
