@@ -85,3 +85,10 @@ CREATE POLICY "service role full access on no_restock" ON no_restock
 DROP POLICY IF EXISTS "service role full access on sku_detail" ON sku_detail;
 CREATE POLICY "service role full access on sku_detail" ON sku_detail
   FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- =====================================================
+-- 后续修正：RLS 只给 service_role 开策略，而后端用的是 anon key，
+-- 线上写入全部 42501。另有 sku_detail.section 为 NULL 时唯一约束失效、
+-- upsert 未带 on_conflict 会重复插入等问题。
+-- 统一见 scripts/sales-tables-rls.sql（可重复执行）。
+-- =====================================================

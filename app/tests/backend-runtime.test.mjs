@@ -150,8 +150,7 @@ test('real backend routes survive missing BI after SSO login, retain SCM data an
   for (const [url, status] of [
     ['/api/products/meta/filters', 200], ['/api/products/runtime001', 200],
     ['/api/profiles/stores', 503], ['/api/profiles/sku-codes', 503], ['/api/profiles/anchors', 503],
-    ['/api/remaining-inventory', 503], ['/api/sales/daily?date=2026-10-12&pids=RUNTIME001', 503],
-    ['/api/sales/cumulative?pids=RUNTIME001', 503],
+    ['/api/remaining-inventory', 503],
   ]) {
     const response = await fetch(f.origin + url, { headers });
     assert.equal(response.status, status, url);
@@ -160,6 +159,18 @@ test('real backend routes survive missing BI after SSO login, retain SCM data an
     assert.equal((await (await fetch(f.origin + '/api/auth/session', { headers })).json()).authenticated, true);
     assert.equal(f.child.exitCode, null);
   }
+  // 销量接口不再把 BI 的等待压在请求上：BI 缺失时立即返回 0 占位 + pending，
+  // 缺失款号在后台预热（这里会一直失败，但绝不能影响接口本身）
+  const startedSales = Date.now();
+  const daily = await fetch(f.origin + '/api/sales/daily?date=2026-10-12&pids=RUNTIME001', { headers });
+  assert.equal(daily.status, 200);
+  const dailyBody = await daily.json();
+  assert.equal(dailyBody.byPid.runtime001, 0);
+  assert.equal(dailyBody.pending, 1);
+  const cumu = await fetch(f.origin + '/api/sales/cumulative?pids=RUNTIME001', { headers });
+  assert.equal(cumu.status, 200);
+  assert.equal((await cumu.json()).pending, 1);
+  assert.ok(Date.now() - startedSales < 2000, '销量接口必须立刻返回，不能等 BI');
   for (const cache of ['bi_daysales.json', 'bi_cumusales.json']) await assert.rejects(readFile(path.join(f.root, 'server', '.cache', cache)), { code: 'ENOENT' });
   const reads = f.scmReads();
   const sync = await fetch(f.origin + '/api/sync', { method: 'POST', headers: { ...headers, Origin: f.origin, 'Content-Type': 'application/json' }, body: '{"kind":"商品"}' });

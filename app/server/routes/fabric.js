@@ -529,6 +529,8 @@ router.delete('/history', (_req, res) => {
 
 // ── GET /api/app-config & GET /api/config ──
 router.get('/app-config', (_req, res) => {
+  // 注意：这里下发的是 anon key（公开 key），fabric-public 页面用它初始化 Supabase Auth。
+  // 绝不能改成 SUPABASE_SERVICE_KEY —— service_role 一旦下发到浏览器就等于把库交给所有人。
   res.json({
     supabase: {
       url: process.env.SUPABASE_URL || '',

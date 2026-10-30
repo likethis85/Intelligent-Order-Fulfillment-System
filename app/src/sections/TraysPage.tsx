@@ -5140,21 +5140,33 @@ export default function TraysPage({
       return;
     }
     const ctrl = new AbortController();
-    (async () => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // 后端只读缓存立即返回、缺失款号后台预热，所以这里轮询把数字补全（最多约 5 分钟）
+    const POLL_INTERVAL_MS = 10_000;
+    const MAX_ROUNDS = 30;
+    const load = async (round: number) => {
       const merged: typeof salesByDate = {};
+      let pending = 0;
       const dates = [...byDate.entries()];
       await Promise.all(dates.map(async ([date, pids]) => {
         try {
           const r = await fetchSalesSummary(date, [...pids], { signal: ctrl.signal });
-          if (ctrl.signal.aborted) return;
+          if (ctrl.signal.aborted || stopped) return;
           merged[date] = { daily: r.daily || {}, cumulative: r.cumulative || {} };
+          pending += (r.pending?.daily || 0) + (r.pending?.cumulative || 0);
         } catch {
           if (!ctrl.signal.aborted) merged[date] = { daily: {}, cumulative: {} };
         }
       }));
-      if (!ctrl.signal.aborted) setSalesByDate(merged);
-    })();
-    return () => { ctrl.abort(); };
+      if (ctrl.signal.aborted || stopped) return;
+      setSalesByDate(merged);
+      if (pending > 0 && round < MAX_ROUNDS) {
+        timer = setTimeout(() => { load(round + 1); }, POLL_INTERVAL_MS);
+      }
+    };
+    load(0);
+    return () => { stopped = true; if (timer) clearTimeout(timer); ctrl.abort(); };
   }, [trays, todayStr]);
 
   // 当前打开的货盘销量快照：ctx 注入给 aggregateRender 用

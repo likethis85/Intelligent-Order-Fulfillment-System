@@ -8,19 +8,26 @@ const router = Router();
 const pidList = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);
 
 // 合并：一次调用同时拿当日 + 累计（节省前端两次 fetch）
+// 只读缓存立即返回，缺失款号在后台预热；pending 告诉前端还要不要再轮询
 router.get('/summary', async (req, res) => {
   const date = String(req.query.date || '').trim();
   const pids = pidList(req.query.pids);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: 'bad_date', message: 'date 须 YYYY-MM-DD' });
   }
-  if (pids.length === 0) return res.json({ date, daily: {}, cumulative: {} });
+  if (pids.length === 0) return res.json({ date, daily: {}, cumulative: {}, pending: { daily: 0, cumulative: 0 } });
   try {
     const [dailyRes, cumuRes] = await Promise.all([
       getDailySales(pids, date),
       getCumulativeSales(pids),
     ]);
-    res.json({ date, daily: dailyRes, cumulative: cumuRes, updatedAt: new Date().toISOString() });
+    res.json({
+      date,
+      daily: dailyRes.byPid,
+      cumulative: cumuRes.byPid,
+      pending: { daily: dailyRes.pending, cumulative: cumuRes.pending },
+      updatedAt: new Date().toISOString(),
+    });
   } catch (err) {
     console.warn('[sales/summary]', err.message);
     res.status(503).json({ error: 'fetch_failed', message: err.message, daily: {}, cumulative: {} });
@@ -34,10 +41,10 @@ router.get('/daily', async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: 'bad_date', message: 'date 须 YYYY-MM-DD' });
   }
-  if (pids.length === 0) return res.json({ date, byPid: {} });
+  if (pids.length === 0) return res.json({ date, byPid: {}, pending: 0 });
   try {
-    const byPid = await getDailySales(pids, date);
-    res.json({ date, byPid, updatedAt: new Date().toISOString() });
+    const { byPid, pending } = await getDailySales(pids, date);
+    res.json({ date, byPid, pending, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.warn('[sales/daily]', err.message);
     res.status(503).json({ error: 'fetch_failed', message: err.message, byPid: {} });
@@ -47,10 +54,10 @@ router.get('/daily', async (req, res) => {
 // GET /api/sales/cumulative?pids=...
 router.get('/cumulative', async (req, res) => {
   const pids = pidList(req.query.pids);
-  if (pids.length === 0) return res.json({ byPid: {} });
+  if (pids.length === 0) return res.json({ byPid: {}, pending: 0 });
   try {
-    const byPid = await getCumulativeSales(pids);
-    res.json({ byPid, updatedAt: new Date().toISOString() });
+    const { byPid, pending } = await getCumulativeSales(pids);
+    res.json({ byPid, pending, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.warn('[sales/cumulative]', err.message);
     res.status(503).json({ error: 'fetch_failed', message: err.message, byPid: {} });

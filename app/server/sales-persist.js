@@ -10,7 +10,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { supabase, isSupabaseReady } from './supabase-client.js';
+import { supabase, isSupabaseReady, warnIfRlsDenied } from './supabase-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,6 +38,15 @@ function byIdFromDisk(pid) {
 }
 
 const BATCH = 200; // 单次 upsert 行数上限（PostgREST 默认 1000，分批更稳）
+
+// 每张表的业务唯一键。必须显式传给 PostgREST：
+// supabase-js 的 upsert 不带 onConflict 时，PostgREST 只按主键(id)判冲突，
+// 而 id 是 DEFAULT gen_random_uuid() → 每次保存都会插入一批新行而不是覆盖旧行。
+const ON_CONFLICT = {
+  restock_planned: 'tray_id,pdt_code,skc,pieces,days',
+  no_restock: 'tray_id,pdt_code,skc',
+  sku_detail: 'tray_id,section,look_idx,pdt_code',
+};
 
 /**
  * 把 tray 的「计划翻单量」「不可翻单」「款号明细」整体覆盖到 supabase 三张表
@@ -133,12 +142,20 @@ export async function persistTray(tray) {
     // 即使 products.json 没这个 pid（mock/老数据），也要写入基础字段（pid/section/look_idx），
     // name/price/planned_qty/goods_value 等 product 属性允许 null，BI 后续可 join 补齐。
     const skuRows = [];
+    // unique(tray_id, section, look_idx, pdt_code) 的进程内去重：
+    // 同一坑位重复的 pid 会让 ON CONFLICT 报 "cannot affect row a second time"
+    const seenSku = new Set();
     for (const s of tray.sections || []) {
       for (let li = 0; li < (s.looks || []).length; li++) {
         const l = s.looks[li];
         for (const pid of l.pids || []) {
           const p = byIdFromDisk(pid);
           const pidLc = String(pid).toLowerCase();
+          // section 用空串而不是 null：unique 约束对 NULL 不生效，会导致每次保存都插一行
+          const section = s.label || '';
+          const skuKey = `${section}|${li + 1}|${pidLc}`;
+          if (seenSku.has(skuKey)) continue;
+          seenSku.add(skuKey);
           if (p) {
             const plannedQty = Number(p.plannedQty) || 0;
             const orderedQty = Number(p.orderedQty) || 0;
@@ -148,7 +165,7 @@ export async function persistTray(tray) {
               tray_id: trayId,
               pdt_code: pidLc,
               skc: null,
-              section: s.label || null,
+              section,
               look_idx: li + 1,
               name: p.name || null,
               color: (p.colors || []).join('/') || null,
@@ -167,7 +184,7 @@ export async function persistTray(tray) {
               tray_id: trayId,
               pdt_code: pidLc,
               skc: null,
-              section: s.label || null,
+              section,
               look_idx: li + 1,
               name: null,
               color: null,
@@ -200,11 +217,15 @@ export async function persistTray(tray) {
 
 async function bulkUpsert(table, rows) {
   if (rows.length === 0) return 0;
+  const onConflict = ON_CONFLICT[table];
   let inserted = 0;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
-    const { data, error, status, statusText } = await supabase.from(table).upsert(batch);
+    const { error, status, statusText } = await supabase
+      .from(table)
+      .upsert(batch, onConflict ? { onConflict } : undefined);
     if (error) {
+      warnIfRlsDenied(table, error);
       const detail = `${table} upsert 失败: status=${status} ${statusText} | message=${error.message || '(no message)'} | code=${error.code || '-'} | hint=${error.hint || '-'}`;
       throw new Error(detail);
     }

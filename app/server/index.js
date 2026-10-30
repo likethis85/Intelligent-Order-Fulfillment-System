@@ -1,3 +1,4 @@
+import './env.js'; // 必须第一行：在其它模块读 process.env 之前载入 server/.env
 import express from 'express';
 import http from 'node:http';
 import cors from 'cors';
@@ -32,16 +33,21 @@ import { getWeather } from './weather-client.js';
 import { attachTrayWs, broadcastToAll } from './ws-trays.js';
 import { createSsoAuth, readSsoConfig } from './sso-auth.js';
 import { createAccessControl } from './access-control.js';
+import { supabaseConfigured, usingServiceKey } from './supabase-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const envFile = path.join(__dirname, '.env');
-if (fs.existsSync(envFile) && typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(envFile); } catch {}
-}
-
 const app = express();
 const PORT = process.env.PORT || 3737;
+
+// 启动自检：只打布尔值，用来确认 .env 在模块求值前就已经载入
+console.log(
+  '[boot] env loaded: supabase=%s (serviceRole=%s) jushuitan=%s oss=%s',
+  supabaseConfigured,
+  usingServiceKey,
+  isJushuitanConfigured(),
+  isOssConfigured(),
+);
 
 const ssoAuth = createSsoAuth(readSsoConfig());
 app.use(cors({

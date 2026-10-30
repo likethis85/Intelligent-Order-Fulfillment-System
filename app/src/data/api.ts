@@ -213,6 +213,8 @@ export interface SalesSummary {
   date: string;
   daily: Record<string, number>;
   cumulative: Record<string, number>;
+  // 后端只读缓存、缺失款号在后台预热；pending > 0 说明还要轮询补数
+  pending?: { daily: number; cumulative: number };
   updatedAt?: string;
 }
 // GET /api/sales/summary?date=YYYY-MM-DD&pids=a,b,c
