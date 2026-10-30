@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Plus, Check, Sparkles, CircleAlert, Layers, Send, Bot } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Plus, Check, Sparkles, CircleAlert, Layers, Send, Bot, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { TRAY_TYPES, type Product, type RoleTag, type Tray, type TrayType } from '@/data/products';
+import { TRAY_TYPES, totalQty, goodsValue, type Product, type RoleTag, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears } from '@/data/api';
 
@@ -221,6 +221,40 @@ export default function BoardPage({
 
   const inTray = (pid: string) => tray.sections.some((s) => s.looks.some((l) => l.pids.includes(pid)));
 
+  // ── 分页：候选可能有几千款，一次全渲染会把页面拖死 ──
+  const PAGE_SIZES = [24, 48, 96];
+  const [pageSize, setPageSize] = useState(24);
+  const [page, setPage] = useState(0);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // 换筛选条件 / 切角色 Tab / 改每页数量都回到第一页
+  useEffect(() => { setPage(0); }, [pool, roleTab, pageSize]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = useMemo(
+    () => visible.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [visible, safePage, pageSize],
+  );
+  const goPage = (n: number) => {
+    const target = Math.min(Math.max(0, n), pageCount - 1);
+    if (target === safePage) return;
+    setPage(target);
+    resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  // 页码窗口：1 … 4 5 6 … 20
+  const pageButtons = useMemo<(number | '…')[]>(() => {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i);
+    const out: (number | '…')[] = [0];
+    const start = Math.max(1, safePage - 1);
+    const end = Math.min(pageCount - 2, safePage + 1);
+    if (start > 1) out.push('…');
+    for (let i = start; i <= end; i++) out.push(i);
+    if (end < pageCount - 2) out.push('…');
+    out.push(pageCount - 1);
+    return out;
+  }, [pageCount, safePage]);
+
   const send = async () => {
     const q = input.trim();
     if (!q) return;
@@ -400,7 +434,7 @@ export default function BoardPage({
       </div>
 
       {/* 结果 */}
-      <div className="board-results-tabs mt-8 flex items-center gap-6 border-b border-edge" data-local-scroll>
+      <div className="board-results-tabs mt-8 flex flex-wrap items-center gap-6 border-b border-edge" data-local-scroll>
         {(['全部', ...roleList] as const).map((r) => (
           <button
             key={r}
@@ -411,13 +445,49 @@ export default function BoardPage({
             {roleTab === r && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-action-primary" />}
           </button>
         ))}
+        <div className="ml-auto flex items-center gap-2 pb-2 text-[11.5px] text-ink-muted">
+          <span>共 {visible.length} 款</span>
+          <span className="text-ink-faint">·</span>
+          <span>每页</span>
+          {PAGE_SIZES.map((n) => (
+            <button
+              key={n}
+              onClick={() => setPageSize(n)}
+              className={`rounded-sm border px-1.5 py-0.5 text-[11px] transition-colors ${
+                pageSize === n ? 'border-edge bg-action-primary text-white' : 'border-edge-strong hover:border-edge'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 pb-10 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-        {visible.map((p) => {
+      <div ref={resultsRef} className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 pb-10 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        {pageItems.map((p) => {
           const avoid = p.ai === 'avoid';
           const added = inTray(p.id);
           const remain = remainingMap.get(p.id.toLowerCase());
+          // 属性行：比原来多带季节/版型/材质/尺码
+          const metaLine = [p.category, p.wave, p.tempBand, p.season, p.fit, p.material, p.sizeRange]
+            .filter(Boolean)
+            .join(' · ');
+          // 打标：售罄率 / 绿灯 / 红黑榜 / 30 天动销 / 发货后退货率 / 库存周转
+          const flags = [
+            p.tagSoldOut && p.tagSoldOut !== '其他' ? `售罄 ${p.tagSoldOut}` : '',
+            p.tagGreenLight === '是' ? '绿灯款' : '',
+            p.tagRedBlack && p.tagRedBlack !== '其他' ? p.tagRedBlack : '',
+            p.tagSales30d === '30天无动销' ? '30天无动销' : '',
+            p.tagReturnPostShip === '高' ? '退货率偏高' : '',
+            p.stockTurnover || '',
+          ].filter(Boolean);
+          const qty = totalQty(p);
+          const gv = goodsValue(p);
+          // 采购交期：负数 = 已超期
+          const etaMs = remain?.purchaseEtaDate
+            ? new Date(`${remain.purchaseEtaDate}T00:00:00+08:00`).getTime()
+            : Number.NaN;
+          const etaDays = Number.isFinite(etaMs) ? Math.round((etaMs - Date.now()) / 86_400_000) : null;
           return (
             <div key={p.id} className={avoid ? 'opacity-45 grayscale' : ''}>
               <div className="relative overflow-hidden bg-surface-muted">
@@ -453,6 +523,29 @@ export default function BoardPage({
               <div className="mt-1.5 text-[11.5px] leading-5 text-ink-muted">
                 现货 {p.stockMain} · 在途 {p.inTransit} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
               </div>
+              {metaLine && <div className="mt-0.5 text-[11px] text-ink-faint">{metaLine}</div>}
+              {flags.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {flags.slice(0, 4).map((t) => {
+                    const warn = /超期|无动销|偏高|黑榜|低售罄/.test(t);
+                    return (
+                      <span
+                        key={t}
+                        className={`rounded-sm px-1.5 py-0.5 text-[10px] ${warn ? 'bg-stage-return-fg/10 text-stage-return-fg' : 'bg-surface-subtle text-ink-secondary'}`}
+                      >
+                        {t}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {(qty > 0 || gv > 0) && (
+                <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-ink-muted">
+                  <span>计划翻单 <span className="font-semibold text-ink-secondary">{p.plannedQty}</span></span>
+                  <span>已下单 <span className="font-semibold text-ink-secondary">{p.orderedQty}</span></span>
+                  <span>货值 <span className="font-semibold text-ink-secondary">¥{Math.round(gv).toLocaleString()}</span></span>
+                </div>
+              )}
               {p.aiReason && <div className={`mt-1.5 text-[11px] leading-5 ${avoid ? 'text-stage-return-fg' : 'text-ink-secondary'}`}>{p.aiReason}</div>}
 
               {!remain && (
@@ -484,6 +577,12 @@ export default function BoardPage({
                       {p.returnRate !== undefined && p.returnRate !== null && p.returnRate > 0 && (
                         <span className="text-ink-faint">退货率 {(p.returnRate * 100).toFixed(0)}%</span>
                       )}
+                      {remain.last7dNetSales != null && (
+                        <span className="text-ink-faint">近7天 {Math.round(remain.last7dNetSales).toLocaleString()}</span>
+                      )}
+                      {remain.last30dNetSales != null && (
+                        <span className="text-ink-faint">近30天 {Math.round(remain.last30dNetSales).toLocaleString()}</span>
+                      )}
                     </div>
                   )}
                   <div className="mt-1.5 text-[10.5px] text-ink-primary">
@@ -491,14 +590,22 @@ export default function BoardPage({
                     {remain.purchaseEtaDate ? (
                       <>
                         <span className="font-medium">{remain.purchaseEtaDate}</span>
-                        {remain.purchaseEtaLeadDays ? <span className="ml-1 text-ink-faint">（预计 {remain.purchaseEtaLeadDays} 天）</span> : null}
+                        {etaDays !== null && (
+                          etaDays < 0 ? (
+                            <span className="ml-1 font-medium text-stage-return-fg">（已超期 {-etaDays} 天）</span>
+                          ) : etaDays === 0 ? (
+                            <span className="ml-1 text-ink-faint">（今天到仓）</span>
+                          ) : (
+                            <span className="ml-1 text-ink-faint">（预计 {etaDays} 天）</span>
+                          )
+                        )}
                       </>
                     ) : (
                       <span className="text-ink-muted">—</span>
                     )}
                   </div>
                   <div className="mt-1.5 text-[10.5px] text-ink-muted">
-                    上新 {remain.launchDate || '—'}
+                    上新 {remain.launchDate || p.launchDate || '—'}
                   </div>
                   {remain.skus.length > 0 && (
                     <div className="mt-1.5 border-t border-edge-muted pt-1.5">
@@ -553,6 +660,48 @@ export default function BoardPage({
           </div>
         )}
       </div>
+
+      {/* 分页 */}
+      {pageCount > 1 && (
+        <div className="mb-12 flex flex-wrap items-center justify-between gap-3 border-t border-edge pt-4">
+          <div className="text-[11.5px] text-ink-muted">
+            第 {safePage + 1} / {pageCount} 页 · 每页 {pageSize} 款 · 共 {visible.length} 款
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => goPage(safePage - 1)}
+              disabled={safePage === 0}
+              className="flex items-center gap-0.5 rounded-md border border-edge px-2.5 py-1.5 text-[12px] transition-colors hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={13} /> 上一页
+            </button>
+            {pageButtons.map((n, i) =>
+              n === '…' ? (
+                <span key={`gap-${i}`} className="px-1 text-[12px] text-ink-faint">…</span>
+              ) : (
+                <button
+                  key={n}
+                  onClick={() => goPage(n)}
+                  className={`min-w-[30px] rounded-md border px-2 py-1.5 text-[12px] transition-colors ${
+                    n === safePage
+                      ? 'border-action-primary bg-action-primary text-white'
+                      : 'border-edge hover:border-edge-strong'
+                  }`}
+                >
+                  {n + 1}
+                </button>
+              ),
+            )}
+            <button
+              onClick={() => goPage(safePage + 1)}
+              disabled={safePage >= pageCount - 1}
+              className="flex items-center gap-0.5 rounded-md border border-edge px-2.5 py-1.5 text-[12px] transition-colors hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              下一页 <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
