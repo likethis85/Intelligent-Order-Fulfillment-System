@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { hasCredentials, listProductsCached, mapProduct, clearProductsCache, listSampleByCodes, listSamplesCached } from '../vscm-client.js';
-import { loadBiProducts, biOverrides, biOnlyProduct, biOnlyProductFromMaster, loadBiProductMaster, biProductOverrides, getSkcsForCode } from '../bi-client.js';
+import { loadBiProducts, biOverrides, biOnlyProduct, biOnlyProductFromMaster, loadBiProductMaster, biProductOverrides, getSkcsForCode, getBiCacheStatus } from '../bi-client.js';
+import { isJushuitanConfigured } from '../jushuitan-client.js';
+import { getStockByCodes } from '../jushuitan-stock.js';
 import { deriveRoles } from '../role-rules.js';
 import { loadSizeRange, getSizeRangeForCode } from '../size-client.js';
 import { loadBomCost, getBomCostForCode } from '../cost-client.js';
@@ -327,6 +329,39 @@ router.get('/sizes/by-ids', async (req, res) => {
   } catch (err) {
     console.warn('[products/sizes] 加载失败:', err.message);
     res.json({ byCode: {}, error: err.message });
+  }
+});
+
+// BI 缓存健康度：前端据此判断库存是否还能用 BI，不能就切聚水潭兜底
+router.get('/bi-status', (_req, res) => {
+  try {
+    res.json({ ok: true, ...getBiCacheStatus() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 聚水潭实时库存备用源：BI 不可用/过期时按款号补库存
+// 返回 { byCode: { [pidLower]: { stock: string[], stockMain, inTransit, orderBook, colors, source } } }
+// 口径是「全仓」，与 BI 的「主仓」不同，前端会标注
+router.get('/stock/by-ids', async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) return res.json({ ok: true, byCode: {}, updatedAt: new Date().toISOString() });
+  if (!isJushuitanConfigured()) {
+    return res.json({ ok: true, byCode: {}, source: 'none', reason: 'jushuitan_not_configured' });
+  }
+  try {
+    const byCode = await getStockByCodes(ids);
+    res.json({
+      ok: true,
+      byCode,
+      source: 'jushuitan',
+      count: Object.keys(byCode).length,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('[products/stock] 聚水潭库存兜底失败:', err.message);
+    res.json({ ok: false, byCode: {}, error: err.message });
   }
 });
 

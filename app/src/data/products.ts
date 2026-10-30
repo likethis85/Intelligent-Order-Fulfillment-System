@@ -9,6 +9,7 @@ export interface Product {
   img: string;
   imgSource: 'BI' | '领猫' | '自传'; // 图片优先 BI，无则用领猫接口图；'自传' 用于主图位被用户自传图覆盖时显示徽标
   biOnly?: boolean; // BI 独有款（现有导出与选款界面使用）
+  biMatched?: boolean; // 是否命中 BI 卡片（false 说明 BI 里没有这款，可走聚水潭兜底）
   name: string;
   sub: string;
   colors: string[];
@@ -19,6 +20,7 @@ export interface Product {
   stock: string[];
   stockMain: number;
   inTransit: number;
+  stockSource?: 'jushuitan'; // 库存兜底来源：BI 不可用/没收录时由聚水潭实时库存填充（口径为全仓）
   restock?: string;
   fabric?: string;
   plannedQty: number; // 计划翻单放量（BI）

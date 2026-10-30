@@ -170,6 +170,30 @@ export function getStockSyncStatus() {
   return { ...stockSyncState };
 }
 
+// BI 缓存健康度：给前端判断「BI 库存是否可信」用
+// usable=false 时货盘会切到聚水潭实时库存兜底（见 server/jushuitan-stock.js）
+export function getBiCacheStatus() {
+  const now = Date.now();
+  const describe = (c) => {
+    const dataAt = c.sourceAt || c.at || 0;
+    const ageMs = dataAt ? now - dataAt : null;
+    return {
+      rows: c.totalRows || 0,
+      codes: c.byCode?.size ?? c.byPdtCode?.size ?? 0,
+      dataAt: dataAt ? new Date(dataAt).toISOString() : null,
+      ageMs,
+      usable: Boolean(dataAt) && ageMs !== null && ageMs < DISK_TTL_MS,
+    };
+  };
+  return {
+    skc: describe(cache),
+    product: describe(productCache),
+    diskTtlMs: DISK_TTL_MS,
+    sync: { ...stockSyncState },
+    checkedAt: new Date(now).toISOString(),
+  };
+}
+
 // 异步从观远 BI 刷新 SKC 卡（现货/在途/占单/交期），平滑过渡（Stale-While-Revalidate）：
 // 拉取期间旧缓存继续生效，新数据下载并校验成功后原子替换磁盘与内存缓存
 export async function refreshBiSkc({ timeoutMs = 300_000 } = {}) {
@@ -243,6 +267,8 @@ async function loadBiFromDisk() {
       if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byCode) {
         return {
           at: Date.now(),
+          // 数据本身的生产时间（at 是「本次装载时间」，不能用来判断数据新不新）
+          sourceAt: j.at,
           byCode: new Map(j.byCode),
           totalRows: j.totalRows,
         };
@@ -271,6 +297,7 @@ async function loadProductMasterFromDisk() {
       if (j && j.at && Date.now() - j.at < DISK_TTL_MS && j.byPdtCode) {
         return {
           at: Date.now(),
+          sourceAt: j.at,
           byPdtCode: new Map(j.byPdtCode),
           totalRows: j.totalRows,
         };

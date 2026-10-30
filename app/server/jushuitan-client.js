@@ -303,7 +303,9 @@ export async function getItemsByPids(pids = []) {
 
 // ── 业务接口 2: 按款号列表查询实时库存 ──
 // 可查各仓现存总数 (qty)、可用数 (available = qty - order_lock - pick_lock)、订单锁库 (order_lock)、在途采购数 (purchase_qty)
-export async function getInventoryByPids(pids = []) {
+// 注意：单个款号可能有多个 SKU 行（一色一码一行），50 个款号轻松超过单页 100 条，
+// 所以必须翻页，否则库存会被静默截断（只统计到前 100 行）。
+export async function getInventoryByPids(pids = [], { pageSize = 100, maxPages = 20 } = {}) {
   if (!Array.isArray(pids) || pids.length === 0) {
     return { byPid: {}, items: [] };
   }
@@ -311,67 +313,80 @@ export async function getInventoryByPids(pids = []) {
   const cleanPids = [...new Set(pids.map((p) => String(p).trim()).filter(Boolean))];
   const byPid = {};
   const allInventories = [];
+  const seenRows = new Set();
 
   const CHUNK_SIZE = 50;
   for (let i = 0; i < cleanPids.length; i += CHUNK_SIZE) {
     const chunk = cleanPids.slice(i, i + CHUNK_SIZE);
     try {
-      const data = await requestJushuitan('/open/inventory/query', {
-        i_ids: chunk.join(','),
-        wms_co_id: 0,
-        page_index: 1,
-        page_size: 100,
-      });
+      for (let page = 1; page <= maxPages; page++) {
+        const data = await requestJushuitan('/open/inventory/query', {
+          i_ids: chunk.join(','),
+          wms_co_id: 0,
+          page_index: page,
+          page_size: pageSize,
+        });
 
-      const invs = Array.isArray(data?.inventorys) ? data.inventorys : [];
-      for (const inv of invs) {
-        allInventories.push(inv);
-        const pid = inv.i_id;
-        const pidLower = pid.toLowerCase();
-        if (!byPid[pid]) {
-          byPid[pid] = {
-            pid,
-            name: inv.name,
-            totalQty: 0,
-            availableQty: 0,
-            orderLock: 0,
-            pickLock: 0,
-            purchaseQty: 0,
-            allocateQty: 0,
-            defectiveQty: 0,
-            skus: {},
-          };
-          byPid[pidLower] = byPid[pid];
+        const invs = Array.isArray(data?.inventorys) ? data.inventorys : [];
+        let fresh = 0;
+        for (const inv of invs) {
+          // 防重复：若接口忽略 page_index 反复返回同一页，这里直接跳过，避免库存被重复累加
+          const rowKey = `${inv.i_id}|${inv.sku_id ?? `${inv.qty}|${inv.order_lock}|${inv.modified}`}`;
+          if (seenRows.has(rowKey)) continue;
+          seenRows.add(rowKey);
+          fresh += 1;
+
+          allInventories.push(inv);
+          const pid = inv.i_id;
+          const pidLower = pid.toLowerCase();
+          if (!byPid[pid]) {
+            byPid[pid] = {
+              pid,
+              name: inv.name,
+              totalQty: 0,
+              availableQty: 0,
+              orderLock: 0,
+              pickLock: 0,
+              purchaseQty: 0,
+              allocateQty: 0,
+              defectiveQty: 0,
+              skus: {},
+            };
+            byPid[pidLower] = byPid[pid];
+          }
+
+          const qty = Number(inv.qty) || 0;
+          const orderLock = Number(inv.order_lock) || 0;
+          const pickLock = Number(inv.pick_lock) || 0;
+          const purchaseQty = Number(inv.purchase_qty) || 0;
+          const allocateQty = Number(inv.allocate_qty) || 0;
+          const defectiveQty = Number(inv.defective_qty) || 0;
+          const availableQty = Math.max(0, qty - orderLock - pickLock);
+
+          byPid[pid].totalQty += qty;
+          byPid[pid].availableQty += availableQty;
+          byPid[pid].orderLock += orderLock;
+          byPid[pid].pickLock += pickLock;
+          byPid[pid].purchaseQty += purchaseQty;
+          byPid[pid].allocateQty += allocateQty;
+          byPid[pid].defectiveQty += defectiveQty;
+
+          if (inv.sku_id) {
+            byPid[pid].skus[inv.sku_id] = {
+              skuId: inv.sku_id,
+              qty,
+              availableQty,
+              orderLock,
+              pickLock,
+              purchaseQty,
+              defectiveQty,
+              modified: inv.modified,
+            };
+          }
         }
 
-        const qty = Number(inv.qty) || 0;
-        const orderLock = Number(inv.order_lock) || 0;
-        const pickLock = Number(inv.pick_lock) || 0;
-        const purchaseQty = Number(inv.purchase_qty) || 0;
-        const allocateQty = Number(inv.allocate_qty) || 0;
-        const defectiveQty = Number(inv.defective_qty) || 0;
-        const availableQty = Math.max(0, qty - orderLock - pickLock);
-
-        byPid[pid].totalQty += qty;
-        byPid[pid].availableQty += availableQty;
-        byPid[pid].orderLock += orderLock;
-        byPid[pid].pickLock += pickLock;
-        byPid[pid].purchaseQty += purchaseQty;
-        byPid[pid].allocateQty += allocateQty;
-        byPid[pid].defectiveQty += defectiveQty;
-
-        if (inv.sku_id) {
-          byPid[pid].skus[inv.sku_id] = {
-            skuId: inv.sku_id,
-            qty,
-            availableQty,
-            orderLock,
-            pickLock,
-            purchaseQty,
-            defectiveQty,
-            modified: inv.modified,
-          };
-        }
+        // 空页、没满页、或整页都是重复数据 → 结束翻页
+        if (invs.length < pageSize || fresh === 0) break;
       }
     } catch (err) {
       console.warn(`[jushuitan] 查询款号 [${chunk.join(',')}] 实时库存失败:`, err.message);
