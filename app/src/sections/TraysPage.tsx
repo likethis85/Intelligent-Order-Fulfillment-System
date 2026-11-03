@@ -4839,11 +4839,9 @@ export default function TraysPage({
           const nextOverrides = { ...(t.restockOverrides || {}) };
           if (Object.keys(textByPdt).length > 0) {
             // 新路径：按款号分别写（多款号坑位不会共用同一段文案）
-            for (const pid of pids) {
-              const pdtText = textByPdt[pid];
-              if (pdtText !== undefined) nextOverrides[pid] = pdtText;
-              else if (text) nextOverrides[pid] = text; // 兜底：没分到组的用完整 text
-            }
+            // 没分到文案的款号 = 这次它下面没有填任何翻单，必须清空；
+            // 不能拿完整 text 兜底，否则同坑位里没填的款号会把另一款的颜色/件数原样显示出来
+            for (const pid of pids) nextOverrides[pid] = textByPdt[pid] ?? '';
           } else if (text) {
             // 旧路径：所有 pid 写同一段 text（兼容未升级的 fabric_Q）
             for (const pid of pids) nextOverrides[pid] = text;
