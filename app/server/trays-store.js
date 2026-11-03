@@ -16,6 +16,17 @@ const CACHE_DIR = process.env.TRAYS_CACHE_DIR || join(__dirname, '.cache');
 const TRAYS_FILE = join(CACHE_DIR, 'trays.json');
 const SNAPSHOT_DIR = join(CACHE_DIR, 'trays-snapshots');
 const MAX_SNAPSHOTS = 50;
+// 回收站保留天数：删除的货盘（trashedAt）超过这个期限就在保存时真正清掉，
+// 同时 cleanupAbandonedImages 会删掉它的自传图片。前端 TraysPage 的提示文案用同一个 30 天。
+const TRASH_RETENTION_DAYS = Number(process.env.TRAYS_TRASH_RETENTION_DAYS) || 30;
+const TRASH_RETENTION_MS = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+// 回收站里的货盘是否已过期（trashedAt 缺失/非法一律当正常货盘，不误删）
+export function isTrashExpired(tray, now = Date.now()) {
+  if (!tray || !tray.trashedAt) return false;
+  const at = new Date(tray.trashedAt).getTime();
+  return Number.isFinite(at) && now - at > TRASH_RETENTION_MS;
+}
 
 function normalizeUploadUrl(url) {
   if (!url || typeof url !== 'string') return url;
@@ -399,8 +410,14 @@ async function save(trays) {
 
     // 先留一份当前快照，再覆盖
     await snapshot(trays);
+    // 回收站过期清理：过期货盘从数据里真正移除（其自传图随后由 cleanupAbandonedImages 一起清掉）
+    const now = Date.now();
+    const kept = trays.filter((t) => !isTrashExpired(t, now));
+    if (kept.length !== trays.length) {
+      console.log(`[trays-store] 回收站过期清理 ${trays.length - kept.length} 个货盘（保留 ${TRASH_RETENTION_DAYS} 天）`);
+    }
     // 清洗上游可能带进来的括号与自传图地址（自动迁移至阿里云 OSS 高速 CDN 地址）
-    const cleaned = trays.map((t) => cleanTrayImages(cleanTrayFabric(t)));
+    const cleaned = kept.map((t) => cleanTrayImages(cleanTrayFabric(t)));
     const payload = {
       at: Date.now(),
       count: cleaned.length,
@@ -484,7 +501,9 @@ export async function listSnapshots() {
 
 export async function loadTrays() {
   const trays = await load();
-  return { trays, at: Date.now() };
+  // 过期的回收站货盘不再下发（下次保存时会从文件里真正清掉）
+  const now = Date.now();
+  return { trays: trays.filter((t) => !isTrashExpired(t, now)), at: Date.now() };
 }
 
 export async function saveTrays(trays) {

@@ -143,6 +143,8 @@ export interface Tray {
   editPerm: string[]; // 编辑权限
   createdAt: string;
   updatedAt?: string; // 最后修改时间（用于本地/云端合并时判断新旧）
+  trashedAt?: string | null; // 移入回收站的时间（ISO）；null/未设置 = 正常货盘
+  trashedBy?: string; // 谁删除的（回收站里展示）
   fabricOverrides?: Record<string, string>; // 面料信息覆盖（pid → fabric 文字），per-tray 优先于 product.fabric；未设置时不展示 BI 默认面料
   fabricNotes?: Record<string, string>; // 面料注脚（pid → 备注文字），追加在 BI / fabricOverrides 文本末尾；为空则不显示
   restockOverrides?: Record<string, string>; // 翻单周期覆盖（pid → restock 文字），per-tray 优先于 product.restock；从 sales.html 同步回来

@@ -16,6 +16,7 @@ import {
 import { useProducts, useProductsById, useProductResolver } from '@/data/ProductsContext';
 import { fetchSamplesByCodes, fetchSalesSummary, uploadImage, fetchRemainingInventory, fetchHengjiStatus, fetchSampleMaterials, fetchRestockStock, type HengjiStatus, type RemainingGroup, type SampleMaterialRow, type RestockStockFabric } from '@/data/api';
 import { formatTimestamp } from '@/lib/utils';
+import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -4478,15 +4479,18 @@ function CoverMenuDialog({
 
 // ── 主页面 ──
 export default function TraysPage({
-  trays, activeTrayId, onOpenTray, onCreateTray, onUpdateTray, onDeleteTray, onSync,
+  trays, trashedTrays, activeTrayId, onOpenTray, onCreateTray, onUpdateTray, onDeleteTray, onRestoreTray, onPurgeTray, onSync,
   syncing, dataVersion, readOnly = false, canSync = true,
 }: {
   trays: Tray[];
+  trashedTrays: Tray[];
   activeTrayId: string;
   onOpenTray: (id: string) => void;
   onCreateTray: (name: string, type: TrayType, date: string) => Tray;
   onUpdateTray: (t: Tray) => void;
   onDeleteTray: (id: string) => void;
+  onRestoreTray: (id: string) => void;
+  onPurgeTray: (id: string) => void;
   onSync: (kind: '商品' | '库存' | '成本及价格') => void;
   syncing: '商品' | '库存' | '成本及价格' | null;
   dataVersion: number;
@@ -4682,6 +4686,9 @@ export default function TraysPage({
   // 删除确认弹窗：点击 trash 图标先 set 这个，再渲染 Radix AlertDialog 二次确认
   //   避免之前 window.confirm 在某些场景下被自动 dismiss 或被误点
   const [pendingDelete, setPendingDelete] = useState<Tray | null>(null);
+  // 回收站抽屉 / 彻底删除确认
+  const [showTrash, setShowTrash] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState<Tray | null>(null);
   // 版块拖拽重排：{ fromId, overId, position: 'before' | 'after' }
   const [sectionDrag, setSectionDrag] = useState<{ fromId: string; overId: string; position: 'before' | 'after' } | null>(null);
   // WPS 核价表登录态：null=检查中; loggedIn=true/false 在按钮旁显示状态点
@@ -5239,8 +5246,9 @@ export default function TraysPage({
     return () => { cancelled = true; };
   }, [showLog, tray?.id, tray?.updatedAt]);
   // 每次渲染刷新引用，保证 postMessage 回写基于最新货盘
-  trayRef.current = tray;
-  const visible = tray.sections.filter((s) => s.visible);
+  trayRef.current = tray ?? null;
+  // 全部货盘都进了回收站时 tray 为 undefined，这里兜一个空列表（编辑页另有兜底）
+  const visible = tray ? tray.sections.filter((s) => s.visible) : [];
 
   // 是否已开播：场次日期早于今天，且已拉取到销量并存在实际销售数据（排除未来日期、当天未播、无销量的测试/废弃场次）
   // 未开播场次不展示「直播当天销量」与「累计销量」行
@@ -5613,6 +5621,15 @@ export default function TraysPage({
     return out;
   }, [trayPageCount, traySafePage]);
 
+  // 回收站里「还剩 N 天」/ 删除时间的展示
+  const fmtTrashTime = (iso?: string | null): string => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
   if (!editing) {
     return (
       <div className="responsive-page trays-page px-10 py-8">
@@ -5622,12 +5639,21 @@ export default function TraysPage({
             <h1 className="mt-2 text-[28px] font-bold leading-none">货盘</h1>
             <p className="mt-3 text-[13px] text-ink-muted">直播货盘（马总 / 店播 / IP）· 达人货盘 · 渠道货盘</p>
           </div>
-          <button
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 rounded-md bg-action-primary px-4 py-2 text-[12.5px] font-medium text-white hover:bg-action-primary-hover"
-          >
-            <Plus size={14} /> 新增货盘
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTrash(true)}
+              className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12.5px] text-ink-secondary transition-colors hover:border-edge hover:text-ink-primary"
+              title={`删除的货盘会进回收站，${TRASH_RETENTION_DAYS} 天内可恢复`}
+            >
+              <Archive size={14} /> 回收站{trashedTrays.length > 0 ? ` (${trashedTrays.length})` : ''}
+            </button>
+            <button
+              onClick={() => setCreating(true)}
+              className="flex items-center gap-1.5 rounded-md bg-action-primary px-4 py-2 text-[12.5px] font-medium text-white hover:bg-action-primary-hover"
+            >
+              <Plus size={14} /> 新增货盘
+            </button>
+          </div>
         </div>
 
         {creating && (
@@ -5777,7 +5803,8 @@ export default function TraysPage({
                     return (
                       <span>
                         确定删除货盘 <strong className="text-ink-primary">「{pendingDelete.name} · {pendingDelete.date}」</strong> 吗？
-                        该货盘 <strong className="text-ink-primary">{looks}</strong> 个坑位、<strong className="text-ink-primary">{skus}</strong> 个款号将一并删除，<span className="text-stage-return-fg font-medium">操作后不可恢复</span>。
+                        该货盘 <strong className="text-ink-primary">{looks}</strong> 个坑位、<strong className="text-ink-primary">{skus}</strong> 个款号将一并移入回收站，
+                        <strong className="text-ink-primary">{TRASH_RETENTION_DAYS} 天内可恢复</strong>，过期自动清除。
                       </span>
                     );
                   })()}
@@ -5793,11 +5820,113 @@ export default function TraysPage({
                     const name = pendingDelete.name;
                     onDeleteTray(pendingDelete.id);
                     setPendingDelete(null);
-                    toast.success(`货盘「${name}」已删除`);
+                    toast.success(`货盘「${name}」已移入回收站`);
                   }}
                   className="rounded-md bg-stage-return-fg px-4 py-2 text-[12px] font-medium text-white hover:opacity-90"
                 >
-                  删除
+                  移入回收站
+                </AlertDialog.Action>
+              </div>
+            </AlertDialog.Content>
+          </AlertDialog.Portal>
+        </AlertDialog.Root>
+
+        {/* 回收站抽屉：删除后的货盘在这里恢复，或者彻底删除 */}
+        {showTrash && (
+          <div className="fixed inset-0 z-50 print:hidden" onClick={() => setShowTrash(false)}>
+            <div className="absolute inset-0 bg-black/30" />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="回收站"
+              className="tray-trash absolute right-0 top-0 flex h-full w-[min(440px,100vw)] flex-col border-l border-edge bg-surface-card shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-edge px-4 py-3">
+                <div>
+                  <div className="text-[13px] font-medium text-ink-primary">回收站 · {trashedTrays.length} 个货盘</div>
+                  <div className="mt-0.5 text-[11px] text-ink-muted">删除后 {TRASH_RETENTION_DAYS} 天内可恢复，过期自动清除</div>
+                </div>
+                <button onClick={() => setShowTrash(false)} className="rounded p-1 hover:bg-surface-subtle" title="关闭">
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-3">
+                {trashedTrays.length === 0 ? (
+                  <div className="py-10 text-center text-[12px] text-ink-muted">回收站是空的</div>
+                ) : (
+                  <ul className="space-y-2">
+                    {trashedTrays.map((t) => (
+                      <li key={t.id} className="rounded-md border border-edge px-3 py-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium ${TYPE_COLOR[t.type]}`}>{t.type}</span>
+                              <span className="truncate text-[13px] font-medium text-ink-primary">{t.name}</span>
+                              <span className="shrink-0 text-[11.5px] text-ink-muted">{t.date}</span>
+                            </div>
+                            <div className="mt-1 text-[11px] text-ink-muted">
+                              {fmtTrashTime(t.trashedAt)} 由 {t.trashedBy || '未知'} 删除
+                            </div>
+                          </div>
+                          <span className="shrink-0 rounded bg-surface-subtle px-1.5 py-0.5 text-[10.5px] text-ink-secondary">
+                            {trashDaysLeft(t.trashedAt) > 0 ? `还剩 ${trashDaysLeft(t.trashedAt)} 天` : '今天到期'}
+                          </span>
+                        </div>
+                        {!readOnly && (
+                          <div className="mt-2 flex justify-end gap-2">
+                            <button
+                              onClick={() => onRestoreTray(t.id)}
+                              className="flex items-center gap-1 rounded-md border border-edge-strong px-2.5 py-1 text-[11.5px] text-ink-secondary hover:border-edge hover:text-ink-primary"
+                            >
+                              <RotateCcw size={12} /> 恢复
+                            </button>
+                            <button
+                              onClick={() => setPurgeTarget(t)}
+                              className="flex items-center gap-1 rounded-md border border-edge-strong px-2.5 py-1 text-[11.5px] text-stage-return-fg hover:border-stage-return-fg"
+                            >
+                              <Trash2 size={12} /> 彻底删除
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 彻底删除确认：从数据里移除 + 服务端清自传图片，不可恢复 */}
+        <AlertDialog.Root open={!!purgeTarget} onOpenChange={(o) => { if (!o) setPurgeTarget(null); }}>
+          <AlertDialog.Portal>
+            <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[1px]" />
+            <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-edge bg-surface-card p-6 shadow-2xl">
+              <AlertDialog.Title className="text-[16px] font-semibold text-ink-primary">彻底删除货盘</AlertDialog.Title>
+              <AlertDialog.Description className="mt-2 text-[13px] text-ink-secondary">
+                {purgeTarget && (
+                  <span>
+                    确定彻底删除 <strong className="text-ink-primary">「{purgeTarget.name} · {purgeTarget.date}」</strong> 吗？
+                    该货盘将从回收站移除，<span className="text-stage-return-fg font-medium">无法再恢复</span>，自传图片也会一并清除。
+                  </span>
+                )}
+              </AlertDialog.Description>
+              <div className="mt-5 flex justify-end gap-2">
+                <AlertDialog.Cancel className="rounded-md border border-edge-strong px-4 py-2 text-[12px] hover:border-edge">
+                  取消
+                </AlertDialog.Cancel>
+                <AlertDialog.Action
+                  onClick={() => {
+                    if (!purgeTarget) return;
+                    const name = purgeTarget.name;
+                    onPurgeTray(purgeTarget.id);
+                    setPurgeTarget(null);
+                    toast.success(`货盘「${name}」已彻底删除`);
+                  }}
+                  className="rounded-md bg-stage-return-fg px-4 py-2 text-[12px] font-medium text-white hover:opacity-90"
+                >
+                  彻底删除
                 </AlertDialog.Action>
               </div>
             </AlertDialog.Content>
@@ -5808,6 +5937,25 @@ export default function TraysPage({
   }
 
   // ── 编辑模式：Excel 版式 ──
+  // 正在编辑的货盘被删进回收站（或被另一端清空）时 tray 为 undefined，
+  // 不能拿它读 sections（会白屏），给一个能回列表的兜底页。
+  if (!tray) {
+    return (
+      <div className="responsive-page trays-page px-10 py-8">
+        <div className="mx-auto mt-16 max-w-[420px] rounded-lg border border-edge bg-surface-card px-6 py-10 text-center">
+          <div className="text-[15px] font-semibold text-ink-primary">这个货盘已被删除</div>
+          <p className="mt-2 text-[12.5px] text-ink-secondary">如果刚才是误删，可以到回收站里恢复。</p>
+          <button
+            onClick={() => setEditing(false)}
+            className="mt-5 rounded-md bg-action-primary px-4 py-2 text-[12.5px] font-medium text-white hover:bg-action-primary-hover"
+          >
+            返回货盘列表
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const pickerSection = picker ? tray.sections.find((s) => s.id === picker.sectionId) : null;
   const cell = 'border border-ink-disabled px-2 py-2 align-middle text-center relative group/cell';
   const labelCell = `${cell} w-[74px] text-[10px] font-semibold leading-3 text-ink-primary`;

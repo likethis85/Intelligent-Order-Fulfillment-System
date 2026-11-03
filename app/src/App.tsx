@@ -15,6 +15,7 @@ import type { AccessMe } from '@/data/api';
 import { useTraySync, diffTray } from '@/lib/traySync';
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
 import type { AuthUser } from '@/lib/api-client';
+import { isTrashExpired } from '@/lib/trayTrash';
 import type { Look, Product, Tray, TraySection, TrayType } from '@/data/products';
 import { normalizeTrayImages } from '@/data/products';
 
@@ -216,6 +217,16 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   const [trays, setTrays] = useState<Tray[]>([]);
   const [traysReady, setTraysReady] = useState(false);
   const [activeTrayId, setActiveTrayId] = useState<string>('t1');
+
+  // 回收站：trashedAt 有值的货盘不参与货盘列表 / 排品 / 看板，只出现在货盘页的回收站里
+  // 过期的（超过保留期）连回收站也不显示，服务端会在下次保存时真正清掉
+  const activeTrays = useMemo(() => trays.filter((t) => !t.trashedAt), [trays]);
+  const trashedTrays = useMemo(
+    () => trays
+      .filter((t) => t.trashedAt && !isTrashExpired(t.trashedAt))
+      .sort((a, b) => String(b.trashedAt).localeCompare(String(a.trashedAt))),
+    [trays],
+  );
 
   // 多人实时协同：WS 广播 + 收远端按键级合并
   const collabUser = user.displayName.slice(0, 30);
@@ -446,28 +457,69 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [traysReady]);
 
-  // 删除货盘：本地 + 云端同步走 useEffect 里的自动写盘（debounced PUT /api/trays）
+  // 操作记录：WS 广播之外再落一份服务端日志，WS 断线也能查到谁删的
+  const logTrayOp = (trayId: string, trayName: string, action: string) => {
+    authenticatedFetch(API_BASE + '/trays/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trayId, trayName, user: collabUser, ops: [{ action, detail: trayName }] }),
+    }).catch(() => {});
+  };
+
+  // 删除货盘 = 移入回收站（trashedAt），30 天内可在回收站恢复
+  // 本地 + 云端同步走 useEffect 里的自动写盘（debounced PUT /api/trays）
   const deleteTray = (id: string) => {
     if (!canEdit) {
       toast.error('当前账号只有查看权限，不能删除货盘');
       return;
     }
     const t = trays.find((x) => x.id === id);
-    if (t) {
-      collabRef.current?.broadcast(t, [{ action: '删除货盘', detail: t.name }]);
-      authenticatedFetch(API_BASE + '/trays/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trayId: id, trayName: t.name, user: collabUser, ops: [{ action: '删除货盘', detail: t.name }] }),
-      }).catch(() => {});
+    if (!t) return;
+    const now = new Date().toISOString();
+    const trashed: Tray = { ...t, trashedAt: now, trashedBy: collabUser, updatedAt: now };
+    collabRef.current?.broadcast(trashed, [{ action: '删除货盘', detail: t.name }]);
+    logTrayOp(id, t.name, '删除货盘');
+    setTrays((ts) => ts.map((x) => (x.id === id ? trashed : x)));
+    // 删的正好是当前打开的货盘 → 切到剩下的第一个
+    if (activeTrayId === id) {
+      const next = trays.find((x) => x.id !== id && !x.trashedAt);
+      if (next) setActiveTrayId(next.id);
     }
-    setTrays((ts) => ts.filter((t) => t.id !== id));
+  };
+
+  // 从回收站恢复：trashedAt 置 null（不删字段，WS 合并时才能覆盖掉其他客户端的旧值）
+  const restoreTray = (id: string) => {
+    if (!canEdit) {
+      toast.error('当前账号只有查看权限，不能恢复货盘');
+      return;
+    }
+    const t = trays.find((x) => x.id === id);
+    if (!t) return;
+    const now = new Date().toISOString();
+    const restored: Tray = { ...t, trashedAt: null, updatedAt: now };
+    delete restored.trashedBy;
+    collabRef.current?.broadcast(restored, [{ action: '恢复货盘', detail: t.name }]);
+    logTrayOp(id, t.name, '恢复货盘');
+    setTrays((ts) => ts.map((x) => (x.id === id ? restored : x)));
+    toast.success(`货盘「${t.name}」已恢复`);
+  };
+
+  // 彻底删除：从数据里移除，服务端会同步清 Supabase 明细、物理删除自传图片
+  const purgeTray = (id: string) => {
+    if (!canEdit) {
+      toast.error('当前账号只有查看权限，不能彻底删除货盘');
+      return;
+    }
+    const t = trays.find((x) => x.id === id);
+    if (!t) return;
+    logTrayOp(id, t.name, '彻底删除货盘');
+    setTrays((ts) => ts.filter((x) => x.id !== id));
   };
 
   const createTray = (name: string, type: TrayType, date: string) => {
     if (!canEdit) {
       toast.error('当前账号只有查看权限，不能新建货盘');
-      return (trays.find((t) => t.id === activeTrayId) || trays[0] || { id: activeTrayId }) as Tray;
+      return (activeTrays.find((t) => t.id === activeTrayId) || activeTrays[0] || { id: activeTrayId }) as Tray;
     }
     const now = new Date().toISOString();
     // 模块级 seq 会在 HMR / 刷新后重置，必须从现有 trays 取最大后缀 +1，
@@ -579,7 +631,14 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     }
   }, [canSync]);
 
-  const activeTray = useMemo(() => trays.find((t) => t.id === activeTrayId) ?? trays[0], [trays, activeTrayId]);
+  const activeTray = useMemo(() => activeTrays.find((t) => t.id === activeTrayId) ?? activeTrays[0], [activeTrays, activeTrayId]);
+
+  // 当前货盘被删进回收站、或本地缓存的 activeTrayId 指向回收站里的货盘 → 切到第一个正常货盘
+  useEffect(() => {
+    if (!traysReady || activeTrays.length === 0) return;
+    if (activeTrays.some((t) => t.id === activeTrayId)) return;
+    setActiveTrayId(activeTrays[0].id);
+  }, [traysReady, activeTrays, activeTrayId]);
 
   // 兜底轮询：每 15s 拉一次服务端权威数据，避免 WS 断线时漏掉同事的修改
   // 只比对 updatedAt 比本地新的 tray 才更新，不影响用户正在编辑的内容
@@ -737,12 +796,15 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
           <ProductsProvider products={products}>
             {page === 'trays' && (
               <TraysPage
-                trays={trays}
+                trays={activeTrays}
+                trashedTrays={trashedTrays}
                 activeTrayId={activeTrayId}
                 onOpenTray={setActiveTrayId}
                 onCreateTray={createTray}
                 onUpdateTray={(t) => updateTray(t.id, () => t)}
                 onDeleteTray={deleteTray}
+                onRestoreTray={restoreTray}
+                onPurgeTray={purgeTray}
                 onSync={onSync}
                 syncing={syncing}
                 dataVersion={dataVersion}
@@ -750,18 +812,18 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
                 canSync={canSync}
               />
             )}
-            {page === 'sequence' && (
+            {page === 'sequence' && activeTrays.length > 0 && (
               <SequencePage
-                trays={trays}
+                trays={activeTrays}
                 activeTrayId={activeTrayId}
                 onSwitchTray={setActiveTrayId}
                 onUpdateTray={(t) => updateTray(t.id, () => t)}
                 readOnly={!canEdit}
               />
             )}
-            {page === 'board' && (
+            {page === 'board' && activeTrays.length > 0 && (
               <BoardPage
-                trays={trays}
+                trays={activeTrays}
                 activeTrayId={activeTrayId}
                 onSwitchTray={setActiveTrayId}
                 onCreateTray={createTray}

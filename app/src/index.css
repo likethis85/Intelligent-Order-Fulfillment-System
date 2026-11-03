@@ -397,6 +397,19 @@ button:focus-visible,
     white-space: nowrap;
   }
 
+  /* 头部右侧按钮组（回收站 + 新增货盘）：手机上一行放下，别把标题挤没 */
+  .trays-page:has(.tray-card) > .page-heading > div:last-child {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .trays-page:has(.tray-card) > .page-heading > div:last-child > button {
+    padding-left: 10px;
+    padding-right: 10px;
+    white-space: nowrap;
+  }
+
   .mobile-zoom-toolbar {
     display: flex;
     margin-top: 16px;
