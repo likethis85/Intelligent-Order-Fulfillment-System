@@ -28,6 +28,36 @@ export function isTrashExpired(tray, now = Date.now()) {
   return Number.isFinite(at) && now - at > TRASH_RETENTION_MS;
 }
 
+// 删除墓碑：彻底删除的货盘 id + 时间，随 trays 一起持久化。
+// 没有墓碑时，别的客户端只要还开着旧数据，下一次保存就会把已删货盘原样带回服务端
+//（线上「彻底删除不生效」就是这么来的）。墓碑口径与前端 src/lib/trayTrash.ts 保持一致。
+const TOMBSTONE_KEEP_DAYS = 180;
+const TOMBSTONE_KEEP_MS = TOMBSTONE_KEEP_DAYS * 24 * 60 * 60 * 1000;
+
+export function isTombstoned(tray, tombstones) {
+  if (!tray || !tray.id || !Array.isArray(tombstones)) return false;
+  const tomb = tombstones.find((x) => x && x.id === tray.id);
+  if (!tomb) return false;
+  const at = new Date(tomb.at).getTime();
+  if (!Number.isFinite(at)) return false;
+  // 墓碑之后又被重建/修改过的货盘（updatedAt 更新）不算被删
+  const trayAt = tray.updatedAt ? new Date(tray.updatedAt).getTime() : 0;
+  return !Number.isFinite(trayAt) || trayAt <= at;
+}
+
+// 合并墓碑（同 id 取较新的），裁掉超过保留期的记录
+export function mergeTombstones(a, b, now = Date.now()) {
+  const map = new Map();
+  for (const t of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
+    if (!t || !t.id || !t.at) continue;
+    const prev = map.get(t.id);
+    if (!prev || new Date(t.at).getTime() > new Date(prev.at).getTime()) map.set(t.id, t);
+  }
+  return [...map.values()]
+    .filter((t) => !(new Date(t.at).getTime() < now - TOMBSTONE_KEEP_MS))
+    .sort((x, y) => String(y.at).localeCompare(String(x.at)));
+}
+
 function normalizeUploadUrl(url) {
   if (!url || typeof url !== 'string') return url;
   const str = url.trim();
@@ -152,6 +182,7 @@ export async function loadLatestSnapshot() {
           return {
             snapshotFile: file,
             trays: j.trays.map((t) => cleanTrayImages(t)),
+            tombstones: Array.isArray(j.tombstones) ? j.tombstones : [],
           };
         }
       } catch {
@@ -206,9 +237,9 @@ export async function loadTraysWithStatus() {
     const snap = await loadLatestSnapshot();
     if (snap) {
       console.warn(`[trays-store] trays.json 不存在，但已自动从最新历史快照 ${snap.snapshotFile} 恢复 (${snap.trays.length} 个货盘)`);
-      return { ok: true, trays: snap.trays, from: 'snapshot', snapshotFile: snap.snapshotFile };
+      return { ok: true, trays: snap.trays, tombstones: snap.tombstones || [], from: 'snapshot', snapshotFile: snap.snapshotFile };
     }
-    return { ok: true, trays: [], from: 'empty' };
+    return { ok: true, trays: [], tombstones: [], from: 'empty' };
   }
 
   try {
@@ -221,16 +252,16 @@ export async function loadTraysWithStatus() {
       throw new Error('trays.json 缺少 trays 数组结构');
     }
     const trays = j.trays.map((t) => cleanTrayImages(t));
-    return { ok: true, trays, from: 'file' };
+    return { ok: true, trays, tombstones: Array.isArray(j.tombstones) ? j.tombstones : [], from: 'file' };
   } catch (err) {
     console.error(`[trays-store] CRITICAL: 读取或解析 trays.json 失败 (${err.message})，尝试从历史快照恢复...`);
     const snap = await loadLatestSnapshot();
     if (snap) {
       console.warn(`[trays-store] 已成功从最新历史快照 ${snap.snapshotFile} 恢复货盘数据 (${snap.trays.length} 个货盘)`);
-      return { ok: true, trays: snap.trays, from: 'snapshot', snapshotFile: snap.snapshotFile };
+      return { ok: true, trays: snap.trays, tombstones: snap.tombstones || [], from: 'snapshot', snapshotFile: snap.snapshotFile };
     }
     console.error('[trays-store] FATAL: 历史快照无可恢复数据，货盘加载失败!');
-    return { ok: false, error: err, trays: null };
+    return { ok: false, error: err, trays: null, tombstones: [] };
   }
 }
 
@@ -379,7 +410,7 @@ async function load() {
   if (!res.ok) {
     throw new Error(`货盘数据文件读取或解析失败: ${res.error?.message || '未知错误'}`);
   }
-  return res.trays;
+  return { trays: res.trays, tombstones: Array.isArray(res.tombstones) ? res.tombstones : [] };
 }
 
 // 写盘串行化：save() 会「读旧数据 → 快照 → 覆盖」，这两步并发就会互相踩。
@@ -396,25 +427,45 @@ function enqueueSave(task) {
   return run;
 }
 
-async function save(trays) {
+async function save(trays, tombstones = []) {
   return enqueueSave(async () => {
     await mkdir(CACHE_DIR, { recursive: true });
     // 读取旧托盘以便对比哪些图片被废弃（恢复原图/删除坑位/删除货盘）
     let prevTrays = [];
+    let fileTombstones = [];
     try {
       const status = await loadTraysWithStatus();
       if (status.ok && Array.isArray(status.trays)) {
         prevTrays = status.trays;
+        fileTombstones = Array.isArray(status.tombstones) ? status.tombstones : [];
       }
     } catch {}
 
     // 先留一份当前快照，再覆盖
     await snapshot(trays);
-    // 回收站过期清理：过期货盘从数据里真正移除（其自传图随后由 cleanupAbandonedImages 一起清掉）
     const now = Date.now();
-    const kept = trays.filter((t) => !isTrashExpired(t, now));
-    if (kept.length !== trays.length) {
-      console.log(`[trays-store] 回收站过期清理 ${trays.length - kept.length} 个货盘（保留 ${TRASH_RETENTION_DAYS} 天）`);
+    const mergedTombstones = mergeTombstones(fileTombstones, tombstones, now);
+
+    // 1) 墓碑货盘：其他客户端拿着旧数据保存带回来的，直接丢弃（彻底删除才真正生效）
+    let next = (Array.isArray(trays) ? trays : []).filter((t) => !isTombstoned(t, mergedTombstones));
+    // 2) 防误覆盖：客户端这次没带、也没有墓碑的货盘一律保留。
+    //    正常删除只有两条路——进回收站（还在数组里）和彻底删除（有墓碑），
+    //    所以「凭空少掉」的货盘只会是客户端数据残缺（例如加载失败只剩一个货盘）导致的。
+    const incomingIds = new Set(next.map((t) => t.id));
+    const recovered = [];
+    for (const t of prevTrays) {
+      if (!t?.id || incomingIds.has(t.id) || isTombstoned(t, mergedTombstones)) continue;
+      next.push(t);
+      incomingIds.add(t.id);
+      recovered.push(t.name || t.id);
+    }
+    if (recovered.length > 0) {
+      console.warn(`[trays-store] 客户端提交缺少 ${recovered.length} 个货盘（${recovered.slice(0, 5).join('、')}${recovered.length > 5 ? ' 等' : ''}），已从服务端保留，避免残缺数据冲掉货盘`);
+    }
+    // 3) 回收站过期清理：过期货盘从数据里真正移除（其自传图随后由 cleanupAbandonedImages 一起清掉）
+    const kept = next.filter((t) => !isTrashExpired(t, now));
+    if (kept.length !== next.length) {
+      console.log(`[trays-store] 回收站过期清理 ${next.length - kept.length} 个货盘（保留 ${TRASH_RETENTION_DAYS} 天）`);
     }
     // 清洗上游可能带进来的括号与自传图地址（自动迁移至阿里云 OSS 高速 CDN 地址）
     const cleaned = kept.map((t) => cleanTrayImages(cleanTrayFabric(t)));
@@ -422,6 +473,7 @@ async function save(trays) {
       at: Date.now(),
       count: cleaned.length,
       trays: cleaned,
+      tombstones: mergedTombstones,
     };
     await writeJsonAtomic(TRAYS_FILE, payload);
 
@@ -500,14 +552,17 @@ export async function listSnapshots() {
 }
 
 export async function loadTrays() {
-  const trays = await load();
-  // 过期的回收站货盘不再下发（下次保存时会从文件里真正清掉）
+  const { trays, tombstones } = await load();
   const now = Date.now();
-  return { trays: trays.filter((t) => !isTrashExpired(t, now)), at: Date.now() };
+  // 已彻底删除（墓碑）和回收站过期的货盘都不下发
+  const active = trays
+    .filter((t) => !isTombstoned(t, tombstones))
+    .filter((t) => !isTrashExpired(t, now));
+  return { trays: active, tombstones, at: Date.now() };
 }
 
-export async function saveTrays(trays) {
+export async function saveTrays(trays, tombstones = []) {
   if (!Array.isArray(trays)) throw new Error('trays 必须是数组');
-  await save(trays);
+  await save(trays, tombstones);
   return { ok: true, at: Date.now(), count: trays.length };
 }

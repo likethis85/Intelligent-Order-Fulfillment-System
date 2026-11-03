@@ -10,8 +10,8 @@ const router = Router();
 // GET /api/trays → 返回云端存的货盘（首次可能为空数组）
 router.get('/', async (_req, res) => {
   try {
-    const { trays, at } = await loadTrays();
-    res.json({ ok: true, trays, updatedAt: at, count: trays.length });
+    const { trays, tombstones, at } = await loadTrays();
+    res.json({ ok: true, trays, tombstones, updatedAt: at, count: trays.length });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -19,7 +19,9 @@ router.get('/', async (_req, res) => {
 
 // PUT /api/trays → 增量写云端（同时自动留快照）
 //   body.trays: 当前所有 tray（已删除的不在里面）
-//   body.deletedTrayIds: 这次提交相对上一次被删除的 tray.id 列表（同步清 supabase 三张表的对应行）
+//   body.deletedTrayIds: 这次提交相对上一次被删除的 tray.id 列表
+//   body.tombstones: 彻底删除的墓碑（id + 时间）；服务端据此拒绝旧客户端把已删货盘带回来，
+//                    也只在有墓碑时才清 supabase 三张表的对应行
 // 落盘后异步把每个 tray 的「计划翻单量 / 不可翻单 / 款号明细」单条 upsert 到 Supabase（不影响主响应）
 router.put('/', async (req, res) => {
   const trays = req.body?.trays;
@@ -29,12 +31,18 @@ router.put('/', async (req, res) => {
   const deletedIds = Array.isArray(req.body?.deletedTrayIds)
     ? req.body.deletedTrayIds.filter((s) => typeof s === 'string' && s.trim())
     : [];
+  const tombstones = Array.isArray(req.body?.tombstones)
+    ? req.body.tombstones.filter((t) => t && typeof t.id === 'string' && t.id.trim() && t.at)
+    : [];
+  // 只有墓碑里的删除才是真的删除；没有墓碑的 id 服务端会保留（防误覆盖），supabase 行也不能删
+  const tombIds = new Set(tombstones.map((t) => t.id));
+  const removedIds = deletedIds.filter((id) => tombIds.has(id));
   try {
-    const r = await saveTrays(trays);
+    const r = await saveTrays(trays, tombstones);
     // 异步：被删的 tray 清三张表；其余的 tray 做单条 upsert
     (async () => {
       const results = [];
-      for (const id of deletedIds) {
+      for (const id of removedIds) {
         try {
           await removeTray(id);
           results.push({ trayId: id, action: 'removed' });

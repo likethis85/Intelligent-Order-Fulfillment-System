@@ -14,7 +14,7 @@ const { saveTrays, loadTrays } = await import('../server/trays-store.js');
 
 const tray = (id) => ({ id, name: id, date: '2026-10-30', sections: [], plannedRestockItems: [], noRestockItems: [] });
 
-test('saveTrays: 并发写不报错，最终落盘的是最后一次写', async (t) => {
+test('saveTrays: 并发写不报错，同一货盘以后写入的为准，且不丢其他货盘', async (t) => {
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
   // 先写一次，让后续的「读旧数据 + 快照」路径也走一遍
@@ -26,8 +26,18 @@ test('saveTrays: 并发写不报错，最终落盘的是最后一次写', async 
   assert.ok(results.every((r) => r.ok));
 
   const { trays } = await loadTrays();
-  assert.equal(trays.length, 1);
-  assert.equal(trays[0].id, 't-7', '最后发起的那次写必须赢');
+  // 服务端会保留「本次没带、也没有删除墓碑」的货盘（防残缺数据冲掉整份货盘），
+  // 所以并发写之后是并集：seed + t-0..t-7
+  assert.equal(trays.length, 9);
+  assert.ok(trays.some((x) => x.id === 'seed'));
+  for (let i = 0; i < 8; i++) assert.ok(trays.some((x) => x.id === `t-${i}`));
+
+  // 同一个货盘的并发修改：最后落盘的那份为准
+  await Promise.all(
+    Array.from({ length: 5 }, (_, i) => saveTrays([{ ...tray('t-0'), name: `v${i}` }])),
+  );
+  const after = await loadTrays();
+  assert.equal(after.trays.filter((x) => x.id === 't-0').length, 1, '同一货盘不能出现两份');
 
   const leftovers = fs.readdirSync(tmpDir).filter((f) => f.endsWith('.tmp'));
   assert.deepEqual(leftovers, [], '不能留下临时文件');
@@ -47,7 +57,7 @@ test('saveTrays: 一次写失败不会卡死后续写盘', async (t) => {
   assert.equal(ok.ok, true);
 
   const { trays } = await loadTrays();
-  assert.equal(trays[0].id, 'after-fail');
+  assert.ok(trays.some((x) => x.id === 'after-fail'));
 
   const leftovers = fs.readdirSync(tmpDir).filter((f) => f.endsWith('.tmp'));
   assert.deepEqual(leftovers, []);

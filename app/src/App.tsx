@@ -15,7 +15,7 @@ import type { AccessMe } from '@/data/api';
 import { useTraySync, diffTray } from '@/lib/traySync';
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
 import type { AuthUser } from '@/lib/api-client';
-import { isTrashExpired } from '@/lib/trayTrash';
+import { isTrashExpired, stripTombstoned, mergeTombstones, sameTombstones, type Tombstone } from '@/lib/trayTrash';
 import type { Look, Product, Tray, TraySection, TrayType } from '@/data/products';
 import { normalizeTrayImages } from '@/data/products';
 
@@ -228,13 +228,32 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     [trays],
   );
 
+  // 彻底删除的墓碑：随货盘一起存到服务端，别的客户端拿着旧数据保存时也复活不了
+  const [tombstones, setTombstones] = useState<Tombstone[]>([]);
+  const tombstonesRef = useRef<Tombstone[]>([]);
+  tombstonesRef.current = tombstones;
+
+  // 所有写 trays 的地方（WS / 轮询 / 手动）都过一遍墓碑过滤
+  const setTraysSafe = useCallback((action: Tray[] | ((prev: Tray[]) => Tray[])) => {
+    setTrays((prev) => stripTombstoned(typeof action === 'function' ? action(prev) : action, tombstonesRef.current));
+  }, []);
+
+  // 吸收服务端/其他客户端的墓碑；没有变化时不更新 state，避免轮询引发无意义的重新保存
+  const applyCloudTombstones = useCallback((incoming: Tombstone[] | null | undefined) => {
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    setTombstones((prev) => {
+      const merged = mergeTombstones(prev, incoming);
+      return sameTombstones(prev, merged) ? prev : merged;
+    });
+  }, []);
+
   // 多人实时协同：WS 广播 + 收远端按键级合并
   const collabUser = user.displayName.slice(0, 30);
   const collabRef = useRef<{ broadcast: (t: Tray, ops: ReturnType<typeof diffTray>) => void } | null>(null);
   const { broadcast } = useTraySync(
     traysReady ? activeTrayId : null,
     collabUser,
-    setTrays,
+    setTraysSafe,
     (user, trayName) => toast.info(`${user} 更新了货盘「${trayName}」`, { duration: 3000 }),
     (event) => {
       toast.success(event.message || '观远 BI 最新库存已同步完成，数据已更新', { duration: 4000 });
@@ -282,6 +301,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     let cancelled = false;
     (async () => {
       let cloudTrays: Tray[] = [];
+      let cloudTombstones: Tombstone[] = [];
       let cloudAt = 0;
       try {
         const res = await authenticatedFetch(API_BASE + '/trays');
@@ -291,6 +311,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             cloudTrays = data.trays.map(normalizeTrayImages);
             cloudAt = typeof data.updatedAt === 'number' ? data.updatedAt : data.at ?? 0;
           }
+          if (Array.isArray(data.tombstones)) cloudTombstones = data.tombstones;
         }
       } catch {
         // 云端拉取失败（后端没起 / 网络断），继续用本地兜底
@@ -319,9 +340,11 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
       }
 
       if (cancelled) return;
+      // 服务端的墓碑优先：本地缓存里可能还留着别人彻底删除的货盘
+      applyCloudTombstones(cloudTombstones);
       if (merged.length > 0) {
-        const normalizedMerged = merged.map(normalizeTrayImages);
-        setTrays(normalizedMerged);
+        const normalizedMerged = stripTombstoned(merged.map(normalizeTrayImages), cloudTombstones);
+        if (normalizedMerged.length > 0) setTrays(normalizedMerged);
         writeLocalTrays(normalizedMerged, Date.now());
       }
       setTraysReady(true);
@@ -345,7 +368,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     const prevIds = new Set((prevTrays || []).map((t) => t.id));
     const nextIds = new Set(trays.map((t) => t.id));
     const deletedTrayIds = [...prevIds].filter((id) => !nextIds.has(id));
-    const body = JSON.stringify({ trays, deletedTrayIds });
+    // tombstones 一起提交：彻底删除的 id 要让服务端和其他客户端都知道，否则旧数据会把货盘带回来
+    const body = JSON.stringify({ trays, deletedTrayIds, tombstones });
     const timer = setTimeout(() => {
       pendingSaveRef.current = null;
       prevTraysRef.current = trays;
@@ -357,7 +381,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     }, 500);
     pendingSaveRef.current = { trays, body, timer };
     return () => clearTimeout(timer);
-  }, [trays, traysReady]);
+  }, [trays, traysReady, tombstones]);
 
   // 关闭/刷新页面前，强制把未发送的云端备份 flush 出去
   useEffect(() => {
@@ -513,6 +537,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     const t = trays.find((x) => x.id === id);
     if (!t) return;
     logTrayOp(id, t.name, '彻底删除货盘');
+    // 墓碑：随 trays 一起同步到服务端；其他客户端（包括数据较旧的）之后都复活不了它
+    setTombstones((list) => mergeTombstones(list, [{ id, at: new Date().toISOString(), by: collabUser }]));
     setTrays((ts) => ts.filter((x) => x.id !== id));
   };
 
@@ -650,6 +676,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
         if (!r.ok) return;
         const j = await r.json();
         const cloudTrays: Tray[] = j.trays || [];
+        const cloudTombstones: Tombstone[] = Array.isArray(j.tombstones) ? j.tombstones : [];
+        if (cloudTombstones.length > 0) applyCloudTombstones(cloudTombstones);
         if (!Array.isArray(cloudTrays) || cloudTrays.length === 0) return;
         setTrays((local) => {
           let changed = false;
@@ -672,7 +700,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
               changed = true;
             }
           }
-          return changed ? next : local;
+          return stripTombstoned(changed ? next : local, cloudTombstones);
         });
       } catch { /* ignore */ }
     }, 15000);
