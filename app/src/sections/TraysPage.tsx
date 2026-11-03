@@ -1648,6 +1648,17 @@ async function exportTrayLayoutExcel(
     }
     return vals[0] || '';
   };
+  // 款号：多款号坑位带有短名前缀修饰（跟尺码 / 售价 口径一致）
+  const codeCellText = (l: Look): string => {
+    const ps = l.pids.map(byId);
+    const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
+    return l.pids
+      .map((p) => {
+        const short = shortNames.get(p);
+        return short ? `${short} ${p.toUpperCase()}` : p.toUpperCase();
+      })
+      .join('\n');
+  };
   // labelRed=标签红字（搭配版块）；labelBlue=标签蓝底（库存/翻单/面料）；dataStyle=数据区整行样式
   type FieldRow = {
     label: string; height?: number;
@@ -1659,7 +1670,7 @@ async function exportTrayLayoutExcel(
   const mainRows: FieldRow[] = [
     { label: '主图', img: true, height: 224, get: () => '' },
     { label: '商品名称', height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
-    { label: '款号', height: 40, dataStyle: 'codeBlue', get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
+    { label: '款号', height: 40, dataStyle: 'codeBlue', get: (l) => codeCellText(l) },
     { label: '尺码', height: 32, get: (l) => {
       const ps = l.pids.map(byId);
       const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
@@ -1720,7 +1731,7 @@ async function exportTrayLayoutExcel(
   const subRows: FieldRow[] = [
     { label: '主图', img: true, labelRed: true, height: 224, get: () => '' },
     { label: '商品名称', labelRed: true, height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
-    { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => l.pids.map((p) => p.toUpperCase()).join('\n') },
+    { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => codeCellText(l) },
     { label: '尺码', labelRed: true, height: 32, get: (l) => {
       const ps = l.pids.map(byId);
       const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
@@ -3049,6 +3060,8 @@ const FIELDS: FieldRow[] = [
       // 保留坑位里款号的添加顺序（与售价、名称行顺序一致）
       const isRed = ctx.codeFgColor === 'red';
       const fgColorCls = isRed ? 'text-[#dc2626] font-bold' : 'text-ink-primary font-semibold';
+      // 多款号：款号前面也带产品短名前缀（跟尺码 / 售价 行同一口径）
+      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, ctx.restockShortNames) : new Map<string, string>();
       return (
         <div className="space-y-0.5 relative w-full">
           {/* 桌面端悬停调色板图标：放在左侧，绝不遮挡右侧注脚 */}
@@ -3065,29 +3078,42 @@ const FIELDS: FieldRow[] = [
               <Palette size={11} />
             </button>
           )}
-          {ps.map((p) => (
-            <div key={p.id} className="text-center leading-5">
-              <span className="group relative inline-flex items-center justify-center">
-                <span
-                  onClick={() => {
-                    if (!ctx.readOnly) ctx.onOpenColorPicker?.();
-                  }}
-                  className={`font-mono text-[12px] ${fgColorCls} ${
-                    !ctx.readOnly ? 'cursor-pointer hover:opacity-80 active:scale-95 transition-all' : ''
-                  }`}
-                  title={!ctx.readOnly ? '点击设置款号格子颜色（黄色/蓝色/红字）' : undefined}
-                >
-                  {p.id.toUpperCase()}
+          {ps.map((p) => {
+            const short = shortNames.get(p.id);
+            const isShortOverridden = Boolean(getShortOverride(ctx.restockShortNames, p.id));
+            return (
+              <div key={p.id} className="text-center leading-5">
+                <span className="group relative inline-flex items-center justify-center gap-1">
+                  {short && (
+                    <ShortNameEditor
+                      short={short}
+                      isOverridden={isShortOverridden}
+                      disabled={ctx.readOnly}
+                      onSave={(v) => ctx.onSaveRestockShortName?.(p.id, v)}
+                      onClear={() => ctx.onClearRestockShortName?.(p.id)}
+                    />
+                  )}
+                  <span
+                    onClick={() => {
+                      if (!ctx.readOnly) ctx.onOpenColorPicker?.();
+                    }}
+                    className={`font-mono text-[12px] ${fgColorCls} ${
+                      !ctx.readOnly ? 'cursor-pointer hover:opacity-80 active:scale-95 transition-all' : ''
+                    }`}
+                    title={!ctx.readOnly ? '点击设置款号格子颜色（黄色/蓝色/红字）' : undefined}
+                  >
+                    {p.id.toUpperCase()}
+                  </span>
+                  <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
+                    <CodeSuffixEditor
+                      value={ctx.codeSuffixOverrides?.[p.id] ?? ''}
+                      onSave={(v) => ctx.onSaveCodeSuffix?.(p.id, v)}
+                    />
+                  </span>
                 </span>
-                <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap select-none z-10">
-                  <CodeSuffixEditor
-                    value={ctx.codeSuffixOverrides?.[p.id] ?? ''}
-                    onSave={(v) => ctx.onSaveCodeSuffix?.(p.id, v)}
-                  />
-                </span>
-              </span>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       );
     },
