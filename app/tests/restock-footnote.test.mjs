@@ -47,6 +47,13 @@ test('注脚：自动值放进 value，才能被选中删掉', () => {
   assert.ok(html.includes('（已删除注脚 — 点「恢复自动」还原）'));
 });
 
+test('文本框只读：所有修改都走结构化输入框', () => {
+  // 之前手写的整段文字只进钉钉、不进货盘（货盘用按 SKC 重新生成的文案），两边不一致；
+  // 改成只读展示后，改动只能来自件数/天数和「文案注脚」，不会再分叉。
+  assert.ok(/<textarea[^>]*id="textResult"[^>]*readonly/.test(html), '大文本框必须只读');
+  assert.ok(!html.includes('onTextManualEdit'), '只读后不该再绑手写编辑回调');
+});
+
 test('注脚：按 SKC 记忆，改完会刷新文本框', () => {
   assert.ok(html.includes("localStorage.getItem('fabricPlanFootnotes')"), '注脚要能跨刷新记住');
   assert.ok(

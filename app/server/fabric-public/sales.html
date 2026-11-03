@@ -235,6 +235,12 @@
       box-sizing: border-box;
     }
     .huopan-textarea:focus { outline: none; border-color: #333; }
+    /* 只读展示：内容由右侧输入框和「文案注脚」驱动，这里只负责看和复制 */
+    .huopan-textarea[readonly] {
+      background: #fafafa;
+      cursor: text;
+      user-select: text;
+    }
 
     .copy-tip {
       position: fixed;
@@ -673,7 +679,7 @@
           <button type="button" class="btn-success" onclick="copyText()">确认并复制翻单文字</button>
         </div>
 
-        <textarea class="huopan-textarea" id="textResult" placeholder="生成的翻单文字将显示在此，可手动修改后再复制" oninput="onTextManualEdit()"></textarea>
+        <textarea class="huopan-textarea" id="textResult" readonly title="只读展示：要改内容请用右侧每行的「文案注脚」和件数/天数输入框，改完这里会自动更新。可全选复制。" placeholder="生成的翻单文字将显示在此（只读，可全选复制）"></textarea>
       </div>
     </div>
 
@@ -711,7 +717,9 @@
     let searchMode = 'filled'; // 'filled' | 'all' - 搜索模式
     let allPdtCodes = []; // 所有款号列表（用于全部款搜索）
     let _lastSelKey = '';          // 上次自动生成文字时选中的款组合 key
-    let _manualEdited = false;     // 用户是否手动编辑过 textarea（同一组合内不覆盖）
+    // 文本框现在是只读展示（改内容走右侧输入框 / 文案注脚），这个标记不会再变成 true，
+    // 保留是为了 generateText 里的兜底分支：万一以后重新放开手动编辑，逻辑仍是「改过就不覆盖」。
+    let _manualEdited = false;
     let forceAddedPdts = new Set(); // 强制添加的款号（无面料信息）
     // 翻单文案每行末尾的「注脚」（如"最大单量140件"）：按 SKC 记住手动修改。
     //   undefined = 没改过，用自动注脚（有共用面料时是"最大单量X件"）
@@ -2070,11 +2078,6 @@
           }
         }, 500);
       }
-    }
-
-    // 用户手动编辑 textarea 时标记，同一款组合内自动生成不覆盖
-    function onTextManualEdit() {
-      _manualEdited = true;
     }
 
     // 文案注脚：用户在这张 SKC 卡片上改「最大单量140件」这类尾部说明
