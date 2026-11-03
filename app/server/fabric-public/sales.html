@@ -363,6 +363,35 @@
       margin-bottom: 8px;
     }
     .sku-edit-block .batch-row:last-child { margin-bottom: 0; }
+    /* 文案注脚：附在翻单文案该行末尾的说明文字（默认"最大单量X件"），可改可清空 */
+    .sku-edit-block .sku-footnote {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .sku-edit-block .sku-footnote-label {
+      font-size: 12px;
+      color: #888;
+      flex-shrink: 0;
+    }
+    .sku-edit-block .sku-footnote-input {
+      flex: 1;
+      min-width: 0;
+      max-width: 320px;
+      padding: 5px 8px;
+      border: 1px dashed #c9c9c9;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #333;
+      background: #fff;
+    }
+    .sku-edit-block .sku-footnote-input::placeholder { color: #aaa; }
+    .sku-edit-block .sku-footnote-input:focus {
+      border-color: #16a34a;
+      border-style: solid;
+      outline: none;
+    }
     .sku-edit-block .batch-label {
       width: 40px;
       font-size: 13px;
@@ -684,6 +713,24 @@
     let _lastSelKey = '';          // 上次自动生成文字时选中的款组合 key
     let _manualEdited = false;     // 用户是否手动编辑过 textarea（同一组合内不覆盖）
     let forceAddedPdts = new Set(); // 强制添加的款号（无面料信息）
+    // 翻单文案每行末尾的「注脚」（如"最大单量140件"）：按 SKC 记住手动修改。
+    //   undefined = 没改过，用自动注脚（有共用面料时是"最大单量X件"）
+    //   ''        = 用户清空了，这一行不要注脚
+    // 存 localStorage：注脚本身不落库，但改完同步时会随文案一起写进钉钉和货盘。
+    let planFootnotes = {};
+    try { planFootnotes = JSON.parse(localStorage.getItem('fabricPlanFootnotes') || '{}') || {}; } catch { planFootnotes = {}; }
+    function normSkc(skc) { return String(skc || '').trim().toUpperCase(); }
+    function getFootnoteOverride(skc) {
+      const k = normSkc(skc);
+      return Object.prototype.hasOwnProperty.call(planFootnotes, k) ? planFootnotes[k] : undefined;
+    }
+    function setFootnoteOverride(skc, val) {
+      const k = normSkc(skc);
+      if (!k) return;
+      if (val === null) delete planFootnotes[k];
+      else planFootnotes[k] = String(val);
+      try { localStorage.setItem('fabricPlanFootnotes', JSON.stringify(planFootnotes)); } catch {}
+    }
     // 区域折叠状态（手机端默认折叠"已填"区，优先展示"未填"）
     let sectionCollapsed = { filled: window.innerWidth <= 768, unfilled: false };
 
@@ -974,6 +1021,17 @@
 
     function escapeHtml(str) {
       return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // HTML 属性值转义（value="..." / placeholder="..."），避免用户输入的引号把属性截断
+    function escapeAttr(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 内联 onclick 字符串字面量转义
+    function escapeJs(str) {
+      return String(str == null ? '' : str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     }
 
     // ========== 已填/未填分离显示的渲染面料列表 ==========
@@ -1590,6 +1648,26 @@
         </div>`;
       });
 
+      // 文案注脚（跟生成文案同一口径：共用面料时默认「最大单量X件」，按 10 取整）
+      const fnOverride = getFootnoteOverride(skc);
+      const fnAutoMax = sharedInfo ? Math.floor((sharedInfo.maxMap[skc] || 0) / 10) * 10 : 0;
+      const fnAuto = fnAutoMax > 0 ? `最大单量${fnAutoMax}件` : '';
+      // 自动注脚直接放进 value（不是 placeholder）：这样它能被选中、整段删掉，
+      // 清空即「这行不要注脚」。以前放在 placeholder 里，灰字删不掉，等于没法去掉自动注脚。
+      const fnValue = fnOverride === undefined ? fnAuto : fnOverride;
+      const fnPlaceholder = fnOverride === ''
+        ? '（已删除注脚 — 点「恢复自动」还原）'
+        : '留空 = 这一行不带注脚';
+      const footnoteRow = `
+        <div class="sku-footnote">
+          <span class="sku-footnote-label" title="附在这行翻单文案的末尾，同步到钉钉和货盘">文案注脚</span>
+          <input type="text" class="sku-footnote-input" data-skc="${escapeAttr(skc)}"
+            value="${escapeAttr(fnValue)}"
+            placeholder="${escapeAttr(fnPlaceholder)}"
+            oninput="updatePlanFootnote(this)" />
+          ${fnOverride === undefined ? '' : `<button type="button" class="btn-secondary" style="padding: 3px 8px; font-size: 11px;" onclick="resetPlanFootnote('${escapeJs(skc)}')" title="改回自动注脚">恢复自动</button>`}
+        </div>`;
+
       return `
         <div class="sku-edit-block">
           <div class="skc-head">
@@ -1606,6 +1684,7 @@
           <div class="sku-info">${displayInfo ? displayInfo.split('<br>').map(escapeHtml).join('<br>') : '-'}</div>
           ${producibleHtml}
           ${batchRows}
+          ${footnoteRow}
         </div>
       `;
     }
@@ -1998,6 +2077,34 @@
       _manualEdited = true;
     }
 
+    // 文案注脚：用户在这张 SKC 卡片上改「最大单量140件」这类尾部说明
+    // 覆盖值按 SKC 记住（'' = 这一行不要注脚），并刷新文本框里的文案
+    function updatePlanFootnote(el) {
+      setFootnoteOverride(el.dataset.skc || '', el.value);
+      scheduleTextRefresh();
+    }
+
+    // 恢复自动注脚（删掉手动覆盖，回到「最大单量X件」）
+    function resetPlanFootnote(skc) {
+      setFootnoteOverride(skc, null);
+      renderEditRows({ noScroll: true });
+      scheduleTextRefresh();
+    }
+
+    // 500ms 防抖重生成整段翻单文字（与批次输入同一套行为：用户手动改过文本框就不覆盖）
+    function scheduleTextRefresh() {
+      if (_manualEdited) return;
+      if (textUpdateTimer) clearTimeout(textUpdateTimer);
+      textUpdateTimer = setTimeout(() => {
+        if (_manualEdited) return;
+        const { perSkcText, skcPdt } = buildPerSkcTextMap();
+        const updated = applyPlanTextPostProcess(Object.values(perSkcText), skcPdt).join('\n');
+        const ta = document.getElementById('textResult');
+        if (ta) ta.value = updated;
+        window._lastPerSkcText = perSkcText;
+      }, 500);
+    }
+
     // 勾选/取消勾选款号后调用：若选中的款组合变化，则自动生成"当前选中款"的翻单文字填入文本框，
     // 并清掉上一个款的残留；若组合未变（同一批款）且用户手动改过，则保留用户修改不覆盖。
     function refreshTextForSelection() {
@@ -2041,6 +2148,12 @@
       const skcPdt = {};     // skc -> 所属款号（用于单位转换/跨款去重的后处理）
       Object.keys(pdtGroups).sort().forEach(pdtCode => {
         const items = pdtGroups[pdtCode];
+        // 卡片上的 SKC 取「该款下最短 sku_code 长度」截断；文案这边仍按原始 sku_code 分组
+        // （钉钉同步按原始 SKC 匹配行，不能动），只在查注脚时用同一套截断口径去对齐
+        const cardSkcLen = items.reduce((min, f) => {
+          const s = f.sku_code || f.skuCode || f.mt_code || '';
+          return s && (min === 0 || s.length < min) ? s.length : min;
+        }, 0);
         const skcGroups = {};
         items.forEach(fabric => {
           const skc = fabric.sku_code || fabric.skuCode || fabric.mt_code || '';
@@ -2092,7 +2205,15 @@
               else line += ` ${d}天`;
             }
           });
-          if (maxNum > 0) line += ` 最大单量${maxNum}件`;
+          // 注脚：默认是共面料的「最大单量X件」，用户可在卡片上改成任意文字、清空或恢复自动
+          // 卡片按截短后的 SKC 存注脚，这里用同一套截断口径查一次，再退回原始 sku_code
+          const cardSkc = cardSkcLen > 0 && skc.length >= cardSkcLen ? skc.slice(0, cardSkcLen) : skc;
+          const footnoteOv = getFootnoteOverride(cardSkc) !== undefined
+            ? getFootnoteOverride(cardSkc)
+            : getFootnoteOverride(skc);
+          const autoFootnote = maxNum > 0 ? `最大单量${maxNum}件` : '';
+          const footnote = footnoteOv === undefined ? autoFootnote : footnoteOv.trim();
+          if (footnote) line += ` ${footnote}`;
           // 样衣阶段翻单（驼色等未转大货色）加 "（样衣）" 后缀，主仓 cell 显示时能区分
           const isSample = skcItems.some(it => it.fabric && it.fabric._source === 'sample');
           if (isSample) line += '（样衣）';
