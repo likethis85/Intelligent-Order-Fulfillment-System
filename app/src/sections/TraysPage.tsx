@@ -5570,6 +5570,49 @@ export default function TraysPage({
   };
 
   // ── 列表模式 ──
+  // 只排显示、不改 trays 本身：date 是 'YYYY-MM-DD'，直接按字符串倒序就是最新场次在最上面；
+  // 同一天的多场按创建时间倒序，保证顺序稳定。
+  const sortedTrays = useMemo(
+    () => [...trays].sort((a, b) => {
+      const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+      if (byDate !== 0) return byDate;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    }),
+    [trays],
+  );
+
+  // ── 列表分页 ──
+  const TRAY_PAGE_SIZES = [10, 20, 50];
+  const [trayPageSize, setTrayPageSize] = useState(10);
+  const [trayPage, setTrayPage] = useState(0);
+  const listTopRef = useRef<HTMLDivElement>(null);
+
+  const trayPageCount = Math.max(1, Math.ceil(sortedTrays.length / trayPageSize));
+  // 删除货盘后总页数可能变少，用安全页码兜住，不至于停在空白页
+  const traySafePage = Math.min(trayPage, trayPageCount - 1);
+  const pageTrays = useMemo(
+    () => sortedTrays.slice(traySafePage * trayPageSize, (traySafePage + 1) * trayPageSize),
+    [sortedTrays, traySafePage, trayPageSize],
+  );
+  const goTrayPage = (n: number) => {
+    const target = Math.min(Math.max(0, n), trayPageCount - 1);
+    if (target === traySafePage) return;
+    setTrayPage(target);
+    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  // 页码窗口：1 … 4 5 6 … 20
+  const trayPageButtons = useMemo<(number | '…')[]>(() => {
+    if (trayPageCount <= 7) return Array.from({ length: trayPageCount }, (_, i) => i);
+    const out: (number | '…')[] = [0];
+    const start = Math.max(1, traySafePage - 1);
+    const end = Math.min(trayPageCount - 2, traySafePage + 1);
+    if (start > 1) out.push('…');
+    for (let i = start; i <= end; i++) out.push(i);
+    if (end < trayPageCount - 2) out.push('…');
+    out.push(trayPageCount - 1);
+    return out;
+  }, [trayPageCount, traySafePage]);
+
   if (!editing) {
     return (
       <div className="responsive-page trays-page px-10 py-8">
@@ -5629,8 +5672,8 @@ export default function TraysPage({
           </div>
         )}
 
-        <div className="mt-8 grid gap-4">
-          {trays.map((t) => {
+        <div ref={listTopRef} className="mt-8 grid gap-4">
+          {pageTrays.map((t) => {
             const looks = t.sections.reduce((s, x) => s + x.looks.length, 0);
             const skus = t.sections.reduce((s, x) => s + x.looks.reduce((k, l) => k + l.pids.length, 0), 0);
             return (
@@ -5667,7 +5710,58 @@ export default function TraysPage({
           })}
         </div>
 
-        {/* 删除货盘二次确认弹窗（Radix AlertDialog，替换之前的 window.confirm） */}
+        {/* 分页 */}
+        {sortedTrays.length > 0 && (
+          <div className="tray-pagination mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-edge pt-4">
+            <div className="tray-pagination-meta flex flex-wrap items-center gap-3 text-[11.5px] text-ink-muted">
+              <span>共 {sortedTrays.length} 个货盘 · 第 {traySafePage + 1} / {trayPageCount} 页</span>
+              <label className="inline-flex items-center gap-1">
+                每页
+                <select
+                  value={trayPageSize}
+                  onChange={(e) => { setTrayPageSize(Number(e.target.value)); setTrayPage(0); }}
+                  className="tray-page-size rounded border border-edge-strong bg-surface-card px-1.5 py-1 text-[11.5px] outline-none focus:border-edge"
+                >
+                  {TRAY_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                个
+              </label>
+            </div>
+            <div className="tray-pager flex items-center gap-1">
+              <button
+                onClick={() => goTrayPage(traySafePage - 1)}
+                disabled={traySafePage === 0}
+                className="tray-pager-step flex items-center gap-0.5 rounded-md border border-edge px-2.5 py-1.5 text-[12px] transition-colors hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowLeft size={13} /> 上一页
+              </button>
+              {trayPageButtons.map((n, i) =>
+                n === '…' ? (
+                  <span key={`gap-${i}`} className="px-1 text-[12px] text-ink-faint">…</span>
+                ) : (
+                  <button
+                    key={n}
+                    onClick={() => goTrayPage(n)}
+                    className={`tray-pager-num min-w-[30px] rounded-md border px-2 py-1.5 text-[12px] transition-colors ${
+                      n === traySafePage
+                        ? 'border-action-primary bg-action-primary text-white'
+                        : 'border-edge hover:border-edge-strong'
+                    }`}
+                  >
+                    {n + 1}
+                  </button>
+                ),
+              )}
+              <button
+                onClick={() => goTrayPage(traySafePage + 1)}
+                disabled={traySafePage >= trayPageCount - 1}
+                className="tray-pager-step flex items-center gap-0.5 rounded-md border border-edge px-2.5 py-1.5 text-[12px] transition-colors hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                下一页 <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+        )}
         <AlertDialog.Root open={!!pendingDelete} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
           <AlertDialog.Portal>
             <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px]" />

@@ -813,6 +813,54 @@ button:focus-visible,
   [data-slot="select-item"] {
     min-height: 44px;
   }
+
+  /* 货盘列表分页：手机上排成「统计在上、翻页按钮在下」两行。
+     全局给 input/select/button 压的 44px 触控高度在这里收一收，
+     否则下拉框和翻页按钮会比统计文字大出一截。 */
+  .tray-pagination {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .tray-pagination-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 8px;
+    font-size: 12px;
+  }
+
+  .tray-pagination .tray-page-size {
+    min-height: 34px;
+    height: 34px;
+    padding: 0 6px;
+    border-radius: 8px;
+  }
+
+  .tray-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tray-pager > button {
+    min-height: 38px;
+    height: 38px;
+  }
+
+  .tray-pager > .tray-pager-step {
+    flex: 1 1 auto;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .tray-pager > .tray-pager-num {
+    flex: 0 0 auto;
+    min-width: 38px;
+  }
 }
 
 @media screen and (max-width: 479px) {
