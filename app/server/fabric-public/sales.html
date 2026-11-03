@@ -718,6 +718,9 @@
         switchSearchMode('all');
 
         // 异步处理：先 forceAddPdtCode（如果需要），等完成后再 toggleGroup
+        // bulk: true —— 批量自动勾选不逐款弹「共用面料」提示，直接把所有款都选上。
+        // 之前按普通勾选走：第 2 个款一撞共用面料就弹窗并 return，这个款进不了右侧编辑区；
+        // pendingToggle 又只有一个槽，第 3 个款一来就把前一个覆盖掉，两个款一起丢。
         (async () => {
           await new Promise(r => setTimeout(r, 400));
           for (const code of codes) {
@@ -727,7 +730,7 @@
               await new Promise(r => setTimeout(r, 300));
             }
             // 2) 勾选该款号（toggleGroup 会自动同步 checkbox、合并 sample BOM 并渲染右侧编辑区）
-            toggleGroup(code, true);
+            toggleGroup(code, true, { bulk: true });
           }
         })();
       }
@@ -768,21 +771,8 @@
               if (hasNew) renderFabricList();
             }).catch(e => console.warn('[sales.html] mergeSampleBomForCodes 异步提示:', e.message));
           }
-          // URL 参数 pids：自动勾选对应款号（未入库的款由上方的有序异步循环统一添加，此处仅勾选已存在的元素）
-          const urlParams = new URLSearchParams(window.location.search);
-          const pidsParam = urlParams.get('pids');
-          if (pidsParam) {
-            const codes = pidsParam.split(/[,，、\s;；\n]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
-            setTimeout(() => {
-              codes.forEach((code) => {
-                const group = document.querySelector(`.fabric-group[data-pdt="${code}"]`);
-                if (group) {
-                  const cb = group.querySelector('input[type="checkbox"]');
-                  if (cb && !cb.checked) toggleGroup(code, true);
-                }
-              });
-            }, 100);
-          }
+          // 注意：这里不再自动勾选。init() 里已有一个「先强制添加、再勾选」的有序循环，
+          // 两处都勾会让同一个款被 toggle 两遍（重复触发共用面料判定），统一由 init() 负责。
         }
       } catch (err) {
         console.error('加载面料数据失败:', err);
@@ -1019,10 +1009,7 @@
 
     // 一个款号是否已被勾选到编辑区（该款下任一记录在 selectedFabrics 中即算已勾选）
     function isGroupSelected(items) {
-      return items.some(item => {
-        const itemId = item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
-        return !!selectedFabrics[itemId];
-      });
+      return items.some(item => !!selectedFabrics[fabricItemId(item)]);
     }
 
     // 判断一条面料记录是否有价值显示在翻单计划页
@@ -2494,7 +2481,7 @@
       }
     }
 
-    function toggleGroup(pdtCode, checked) {
+    function toggleGroup(pdtCode, checked, opts = {}) {
       const pdtItems = fabricData.filter(f => f.pdt_code === pdtCode);
 
       // 更新 checkbox 状态
@@ -2505,32 +2492,45 @@
       }
 
       if (checked) {
+        // 幂等：该款的面料行已经全在选区里就不再走一遍。
+        // 自动勾选会经过 init() 的循环和各样衣 BOM 合并回调，重复进来会再判一次「共用面料」，
+        // 把自己和自己判成共用 → 又冒出一个提示弹窗，款却没被加进右侧。
+        if (pdtItems.length > 0 && pdtItems.every(it => selectedFabrics[fabricItemId(it)])) {
+          return;
+        }
         // 懒合并样衣 BOM：首次勾选该款时把驼色等未转大货 SKC 从主仓拉进来，合并后重走勾选流程
         if (!sampleBomMergedCodes.has(pdtCode)) {
           mergeSampleBomForCodes([pdtCode]).then((added) => {
-            if (added) toggleGroup(pdtCode, true);
+            if (added) toggleGroup(pdtCode, true, opts);
           });
         }
         // 若是该款没有任何面料记录（批量搜出来的待强制添加占位）→ 自动强制添加创建真实记录
         if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) {
           forceAddPdtCode(pdtCode).then(() => {
-            toggleGroup(pdtCode, true);
+            toggleGroup(pdtCode, true, opts);
           });
           return;
         }
-        // 收集所有已选中的面料数据
-        const selectedItems = Object.values(selectedFabrics);
+        // 批量自动勾选（货盘弹窗「已自动搜索并勾选」）：直接全选，不逐款弹共用面料提示。
+        // 那个弹窗只是提示、不影响填写逻辑，但它会打断自动勾选——点「取消」就少一个款，
+        // 而且 pendingToggle 只有一个槽，连续几款时前面的款会被后面的覆盖掉。
+        if (opts.bulk) {
+          addGroupToSelection(pdtCode, pdtItems);
+        } else {
+          // 收集所有已选中的面料数据
+          const selectedItems = Object.values(selectedFabrics);
 
-        // 检测已选中款号和正要勾选的款号之间是否有共用面料
-        const sharedFabrics = detectSharedFabrics(selectedItems, pdtItems);
-        if (sharedFabrics.length > 0) {
-          // 保存待处理的操作，显示弹窗
-          pendingToggle = { pdtCode, checked: true, items: pdtItems };
-          showSharedFabricModal(sharedFabrics);
-          return;
+          // 检测已选中款号和正要勾选的款号之间是否有共用面料
+          const sharedFabrics = detectSharedFabrics(selectedItems, pdtItems);
+          if (sharedFabrics.length > 0) {
+            // 保存待处理的操作，显示弹窗
+            pendingToggle = { pdtCode, checked: true, items: pdtItems };
+            showSharedFabricModal(sharedFabrics);
+            return;
+          }
+          // 没有共用面料，直接勾选
+          addGroupToSelection(pdtCode, pdtItems);
         }
-        // 没有共用面料，直接勾选
-        addGroupToSelection(pdtCode, pdtItems);
       } else {
         removeGroupFromSelection(pdtCode, pdtItems);
       }
@@ -2666,19 +2666,22 @@
       });
     }
 
+    // 面料行的选区 key（勾选/取消勾选/幂等判断必须用同一套口径）
+    function fabricItemId(item) {
+      return item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
+    }
+
     function addGroupToSelection(pdtCode, items) {
       applyRestockPrefillToRows(items);
       items.forEach(item => {
-        const itemId = item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
-        selectedFabrics[itemId] = item;
+        selectedFabrics[fabricItemId(item)] = item;
       });
     }
 
     // 从选区移除组
     function removeGroupFromSelection(pdtCode, items) {
       items.forEach(item => {
-        const itemId = item.id || `${item.pdt_code}_${item.sku_code || ''}_${item.mt_code}_${item.warehouse}`;
-        delete selectedFabrics[itemId];
+        delete selectedFabrics[fabricItemId(item)];
       });
     }
 
