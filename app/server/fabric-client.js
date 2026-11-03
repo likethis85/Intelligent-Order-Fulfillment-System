@@ -264,6 +264,18 @@ async function getSampleDevMaterials(smCode) {
     .filter((it) => (it.smCode || '').toUpperCase() === upperCode)
     .map((it) => (it.materialCode || '').trim()))].sort().join(',');
   const { typeMap: mtTypeMap, specMap: mtSpecMap, supplierMap: mtSupplierMap } = await getMaterialBaseInfoForSample(materialCodes);
+  // 样衣 BOM 同样要查真实库存：以前这里把 stock 写死 0，导致样衣款（没有大货标准 BOM）
+  // 在面料查询里永远显示 0 库存。库存接口按物料规格码（materialSubCode）匹配，和标准 BOM 同一口径。
+  const stockQueryCodes = [...new Set(allDatas
+    .filter((it) => (it.smCode || '').toUpperCase() === upperCode)
+    .filter((it) => {
+      const code = (it.materialCode || '').trim();
+      return isFabricMaterial(mtTypeMap.get(code) || '') || isYarnMaterial(code, (it.materialName || '').trim());
+    })
+    .map((it) => (it.materialCode || '').trim()))].sort().join(',');
+  const stockMap = stockQueryCodes
+    ? await getFabricStock(stockQueryCodes).catch(() => new Map())
+    : new Map();
 
   const seen = new Set();
   const results = [];
@@ -291,7 +303,8 @@ async function getSampleDevMaterials(smCode) {
           ? `[${specInfo.colorCode}]${specInfo.colorName}-${specInfo.spColorName};`
           : `[${specInfo.colorCode}]${specInfo.colorName};`;
       }
-      results.push({
+      const useAmt = Number(sub.useAmount) || 0;
+      const resultBase = {
         pdtCode: upperCode,
         skuCode: skuCode || '-',
         pdtColorName: (sub.smColorName || '').trim() || '-',
@@ -301,11 +314,33 @@ async function getSampleDevMaterials(smCode) {
         mtType,
         supplierName: mtSupplierMap.get(materialCode) || (item.supplierName || '').trim() || '-',
         mtSpecName: mtSpecName || '-',
-        warehouse: '-',
-        useAmt: Number(sub.useAmount) || 0,
-        stock: 0,
-        canProduce: 0,
-      });
+        useAmt,
+      };
+      // 库存按物料规格码展开：与标准 BOM 路径一致（有库存的仓各出一行；都凑不到就回落到面料仓/首仓）
+      const matchedStocks = [];
+      for (const [stockKey, value] of stockMap.entries()) {
+        const [mtSpecCode, warehouseCode, warehouseName] = stockKey.split('|');
+        if (mtSpecCode === subMaterialSubCode) {
+          matchedStocks.push({ warehouseCode, warehouseName, stock: value.stock });
+        }
+      }
+      const stocksWithQty = matchedStocks.filter((s) => s.stock > 0);
+      if (stocksWithQty.length > 0) {
+        for (const { warehouseName, stock } of stocksWithQty) {
+          results.push({
+            ...resultBase,
+            warehouse: warehouseName,
+            stock,
+            canProduce: useAmt > 0 ? Math.floor(stock / useAmt) : 0,
+          });
+        }
+      } else if (matchedStocks.length > 0) {
+        const fabricWarehouse = matchedStocks.find((s) => s.warehouseCode === 'M01');
+        const selected = fabricWarehouse || matchedStocks[0];
+        results.push({ ...resultBase, warehouse: selected.warehouseName, stock: 0, canProduce: 0 });
+      } else {
+        results.push({ ...resultBase, warehouse: '-', stock: 0, canProduce: 0 });
+      }
     }
   }
   return results;
