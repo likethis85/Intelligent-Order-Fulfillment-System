@@ -5,9 +5,9 @@ export const API_BASE = API_ORIGIN + '/api';
 export const AUTH_REQUIRED_EVENT = 'marius:auth-required';
 
 export async function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const urlStr = typeof input === 'string' ? input : (input && 'href' in input) ? (input as URL).href : (input && 'url' in input) ? (input as Request).url : '';
-  const isCrossOrigin = Boolean(urlStr && /^https?:\/\//i.test(urlStr) && !urlStr.startsWith(location.origin));
-  const credentials = init?.credentials ?? (isCrossOrigin ? 'same-origin' : 'include');
+  // 本地 Vite 在 3700，API 直连 3737；虽然跨端口，但仍是同一个应用后端。
+  // 必须始终带上 HttpOnly 会话 Cookie，否则回调登录成功后下一次 /auth/session 会 401。
+  const credentials = init?.credentials ?? 'include';
   const response = await fetch(input, { ...init, credentials });
   if (response.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   return response;
