@@ -894,3 +894,53 @@ export function fetchAccessOrgStatus() {
 export function syncAccessOrg() {
   return jsonFetch<{ ok: boolean; departments: number; members: number; migrated: number }>('/access/sync-org', { method: 'POST' }, 120000);
 }
+
+// ── 访问统计（仅管理员） ─────────────────────────────────────
+export interface UsageOverview {
+  days: number;
+  logins: number;
+  online: number;
+  pv: number;
+  uv: number;
+  userCount: number;
+  pageCount: number;
+  activeMs: number;
+  providers: { provider: string; pv: number; uv: number }[];
+  generatedAt: number;
+}
+
+export interface UsagePageRow {
+  path: string;
+  title: string;
+  pv: number;
+  uv: number;
+}
+
+export interface UsageUserRow {
+  userId: string;
+  unionId: string | null;
+  email: string | null;
+  name: string;
+  provider: string;
+  departments: string[];
+  loginCount: number;
+  loginsPerDay: number;
+  pv: number;
+  pageCount: number;
+  activeMs: number;
+  firstVisitAt: number;
+  lastActiveAt: number;
+  online: boolean;
+}
+
+export function fetchUsageOverview(days: number) {
+  return jsonFetch<UsageOverview>(`/usage/overview?days=${days}`, undefined, 15000);
+}
+
+export function fetchUsagePages(days: number) {
+  return jsonFetch<{ days: number; items: UsagePageRow[] }>(`/usage/pages?days=${days}`, undefined, 15000);
+}
+
+export function fetchUsageUsers(days: number) {
+  return jsonFetch<{ days: number; items: UsageUserRow[] }>(`/usage/users?days=${days}`, undefined, 15000);
+}

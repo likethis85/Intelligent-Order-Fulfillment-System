@@ -84,6 +84,7 @@ async function isolatedBackend(t) {
   await symlink(path.join(appDir, 'node_modules'), path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
 
   let scmReads = 0;
+  const telemetryEvents = [];
   const upstream = express();
   upstream.use(express.json());
   upstream.post('/auth/token', (_req, res) => res.json({ isSuccess: true, data: { access_token: 'scm-fixture-token', expires_in: 7200 } }));
@@ -94,7 +95,15 @@ async function isolatedBackend(t) {
   });
   upstream.post('/token', (req, res) => {
     assert.equal(req.body.client_secret, 'sso-fixture-secret');
-    res.json({ access_token: 'sso-fixture-token', token_type: 'Bearer', expires_in: 3600, user: { id: 'runtime_test', provider: 'dingtalk', display_name: '隔离验收同事' } });
+    res.json({
+      access_token: 'sso-fixture-token', token_type: 'Bearer', expires_in: 3600,
+      telemetry_session_id: 'fixture-telemetry-session',
+      user: { id: 'runtime_test', provider: 'dingtalk', display_name: '隔离验收同事' },
+    });
+  });
+  upstream.post('/api/telemetry/events', (req, res) => {
+    telemetryEvents.push({ auth: req.headers.authorization, body: req.body });
+    res.json({ ok: true, accepted: req.body?.events?.length || 0 });
   });
   upstreamServer = http.createServer(upstream).listen(0, '127.0.0.1');
   await once(upstreamServer, 'listening');
@@ -135,7 +144,7 @@ async function isolatedBackend(t) {
   const callback = await fetch(origin + '/api/auth/sso/callback?' + new URLSearchParams({ code: 'fixture-code', state }), { redirect: 'manual', headers: { Cookie: browserCookie } });
   assert.equal(callback.status, 303);
   const session = callback.headers.getSetCookie().find((value) => value.startsWith('marius_fulfillment_session=')).split(';')[0];
-  return { origin, child, session, root, scmReads: () => scmReads };
+  return { origin, child, session, root, telemetryEvents, scmReads: () => scmReads };
 }
 
 test('real backend routes survive missing BI after SSO login, retain SCM data and support sync/logout', async (t) => {
@@ -177,6 +186,25 @@ test('real backend routes survive missing BI after SSO login, retain SCM data an
   assert.equal(sync.status, 200);
   assert.equal((await sync.json()).ok, true);
   assert.ok(f.scmReads() > reads);
+  const telemetry = await fetch(f.origin + '/api/telemetry/events', {
+    method: 'POST',
+    headers: { ...headers, Origin: f.origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'page_view', page_path: '/trays', title: '货盘' }),
+  });
+  assert.equal(telemetry.status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const forwarded = f.telemetryEvents.flatMap((item) => item.body?.events || []);
+  assert.ok(forwarded.some((event) => event.kind === 'page_view' && event.page_path === '/trays'));
+  assert.ok(forwarded.every((event) => event.session_id === 'fixture-telemetry-session'));
+  const usage = await fetch(f.origin + '/api/usage/overview?days=30', { headers });
+  assert.equal(usage.status, 200);
+  assert.equal((await usage.json()).pv, 1);
+  const usagePages = await fetch(f.origin + '/api/usage/pages?days=30', { headers });
+  assert.equal(usagePages.status, 200);
+  assert.deepEqual((await usagePages.json()).items.map((item) => item.path), ['/trays']);
+  const usageUsers = await fetch(f.origin + '/api/usage/users?days=30', { headers });
+  assert.equal(usageUsers.status, 200);
+  assert.equal((await usageUsers.json()).items[0].name, '隔离验收同事');
   assert.equal((await fetch(f.origin + '/api/auth/logout', { method: 'POST', headers: { ...headers, Origin: f.origin } })).status, 200);
   assert.equal((await (await fetch(f.origin + '/api/auth/session', { headers })).json()).authenticated, false);
   assert.equal((await fetch(f.origin + '/api/products', { headers })).status, 401);

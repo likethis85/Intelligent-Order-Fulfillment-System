@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck } from 'lucide-react';
+import { Activity, Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import BoardPage from '@/sections/BoardPage';
@@ -9,6 +9,7 @@ import ProfilePage from '@/sections/ProfilePage';
 import WeatherPage from '@/sections/WeatherPage';
 import ConfigPage from '@/sections/ConfigPage';
 import AccessPage from '@/sections/AccessPage';
+import UsagePage from '@/sections/UsagePage';
 import { ProductsProvider } from '@/data/ProductsContext';
 import { fetchProducts, syncProducts, syncHengjiCost, readProductsCache, fetchAccessMe, fetchStockSyncStatus } from '@/data/api';
 import type { AccessMe } from '@/data/api';
@@ -19,7 +20,7 @@ import { isTrashExpired, stripTombstoned, mergeTombstones, sameTombstones, type 
 import type { Look, Product, Tray, TraySection, TrayType } from '@/data/products';
 import { normalizeTrayImages } from '@/data/products';
 
-type PageKey = 'trays' | 'sequence' | 'board' | 'profile' | 'weather' | 'config' | 'access';
+type PageKey = 'trays' | 'sequence' | 'board' | 'profile' | 'weather' | 'config' | 'access' | 'usage';
 
 const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid; adminOnly?: boolean }[] = [
   { key: 'trays', label: '货盘', icon: Layers },
@@ -29,10 +30,11 @@ const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid; adminOnly?: b
   { key: 'weather', label: '天气面板', icon: CloudSun },
   { key: 'config', label: '配置后台', icon: Settings2 },
   { key: 'access', label: '权限管理', icon: ShieldCheck, adminOnly: true },
+  { key: 'usage', label: '访问统计', icon: Activity, adminOnly: true },
 ];
 
 // 移动端底部导航：配置与权限管理都是低频管理入口，改放右上角图标
-const MOBILE_NAV = NAV.filter((n) => n.key !== 'config' && n.key !== 'access');
+const MOBILE_NAV = NAV.filter((n) => n.key !== 'config' && n.key !== 'access' && n.key !== 'usage');
 const TRAYS_KEY = 'marius:trays:v2';
 const ACTIVE_KEY = 'marius:activeTrayId';
 const TRAYS_UPDATED_AT_KEY = 'marius:trays:updatedAt';
@@ -191,6 +193,39 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   const canEdit = access?.canEditTray === true;
   const canManage = access?.canManageAccess === true;
   const canSync = access?.canSyncData === true || access?.canEditTray === true;
+
+  // 访问统计：页面切换记 PV；页面可见时每分钟心跳，隐藏时暂停。
+  useEffect(() => {
+    if (!user) return;
+    const title = NAV.find((item) => item.key === page)?.label || page;
+    const timer = window.setTimeout(() => {
+      authenticatedFetch(API_BASE + '/telemetry/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'page_view', page_path: `/${page}`, title }),
+      }).catch(() => {});
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [page, user.id]);
+
+  useEffect(() => {
+    if (!user) return;
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      authenticatedFetch(API_BASE + '/telemetry/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'heartbeat' }),
+      }).catch(() => {});
+    };
+    const timer = window.setInterval(tick, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user.id]);
 
   const goPage = (key: PageKey) => {
     if (key !== page && accessDirty && !window.confirm('权限管理里有未保存的修改，切换页面会丢失，确定离开吗？')) return;
@@ -754,6 +789,20 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
               <ShieldCheck size={16} strokeWidth={page === 'access' ? 2 : 1.7} aria-hidden="true" />
             </button>
           )}
+          {canManage && (
+            <button
+              type="button"
+              aria-current={page === 'usage' ? 'page' : undefined}
+              onClick={() => goPage('usage')}
+              aria-label="访问统计"
+              title="访问统计"
+              className={`mobile-config-btn flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-ink-secondary hover:bg-surface-subtle transition-colors ${
+                page === 'usage' ? 'bg-surface-muted font-semibold text-ink-primary' : ''
+              }`}
+            >
+              <Activity size={16} strokeWidth={page === 'usage' ? 2 : 1.7} aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             aria-current={page === 'config' ? 'page' : undefined}
@@ -782,7 +831,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
       <main className="app-main pt-16">
         {/* 商品拉取失败只在「没有任何货盘可展示」时才整屏报错；有货盘则照常渲染，商品位留空稍后填实 */}
-        {error && trays.length === 0 && (
+        {error && trays.length === 0 && page !== 'usage' && (
           <div className="flex flex-col items-center justify-center gap-3 px-10 py-24 text-center">
             <div className="text-[14px] font-semibold text-stage-return-fg">加载商品数据失败</div>
             <div className="max-w-[480px] text-[12.5px] leading-5 text-ink-secondary">{error}</div>
@@ -798,13 +847,13 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
           </div>
         )}
         {/* 商品加载中转圈只在尚无货盘可展示时全屏显示；货盘已恢复则直接渲染页面 */}
-        {!error && loading && trays.length === 0 && (
+        {!error && loading && trays.length === 0 && page !== 'usage' && (
           <div className="flex flex-col items-center justify-center gap-3 px-10 py-24 text-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-edge-strong border-t-action-primary" />
             <div className="text-[13px] text-ink-muted">正在加载商品数据…</div>
           </div>
         )}
-        {!error && !loading && trays.length === 0 && (
+        {!error && !loading && trays.length === 0 && page !== 'usage' && (
           <div className="flex flex-col items-center justify-center gap-3 px-10 py-24 text-center">
             <div className="text-[14px] font-semibold">暂无货盘</div>
             <div className="max-w-[480px] text-[12.5px] leading-5 text-ink-secondary">
@@ -870,6 +919,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             )}
           </ProductsProvider>
         )}
+        {page === 'usage' && canManage && <UsagePage />}
       </main>
       <nav aria-label="移动端主导航" className="mobile-nav print:hidden">
         {MOBILE_NAV.filter((n) => !n.adminOnly || canManage).map((n) => (

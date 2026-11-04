@@ -90,7 +90,8 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: config.secure, path: '/' };
 
   function revoke(key) {
-    if (sessions.delete(key)) events.emit('revoked', key);
+    const session = sessions.get(key);
+    if (sessions.delete(key)) events.emit('revoked', key, session || null);
   }
 
   function cleanup() {
@@ -219,8 +220,16 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
       const previous = getSession(req);
       if (previous) revoke(previous.key);
       const sessionId = random();
-      sessions.set(hash(sessionId), { user, expiresAt });
+      const key = hash(sessionId);
+      const session = {
+        user,
+        expiresAt,
+        createdAt: now(),
+        telemetrySessionId: typeof result.telemetry_session_id === 'string' ? result.telemetry_session_id : null,
+      };
+      sessions.set(key, session);
       res.cookie(SESSION_COOKIE, sessionId, { ...cookieOptions, maxAge: expiresAt - now() });
+      events.emit('login', { key, session });
       // Only the opaque application session cookie reaches the browser.
       res.redirect(303, pending.origin + pending.returnTo);
     } catch {
@@ -255,6 +264,7 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   return {
     router, requireSession, getSession, isAllowedOrigin,
     onRevoke(handler) { events.on('revoked', handler); return () => events.off('revoked', handler); },
+    onLogin(handler) { events.on('login', handler); return () => events.off('login', handler); },
     close() { clearInterval(timer); for (const key of sessions.keys()) revoke(key); states.clear(); },
   };
 }

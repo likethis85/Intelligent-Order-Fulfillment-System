@@ -29,6 +29,10 @@ app/server/data/access-control.json
 app/server/data/access-users.json
 app/server/data/access-audit.json
 
+# 访问统计运行时数据（含姓名与页面访问记录）
+app/server/data/usage-stats.json
+app/server/data/usage-stats.json.*.tmp
+
 # Scratch files and temporary test scripts
 scratch/
 

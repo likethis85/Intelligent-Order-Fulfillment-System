@@ -33,6 +33,8 @@ import { getWeather } from './weather-client.js';
 import { attachTrayWs, broadcastToAll } from './ws-trays.js';
 import { createSsoAuth, readSsoConfig } from './sso-auth.js';
 import { createAccessControl } from './access-control.js';
+import { createUsageStats } from './usage-stats.js';
+import { createSsoTelemetry } from './sso-telemetry.js';
 import { supabaseConfigured, usingServiceKey } from './supabase-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,7 +51,29 @@ console.log(
   isOssConfigured(),
 );
 
-const ssoAuth = createSsoAuth(readSsoConfig());
+const ssoConfig = readSsoConfig();
+const usageStats = createUsageStats();
+const ssoTelemetry = createSsoTelemetry(ssoConfig);
+const ssoAuth = createSsoAuth(ssoConfig);
+
+ssoAuth.onLogin(({ key, session }) => {
+  usageStats.startSession({ key, user: session.user, telemetrySessionId: session.telemetrySessionId });
+  void ssoTelemetry.forward({
+    kind: 'session_start',
+    ssoUserId: session.user.id,
+    sessionId: session.telemetrySessionId,
+  });
+});
+ssoAuth.onRevoke((key, session) => {
+  usageStats.endSession(key);
+  if (session?.user && session.telemetrySessionId) {
+    void ssoTelemetry.forward({
+      kind: 'session_end',
+      ssoUserId: session.user.id,
+      sessionId: session.telemetrySessionId,
+    });
+  }
+});
 app.use(cors({
   origin: (origin, callback) => callback(null, !origin || ssoAuth.isAllowedOrigin(origin)),
   credentials: true,
@@ -62,6 +86,65 @@ app.use('/api', ssoAuth.requireSession);
 const access = createAccessControl();
 app.use('/api', access.attach);
 app.use('/api/access', access.router);
+
+// 访问统计：本地记录 + 尽力转发 SSO。失败不会影响页面或业务请求。
+app.post('/api/telemetry/events', (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const kind = String(body.kind || '');
+  if (!['session_start', 'page_view', 'heartbeat', 'session_end'].includes(kind)) {
+    return res.status(400).json({ ok: false, error: 'invalid_kind' });
+  }
+  const pagePath = kind === 'page_view' ? String(body.page_path || '') : null;
+  if (kind === 'page_view' && (!pagePath || pagePath.length > 300 || !pagePath.startsWith('/') || pagePath.startsWith('//') || /[?#\\\r\n]/.test(pagePath))) {
+    return res.status(400).json({ ok: false, error: 'invalid_page_path' });
+  }
+  const title = body.title ? String(body.title).slice(0, 160) : null;
+  usageStats.recordEvent({
+    key: req.auth.key,
+    user: req.auth.user,
+    kind,
+    path: pagePath,
+    title,
+  });
+  if (req.auth.telemetrySessionId) {
+    void ssoTelemetry.forward({
+      kind,
+      ssoUserId: req.auth.user.id,
+      sessionId: req.auth.telemetrySessionId,
+      pagePath,
+      title,
+    });
+  }
+  res.json({ ok: true });
+});
+
+function usageDepartments(row) {
+  try {
+    const config = access.getConfig();
+    const member = config.members.find((m) =>
+      (m.unionId && row.unionId && m.unionId === row.unionId) || (m.userId && row.userId && m.userId === row.userId),
+    );
+    if (!member) return [];
+    const names = new Map(config.departments.map((d) => [d.id, d.name]));
+    return (member.deptIds || []).map((id) => names.get(id)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+app.get('/api/usage/overview', access.requireAdmin, (req, res) => {
+  res.json(usageStats.overview(req.query.days));
+});
+
+app.get('/api/usage/pages', access.requireAdmin, (req, res) => {
+  res.json({ days: usageStats.overview(req.query.days).days, items: usageStats.pages(req.query.days) });
+});
+
+app.get('/api/usage/users', access.requireAdmin, (req, res) => {
+  const days = usageStats.overview(req.query.days).days;
+  const items = usageStats.users(days).map((row) => ({ ...row, departments: usageDepartments(row) }));
+  res.json({ days, items });
+});
 
 // 用户自传图静态托管（GET /uploads/<uuid>.<ext>）
 // 自传商品图公开只读托管。若配置了阿里云 OSS，重定向至 OSS 高速 CDN 地址；否则本地回源
@@ -431,7 +514,10 @@ app.use((err, _req, res, _next) => {
 
 const server = http.createServer(app);
 attachTrayWs(server, ssoAuth, access);
-server.on('close', () => ssoAuth.close());
+server.on('close', () => {
+  ssoAuth.close();
+  usageStats.flush();
+});
 
 // BI 缓存刷新成功后的联动：清掉依赖 BI 的衍生缓存（尺码/成本 ETL），并广播让前端重新拉数据。
 // 刷新可能来自后台 SWR，也可能来自「同步库存」按钮，统一在这里收口，避免重复广播。
