@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck } from 'lucide-react';
+import { LineChart, Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import BoardPage from '@/sections/BoardPage';
@@ -30,7 +30,7 @@ const NAV: { key: PageKey; label: string; icon: typeof LayoutGrid; adminOnly?: b
   { key: 'weather', label: '天气面板', icon: CloudSun },
   { key: 'config', label: '配置后台', icon: Settings2 },
   { key: 'access', label: '权限管理', icon: ShieldCheck, adminOnly: true },
-  { key: 'usage', label: '访问统计', icon: Activity, adminOnly: true },
+  { key: 'usage', label: '访问统计', icon: LineChart, adminOnly: true },
 ];
 
 // 移动端底部导航：配置与权限管理都是低频管理入口，改放右上角图标
@@ -800,7 +800,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
                 page === 'usage' ? 'bg-surface-muted font-semibold text-ink-primary' : ''
               }`}
             >
-              <Activity size={16} strokeWidth={page === 'usage' ? 2 : 1.7} aria-hidden="true" />
+              <LineChart size={16} strokeWidth={page === 'usage' ? 2 : 1.7} aria-hidden="true" />
             </button>
           )}
           <button
