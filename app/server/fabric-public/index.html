@@ -2681,6 +2681,15 @@
       return false;
     }
 
+    // 匹配到面料但库存/在途/可订货/工厂现货全为 0 时的兜底文案。
+    // 不能返回空串：空串会让货盘走 fabric-selected-empty，单元格退回 BI 的「面料」字段，
+    // 而 BI 那里往往存的是物料小类（如「辅料_其他」），看起来像面料名称但其实不是。
+    // 用户口径：匹配到面料就写「<颜色>0米」。
+    function zeroStockFabricLine(colorDesc, warehouse) {
+      const wh = (warehouse || '').trim();
+      return `${colorDesc || ''}0米${wh && wh !== '-' ? wh : ''}`;
+    }
+
     // 用一条面料记录生成文字：颜色 + 库存/在途/可订货
     // 注意：里布的库存/在途不计入；主面料/非主面料统一处理，里布只显示工厂现货/可订货/订货周期
     function buildFabricInfoLine(item) {
@@ -2724,6 +2733,10 @@
           line += spotStr ? ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天` : `${Math.round(orderableQty)}米${leadTimeDays}天`;
         } else if (spotStr) {
           line += spotStr;
+        } else if (stock === 0) {
+          // 里料匹配到了但库存为 0、也没填补充信息：照样给「颜色0米」，
+          // 别让货盘退回去显示 BI 的物料小类（如「辅料_其他」）。库存 >0 时沿用原逻辑（不单独出行）。
+          return zeroStockFabricLine(colorDesc, warehouse);
         } else {
           return '';
         }
@@ -2752,7 +2765,7 @@
           }
           parts.push(part);
         });
-        if (parts.length === 0) return '';
+        if (parts.length === 0) return zeroStockFabricLine(colorDesc, warehouse);
 
         let line = parts.join('；');
         if (stock > 0) {
@@ -2807,8 +2820,8 @@
         } else if (factorySpot > 0) {
           line += spotStr;
         } else {
-          console.log(`  [buildFabricInfoLine] 返回空: stock=0, 无deliveryDate, inTransit=0, orderable=0, factorySpot=0`);
-          return '';
+          console.log(`  [buildFabricInfoLine] 匹配到面料但无库存/在途/可订货: 输出「${colorDesc}0米」`);
+          return zeroStockFabricLine(colorDesc, warehouse);
         }
         console.log(`  [buildFabricInfoLine] 生成文字: "${line}"`);
         return line;

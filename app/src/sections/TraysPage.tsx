@@ -1161,15 +1161,17 @@ function effectiveMprice(override: string | undefined, p: Product): number {
 // BI 面料里只写了「羊毛/棉」这类材质词，没有仓库/色卡/米数等实质信息，对排货没帮助
 // 这种短串里只渲染属性（material），product.material 已经承担展示，所以直接隐藏
 const FABRIC_MATERIAL_NOISE = new Set([
-  '羊毛', '棉', '醋酸', '真丝', '亚麻', '涤纶', '锦纶', '粘纤', '小香', '羊绒', '羊驼', '其他', '面料_其他',
+  '羊毛', '棉', '醋酸', '真丝', '亚麻', '涤纶', '锦纶', '粘纤', '小香', '羊绒', '羊驼', '其他', '面料_其他', '辅料_其他',
 ]);
+// BI 的「面料」字段有时直接存的是物料小类（面料_其他 / 辅料_其他 这类），不是面料名称
+const FABRIC_CATEGORY_NOISE = /^\S+_其他$/;
 function isFabricNoise(text: string | undefined | null): boolean {
   if (!text) return true;
   const trimmed = text.trim();
   if (!trimmed) return true;
   // 只含材质词（可能带「/」拼接）也视为噪音
   const parts = trimmed.split(/[\/,，\s]+/).filter(Boolean);
-  if (parts.length > 0 && parts.every((s) => FABRIC_MATERIAL_NOISE.has(s))) return true;
+  if (parts.length > 0 && parts.every((s) => FABRIC_MATERIAL_NOISE.has(s) || FABRIC_CATEGORY_NOISE.test(s))) return true;
   // 长度太短（≤2）也按噪音处理
   if (trimmed.length <= 2) return true;
   return false;
