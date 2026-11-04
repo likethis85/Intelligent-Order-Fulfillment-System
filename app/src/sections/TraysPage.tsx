@@ -4691,6 +4691,8 @@ export default function TraysPage({
   const [purgeTarget, setPurgeTarget] = useState<Tray | null>(null);
   // 版块拖拽重排：{ fromId, overId, position: 'before' | 'after' }
   const [sectionDrag, setSectionDrag] = useState<{ fromId: string; overId: string; position: 'before' | 'after' } | null>(null);
+  // 坑位拖拽重排（同一排内）：拖动表头左右调整顺序，落点决定插在目标坑位前/后
+  const [lookDrag, setLookDrag] = useState<{ sectionId: string; fromId: string; overId: string; position: 'before' | 'after' } | null>(null);
   // WPS 核价表登录态：null=检查中; loggedIn=true/false 在按钮旁显示状态点
   // 同步完成后通过 dataVersion 触发重新检查
   const [hengjiStatus, setHengjiStatus] = useState<HengjiStatus | null>(null);
@@ -5354,6 +5356,33 @@ export default function TraysPage({
       }),
     }));
     toast.success(dir === -1 ? '已左移一位' : '已右移一位');
+  };
+
+  // 拖拽调整坑位顺序：把 lookId 插到 targetId 的前面/后面（规则与 moveLook 一致，只能同一排内）
+  const reorderLook = (sectionId: string, lookId: string, targetId: string, position: 'before' | 'after') => {
+    const section = tray.sections.find((s) => s.id === sectionId);
+    if (!section) return;
+    const fromIdx = section.looks.findIndex((l) => l.id === lookId);
+    const targetIdx = section.looks.findIndex((l) => l.id === targetId);
+    if (fromIdx === -1 || targetIdx === -1 || fromIdx === targetIdx) return;
+    if (Math.floor(fromIdx / LOOKS_PER_BAND) !== Math.floor(targetIdx / LOOKS_PER_BAND)) {
+      toast.error('跨排坑位不能拖拽，请先调整排数');
+      return;
+    }
+    upd((t) => ({
+      ...t,
+      sections: t.sections.map((s) => {
+        if (s.id !== sectionId) return s;
+        const arr = [...s.looks];
+        const [moved] = arr.splice(fromIdx, 1);
+        let toIdx = arr.findIndex((l) => l.id === targetId);
+        if (toIdx < 0) toIdx = arr.length;
+        if (position === 'after') toIdx += 1;
+        arr.splice(toIdx, 0, moved);
+        return { ...s, looks: arr };
+      }),
+    }));
+    toast.success('已调整坑位顺序');
   };
 
   // 跨版块移动（移到目标 section 末尾）
@@ -6318,9 +6347,61 @@ export default function TraysPage({
                         </th>
                         {band.map((l) => {
                           const gi = s.looks.indexOf(l);
+                          const dragFromHere = lookDrag?.sectionId === s.id && lookDrag.fromId === l.id;
+                          const dropBefore = lookDrag?.sectionId === s.id && lookDrag.overId === l.id && lookDrag.position === 'before' && !dragFromHere;
+                          const dropAfter = lookDrag?.sectionId === s.id && lookDrag.overId === l.id && lookDrag.position === 'after' && !dragFromHere;
+                          // 拖动经过表头：按鼠标在列内的左右半边决定插到前面还是后面；跨排直接拒绝
+                          const handleLookDragOver = (e: React.DragEvent<HTMLTableCellElement>) => {
+                            if (!lookDrag || lookDrag.sectionId !== s.id) return;
+                            if (lookDrag.fromId === l.id) return;
+                            const fromIdx = s.looks.findIndex((x) => x.id === lookDrag.fromId);
+                            if (fromIdx < 0 || Math.floor(fromIdx / LOOKS_PER_BAND) !== Math.floor(gi / LOOKS_PER_BAND)) {
+                              e.dataTransfer.dropEffect = 'none';
+                              return;
+                            }
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const position = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+                            setLookDrag((prev) => {
+                              if (!prev) return prev;
+                              if (prev.overId === l.id && prev.position === position) return prev;
+                              return { ...prev, overId: l.id, position };
+                            });
+                          };
                           return (
-                            <th key={l.id} className={`${cell} bg-surface-card py-1 font-medium`} style={{ width: 220 }}>
-                              <div className="flex items-center justify-between">
+                            <th
+                              key={l.id}
+                              className={`${cell} relative bg-surface-card py-1 font-medium ${dragFromHere ? 'opacity-40' : ''}`}
+                              style={{ width: 220 }}
+                              draggable={!readOnly}
+                              onDragStart={(e) => {
+                                // 表头里有「+」「…」按钮，从按钮上按下不能起拖，否则点不开菜单
+                                if ((e.target as HTMLElement).closest('button')) { e.preventDefault(); return; }
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/plain', l.id);
+                                setMenuLookId(null);
+                                setLookDrag({ sectionId: s.id, fromId: l.id, overId: l.id, position: 'before' });
+                              }}
+                              onDragEnter={handleLookDragOver}
+                              onDragOver={handleLookDragOver}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const drag = lookDrag;
+                                setLookDrag(null);
+                                if (!drag || drag.sectionId !== s.id || drag.fromId === l.id) return;
+                                reorderLook(s.id, drag.fromId, l.id, drag.position);
+                              }}
+                              onDragEnd={() => setLookDrag(null)}
+                              title={readOnly ? undefined : '拖动表头左右调整坑位顺序'}
+                            >
+                              {dropBefore && (
+                                <span className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-1 rounded-full bg-action-link shadow-[0_0_8px_rgba(46,95,163,0.8)]" title="释放插入到此位置" />
+                              )}
+                              {dropAfter && (
+                                <span className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-1 rounded-full bg-action-link shadow-[0_0_8px_rgba(46,95,163,0.8)]" title="释放插入到此位置" />
+                              )}
+                              <div className={`flex items-center justify-between ${readOnly ? '' : 'cursor-grab active:cursor-grabbing'}`}>
                                 <span className="text-[10px] text-ink-muted">坑位 {gi + 1} · {l.pids.length} 款</span>
                                 <span className="flex items-center gap-1 print:hidden">
                                   <button onClick={() => setPicker({ sectionId: s.id, lookIdx: gi })} title="向坑位追加款号" className="text-ink-faint hover:text-ink-primary"><Plus size={11} /></button>
