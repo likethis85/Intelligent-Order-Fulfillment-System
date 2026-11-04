@@ -1087,6 +1087,8 @@ function CostRatioRow({
 // 解析 stock 字符串行：抽出「颜色 + 现货 + 在途 + 交期 + 占单」
 // 兼容 BI 新格式 "深灰千鸟：现货40 在途179 占单320" / BI 旧 "深灰千鸟：40米·在途179" / mock "白占单180在途100"
 type StockEntry = { color: string; qty: number; eta: string | null; stock: number; inTransit: number; orderBook: number };
+// 占单小于这个数视为噪音，库存单元格里不显示（用户口径：占单 1~14 件不用写出来）
+const ORDER_BOOK_MIN_DISPLAY = 15;
 function parseStockLine(line: string, productColors: string[]): StockEntry {
   const sorted = [...productColors].sort((a, b) => b.length - a.length);
   const color = sorted.find((c) => line.includes(c)) || '';
@@ -1471,7 +1473,7 @@ function stockCellText(p: Product, short?: string): string {
     if (v.stock > 0) parts.push(`现货${v.stock}`);
     if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
     if (v.eta) parts.push(`${v.eta}交`);
-    if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);
+    if (v.orderBook >= ORDER_BOOK_MIN_DISPLAY) parts.push(`占单${v.orderBook}`);
     return `${prefix}${color}：${parts.join(' ') || '—'}`;
   }).join('\n') || (short ? `${short}：—` : '—');
 }
@@ -2914,7 +2916,7 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
     if (v.stock > 0) parts.push(`现货${v.stock}`);
     if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
     if (v.eta) parts.push(`${v.eta}交`);
-    if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);
+    if (v.orderBook >= ORDER_BOOK_MIN_DISPLAY) parts.push(`占单${v.orderBook}`);
     const restText = `${color}：${parts.join(' ') || '—'}`;
     return { color, restText };
   });
