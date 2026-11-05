@@ -1,8 +1,10 @@
 // 把 TraysPage 导出 Excel 的三 sheet 持久化到 Supabase（自托管 api.marius.vip）
 //
 // 三张表：restock_planned / no_restock / sku_detail（schema 见 scripts/sales-tables.sql）
-// 策略：纯 upsert 单条，不删旧行——保留每次改动的历史（用户每次编辑都会留下记录）
-//   同一 unique key 下新数据会覆盖旧数据；被删除的 tray 由前端传 deletedTrayIds → removeTray 一次性清理
+// 策略：按业务 unique key upsert，同 key 覆盖旧行；
+//   货盘里被删掉的坑位/款号/批次会留下「已不属于该货盘」的残留行，保存时按 tray_id 对账删除，
+//   避免反复「加坑位再删坑位」在表里堆积无用数据。
+//   整个 tray 的删除由前端传 deletedTrayIds → removeTray 一次性清理。
 //
 // 调用点：routes/trays.js 的 PUT /api/trays 在 saveTrays 成功后，对每个 tray 调用 persistTray
 // 失败兜底：本文件异常不抛——日志 warn 即可，supabase 写失败不影响本地 saveTrays
@@ -41,6 +43,62 @@ const BATCH = 200; // 单次 upsert 行数上限（PostgREST 默认 1000，分�
 
 // 进程内记录每个货盘上次写入的直播日期，用来判断是否需要按 tray_id 统一刷新历史行
 const lastLiveDateByTray = new Map();
+
+// 进程内记录每个货盘上次写入的「业务唯一键集合」，用来判断有没有删坑位/删款号/改批次。
+// 只有键集合变了才对账删残留行；每次保存都扫三张表代价太大（每个 PUT 会写全部 tray）。
+// 进程重启后缓存为空，首次保存会做一次全量对账，顺带清掉历史积压的无用行。
+const lastKeysByTray = new Map();
+
+function rowKeySets({ restockRows, noRestockRows, skuRows }) {
+  return {
+    restock_planned: new Set(restockRows.map((r) => `${r.pdt_code}|${r.skc}|${r.pieces}|${r.days}`)),
+    no_restock: new Set(noRestockRows.map((r) => `${r.pdt_code}|${r.skc}`)),
+    sku_detail: new Set(skuRows.map((r) => `${r.section}|${r.look_idx}|${r.pdt_code}`)),
+  };
+}
+
+function keysFingerprint(keySets) {
+  return Object.entries(keySets)
+    .map(([table, keys]) => `${table}:${[...keys].sort().join(',')}`)
+    .join('#');
+}
+
+const STALE_KEY_OF = {
+  restock_planned: (row) => `${row.pdt_code}|${row.skc ?? ''}|${Number(row.pieces) || 0}|${Number(row.days) || 0}`,
+  no_restock: (row) => `${row.pdt_code}|${row.skc ?? ''}`,
+  sku_detail: (row) => `${row.section ?? ''}|${Number(row.look_idx) || 0}|${row.pdt_code}`,
+};
+
+const STALE_SELECT = {
+  restock_planned: 'id,pdt_code,skc,pieces,days',
+  no_restock: 'id,pdt_code,skc',
+  sku_detail: 'id,section,look_idx,pdt_code',
+};
+
+// 对账删除：查出该 tray 在表里的全部行，业务键不在当前 payload 里的就是残留行，按主键删掉。
+// 只动这个 tray_id 的行，不会影响别的货盘；失败只告警，不影响保存。
+async function deleteStaleRows(table, trayId, desiredKeys) {
+  const keyOf = STALE_KEY_OF[table];
+  const { data, error } = await supabase.from(table).select(STALE_SELECT[table]).eq('tray_id', trayId);
+  if (error) {
+    console.warn(`[sales-persist] ${table} 残留行查询失败 tray=${trayId}: ${error.message}`);
+    return 0;
+  }
+  const staleIds = (data || []).filter((row) => !desiredKeys.has(keyOf(row))).map((row) => row.id);
+  let removed = 0;
+  // 主键列表拼在 URL 里，100 个一批（UUID 36 字符，避免 URL 过长）
+  for (let i = 0; i < staleIds.length; i += 100) {
+    const ids = staleIds.slice(i, i + 100);
+    const { error: delError } = await supabase.from(table).delete().in('id', ids);
+    if (delError) {
+      console.warn(`[sales-persist] ${table} 残留行删除失败 tray=${trayId}: ${delError.message}`);
+      break;
+    }
+    removed += ids.length;
+  }
+  if (removed > 0) console.log(`[sales-persist] ${table} 清理残留行 ${removed} 条 tray=${trayId}`);
+  return removed;
+}
 
 // 每张表的业务唯一键。必须显式传给 PostgREST：
 // supabase-js 的 upsert 不带 onConflict 时，PostgREST 只按主键(id)判冲突，
@@ -218,7 +276,7 @@ export async function persistTray(tray) {
       }
     }
 
-    // 纯增量 upsert：保留旧行，新行按 unique key 覆盖；删除 tray 由前端传 deletedTrayIds → removeTray
+    // 按业务 unique key upsert；残留行随后对账删除（见下方 deleteStaleRows）；整个 tray 删除由前端传 deletedTrayIds → removeTray
     const [restockN, noRestockN, skuN] = await Promise.all([
       bulkUpsert('restock_planned', restockRows),
       bulkUpsert('no_restock', noRestockRows),
@@ -239,6 +297,16 @@ export async function persistTray(tray) {
       for (const table of ['restock_planned', 'no_restock', 'sku_detail']) {
         const { error } = await supabase.from(table).update({ deleted_at: deletedAt }).eq('tray_id', trayId);
         if (error) console.warn(`[sales-persist] ${table} 回收站标记失败 tray=${trayId}: ${error.message}`);
+      }
+    }
+    // 对账删除残留行：删坑位/删款号/改翻单批次后，旧行的业务键不再出现在 payload 里，
+    // 纯 upsert 永远删不掉它们 → 表里越积越多。键集合没变则跳过，避免每次保存都扫表。
+    const keySets = rowKeySets({ restockRows, noRestockRows, skuRows });
+    const fingerprint = keysFingerprint(keySets);
+    if (lastKeysByTray.get(trayId) !== fingerprint) {
+      lastKeysByTray.set(trayId, fingerprint);
+      for (const table of ['restock_planned', 'no_restock', 'sku_detail']) {
+        await deleteStaleRows(table, trayId, keySets[table]);
       }
     }
     return { restock: restockN, noRestock: noRestockN, sku: skuN };
