@@ -133,6 +133,31 @@ function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () 
   );
 }
 
+// 多选筛选项：固定带一个「全部」，选中等于该维度不过滤（数组为空）。
+// 勾具体项时从「全部」切到具体项；取消到最后一个时自动回到「全部」。
+function DimChips<T extends string | number>({
+  options, selected, onChange, labelOf,
+}: {
+  options: T[];
+  selected: T[];
+  onChange: (next: T[]) => void;
+  labelOf?: (v: T) => string;
+}) {
+  return (
+    <>
+      <Chip on={selected.length === 0} label="全部" onClick={() => onChange([])} />
+      {options.map((o) => (
+        <Chip
+          key={String(o)}
+          on={selected.includes(o)}
+          label={labelOf ? labelOf(o) : String(o)}
+          onClick={() => onChange(selected.includes(o) ? selected.filter((x) => x !== o) : [...selected, o])}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function BoardPage({
   trays, activeTrayId, onSwitchTray, onCreateTray, onAdd,
 }: {
@@ -142,7 +167,8 @@ export default function BoardPage({
   onCreateTray: (name: string, type: TrayType, date: string) => Tray;
   onAdd: (pid: string, sectionId: string) => void;
 }) {
-  const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS, cats: ['大衣', '针织', '套装', '裤装', 'T恤', '外套'], scenes: ['降温提权'] });
+  // 默认所有维度都是「全部」：不预设品类/场景，进页面先看到全量候选池
+  const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });
   const [roleTab, setRoleTab] = useState<'全部' | RoleTag>('全部');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -167,10 +193,11 @@ export default function BoardPage({
       .then((r) => setDims(r))
       .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: DIM.temps, priceBands: [...DIM.bands], roles: DIM.roles, launchYears: [] }));
   }, []);
-  const catList = dims.categories.length ? dims.categories : DIM.cats;
-  const waveList = dims.waves.length ? dims.waves : DIM.waves;
-  const tempList = dims.tempBands.length ? dims.tempBands : DIM.temps;
-  const bandList = dims.priceBands.length ? dims.priceBands : DIM.bands;
+  // BI 返回的维度值里偶尔带「全部」占位，去掉后由 DimChips 统一渲染自己的「全部」
+  const catList = (dims.categories.length ? dims.categories : DIM.cats).filter((v) => v !== '全部');
+  const waveList = (dims.waves.length ? dims.waves : DIM.waves).filter((v) => v !== '全部');
+  const tempList = (dims.tempBands.length ? dims.tempBands : DIM.temps).filter((v) => v !== '全部');
+  const bandList = (dims.priceBands.length ? dims.priceBands : DIM.bands).filter((v) => v !== '全部');
   const yearList = (dims.launchYears && dims.launchYears.length ? dims.launchYears : remainingYears);
   const roleList = DIM.roles;
 
@@ -185,7 +212,16 @@ export default function BoardPage({
   const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
   const traySections = tray.sections.filter((s) => s.visible);
 
-  const toggleArr = <T,>(arr: T[], v: T) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  // 目标货盘按直播日期倒序（最新场次在最前面），与货盘列表页同一口径；
+  // 只排显示副本，不动 App 里的 trays 顺序（原地排会触发多余的云端写盘）。
+  const sortedTrays = useMemo(
+    () => [...trays].sort((a, b) => {
+      const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+      if (byDate !== 0) return byDate;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    }),
+    [trays],
+  );
 
   const pool = useMemo(
     () =>
@@ -292,7 +328,7 @@ export default function BoardPage({
         <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink-secondary">
           <Layers size={13} /> 目标货盘：
         </span>
-        {trays.map((t) => (
+        {sortedTrays.map((t) => (
           <Chip key={t.id} on={t.id === tray.id} label={`${t.name} ${t.date}`} onClick={() => onSwitchTray(t.id)} />
         ))}
         <button
@@ -345,24 +381,29 @@ export default function BoardPage({
             <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
           </div>
           <Dim label="品类">
-            {catList.map((c) => <Chip key={c} on={f.cats.includes(c)} label={c} onClick={() => setF((x) => ({ ...x, cats: toggleArr(x.cats, c) }))} />)}
+            <DimChips options={catList} selected={f.cats} onChange={(cats) => setF((x) => ({ ...x, cats }))} />
           </Dim>
           <Dim label="波段">
-            {waveList.map((w) => <Chip key={w} on={f.waves.includes(w)} label={w} onClick={() => setF((x) => ({ ...x, waves: toggleArr(x.waves, w) }))} />)}
+            <DimChips options={waveList} selected={f.waves} onChange={(waves) => setF((x) => ({ ...x, waves }))} />
           </Dim>
           {yearList.length > 0 && (
             <Dim label="上新年份">
-              {yearList.map((y) => <Chip key={y} on={f.years.includes(y)} label={String(y)} onClick={() => setF((x) => ({ ...x, years: toggleArr(x.years, y) }))} />)}
+              <DimChips options={yearList} selected={f.years} onChange={(years) => setF((x) => ({ ...x, years }))} />
             </Dim>
           )}
           <Dim label="价格带">
-            {bandList.map((b) => <Chip key={b} on={f.bands.includes(b)} label={b === '空' ? '未分类' : `${b}价位`} onClick={() => setF((x) => ({ ...x, bands: toggleArr(x.bands, b) }))} />)}
+            <DimChips
+              options={bandList}
+              selected={f.bands}
+              onChange={(bands) => setF((x) => ({ ...x, bands }))}
+              labelOf={(b) => (b === '空' ? '未分类' : `${b}价位`)}
+            />
           </Dim>
           <Dim label="适穿温度带">
-            {tempList.map((t) => <Chip key={t} on={f.temps.includes(t)} label={t} onClick={() => setF((x) => ({ ...x, temps: toggleArr(x.temps, t) }))} />)}
+            <DimChips options={tempList} selected={f.temps} onChange={(temps) => setF((x) => ({ ...x, temps }))} />
           </Dim>
           <Dim label="商品角色">
-            {DIM.roles.map((r) => <Chip key={r} on={f.roles.includes(r)} label={`${r}款`} onClick={() => setF((x) => ({ ...x, roles: toggleArr(x.roles, r) }))} />)}
+            <DimChips options={roleList} selected={f.roles} onChange={(roles) => setF((x) => ({ ...x, roles }))} labelOf={(r) => `${r}款`} />
           </Dim>
           <Dim label="库存条件">
             <label className="flex items-center gap-1 text-[11.5px] text-ink-secondary">
@@ -385,7 +426,7 @@ export default function BoardPage({
             ))}
           </Dim>
           <Dim label="场景规则">
-            {DIM.scenes.map((s) => <Chip key={s} on={f.scenes.includes(s)} label={s} onClick={() => setF((x) => ({ ...x, scenes: toggleArr(x.scenes, s) }))} />)}
+            <DimChips options={DIM.scenes} selected={f.scenes} onChange={(scenes) => setF((x) => ({ ...x, scenes }))} />
           </Dim>
           <Dim label="坑位数量">
             <label className="flex items-center gap-1 text-[11.5px] text-ink-secondary">

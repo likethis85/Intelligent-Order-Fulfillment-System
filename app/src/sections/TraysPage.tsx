@@ -1343,6 +1343,7 @@ async function exportSkuExcel(t: Tray, byId: (pid: string) => Product) {
 //   主图行高 230 / 图片 180x224（对齐 HTML 货盘 h-56 w-[180px]）
 //   主推版块字段：主图 / 商品名称 / 款号 / 尺码 / 售价 / 成本倍率 / 库存 / 翻单周期 / 面料 / 单耗 / 货值 / [已播完+ 当天销量 / 累计销量]
 //   搭配版块字段：主图 / 商品名称 / 款号 / 尺码 / 售价 / 库存 / 货值
+//   坑位超过 8 个：跟页面一样按 8 个一块（band）继续往下排，续块标题写「版块名（续）」，不能只导第一块
 import type ExcelJS from 'exceljs';
 
 interface TrayById { (pid: string): Product }
@@ -1357,6 +1358,48 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
   bottom: { style: 'thin', color: { argb: 'FF000000' } },
   right: { style: 'thin', color: { argb: 'FF000000' } },
 };
+
+// ── Excel 行高自适应 ──
+// 之前每行都是固定高度（款号 40 / 尺码 32 / 库存 70…），一坑多款时单元格里的多行文本
+// （短名前缀 + 款号、多色库存）会被行高裁掉，最直观的就是「款号最后一行不见了」。
+// 按单元格内容估算：显式换行拆段，再按列宽估算每段折成几行，取本行最高的那一格。
+const EXCEL_COL_WIDTH = 26; // 与 ws.columns 的列宽一致
+function cellPlainText(value: ExcelJS.CellValue): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object' && 'richText' in value) {
+    return ((value as ExcelJS.CellRichTextValue).richText || []).map((r) => r.text || '').join('');
+  }
+  return '';
+}
+// 半角宽度：中文/全角算 2，其余算 1（Excel 列宽按默认字体的字符数计）
+function excelTextWidth(text: string): number {
+  let width = 0;
+  for (const ch of text) width += (ch.codePointAt(0) ?? 0) > 0x2e7f ? 2 : 1;
+  return width;
+}
+function fitExcelRowHeight(row: ExcelJS.Row, minHeight: number): void {
+  let height = minHeight;
+  for (let c = 1; c <= 1 + SLOT_DATA_COLS; c++) {
+    const cell = row.getCell(c);
+    const text = cellPlainText(cell.value);
+    if (!text) continue;
+    let size = typeof cell.font?.size === 'number' ? cell.font.size : 11;
+    const v = cell.value as any;
+    if (v && typeof v === 'object' && Array.isArray(v.richText)) {
+      for (const run of v.richText) {
+        if (typeof run?.font?.size === 'number') size = Math.max(size, run.font.size);
+      }
+    }
+    // 列宽 26 ≈ 182px；12 号微软雅黑一行约 27 个半角字符，按字号等比缩放
+    const perLine = Math.max(6, Math.floor((EXCEL_COL_WIDTH * 12.7) / size));
+    const lines = text.split('\n').reduce((n, seg) => n + Math.max(1, Math.ceil(excelTextWidth(seg) / perLine)), 0);
+    height = Math.max(height, Math.ceil(lines * size * 1.42 + 6));
+  }
+  // Excel 单行最大 409 磅
+  row.height = Math.min(409, height);
+}
 
 // 款号 → 主图 URL：优先 look.userImgs?.[coverPid] / look.userImg（自传覆盖），再 cover pid 的 Product.img
 // Product.img 已是完整 URL（OSS/淘宝 CDN），不能拼接 /uploads；走 /api/image-proxy 绕开浏览器 CORS
@@ -1770,73 +1813,86 @@ async function exportTrayLayoutExcel(
   const imgCellsToFetch: { row: number; col: number; url: string }[] = [];
 
   for (const s of visible) {
-    // ── 版块行：黑底白字 30 号加粗，跨 9 列合并，整行黑底 + 边框 ──
-    const sectionRow = ws.getRow(curRow);
-    sectionRow.height = 55;
-    for (let c = 1; c <= 1 + SLOT_DATA_COLS; c++) {
-      const cell = sectionRow.getCell(c);
-      cell.border = THIN_BORDER;
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
-      if (c === 1) {
-        cell.value = s.label;
-        cell.font = { name: '微软雅黑', size: 30, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      }
+    // 界面里一个版块超过 8 个坑位会换到下一块（band）；导出必须同样分块，
+    // 否则第 9 个坑位往后的款号 / 售价 / 库存等信息会整块丢失。
+    const lookBands: (typeof s.looks)[] = [];
+    for (let i = 0; i < s.looks.length; i += SLOT_DATA_COLS) {
+      lookBands.push(s.looks.slice(i, i + SLOT_DATA_COLS));
     }
-    ws.mergeCells(curRow, 1, curRow, 1 + SLOT_DATA_COLS);
-    curRow++;
+    // 没有坑位的版块也保留表头 + 空行（与原来一致）
+    if (lookBands.length === 0) lookBands.push([]);
 
-    const rows = isMainSection(s.label) ? mainRows : subRows;
-    for (const f of rows) {
-      const r = ws.getRow(curRow);
-      r.height = f.height ?? 35;
-
-      // 标签列
-      const labelCell = r.getCell(1);
-      labelCell.value = f.label;
-      labelCell.font = {
-        name: '微软雅黑', size: 20, bold: true,
-        color: { argb: f.labelRed ? 'FFFF0000' : 'FF000000' },
-      };
-      if (f.labelBlue) {
-        labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B0F0' } };
-      }
-      labelCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      labelCell.border = THIN_BORDER;
-
-      // 数据列
-      for (let i = 0; i < SLOT_DATA_COLS; i++) {
-        const look = s.looks[i];
-        const cell = r.getCell(i + 2);
+    for (let bi = 0; bi < lookBands.length; bi++) {
+      const band = lookBands[bi];
+      // ── 版块行：黑底白字 30 号加粗，跨 9 列合并，整行黑底 + 边框 ──
+      const sectionRow = ws.getRow(curRow);
+      sectionRow.height = 55;
+      for (let c = 1; c <= 1 + SLOT_DATA_COLS; c++) {
+        const cell = sectionRow.getCell(c);
         cell.border = THIN_BORDER;
-        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-        if (!look) continue;
-        const v = f.get(look);
-        if (v !== '' && v !== null && v !== undefined) cell.value = v as ExcelJS.CellValue;
-        if (f.dataStyle === 'priceGreen') {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF92D04F' } };
-          cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: 'FFFF0000' } };
-        } else if (f.dataStyle === 'codeBlue' || f.label === '款号') {
-          const bg = t.codeBgColorByLook?.[look.id] || look.codeBgColor;
-          const fg = t.codeFgColorByLook?.[look.id] || look.codeFgColor;
-          if (bg === 'yellow') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
-          } else if (bg === 'blue') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF04B0F1' } };
-          } else {
-            delete (cell as any).fill;
-          }
-          const fontColor = fg === 'red' ? 'FFFF0000' : 'FF000000';
-          cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: fontColor } };
-        } else if (!f.img) {
-          cell.font = { name: '微软雅黑', size: 12 };
-        }
-        if (f.img) {
-          const url = pidImgUrl(look, byId);
-          if (url) imgCellsToFetch.push({ row: curRow, col: i + 2, url });
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+        if (c === 1) {
+          cell.value = bi === 0 ? s.label : `${s.label}（续）`;
+          cell.font = { name: '微软雅黑', size: 30, bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
         }
       }
+      ws.mergeCells(curRow, 1, curRow, 1 + SLOT_DATA_COLS);
       curRow++;
+
+      const rows = isMainSection(s.label) ? mainRows : subRows;
+      for (const f of rows) {
+        const r = ws.getRow(curRow);
+
+        // 标签列
+        const labelCell = r.getCell(1);
+        labelCell.value = f.label;
+        labelCell.font = {
+          name: '微软雅黑', size: 20, bold: true,
+          color: { argb: f.labelRed ? 'FFFF0000' : 'FF000000' },
+        };
+        if (f.labelBlue) {
+          labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B0F0' } };
+        }
+        labelCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        labelCell.border = THIN_BORDER;
+
+        // 数据列
+        for (let i = 0; i < SLOT_DATA_COLS; i++) {
+          const look = band[i];
+          const cell = r.getCell(i + 2);
+          cell.border = THIN_BORDER;
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+          if (!look) continue;
+          const v = f.get(look);
+          if (v !== '' && v !== null && v !== undefined) cell.value = v as ExcelJS.CellValue;
+          if (f.dataStyle === 'priceGreen') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF92D04F' } };
+            cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: 'FFFF0000' } };
+          } else if (f.dataStyle === 'codeBlue' || f.label === '款号') {
+            const bg = t.codeBgColorByLook?.[look.id] || look.codeBgColor;
+            const fg = t.codeFgColorByLook?.[look.id] || look.codeFgColor;
+            if (bg === 'yellow') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+            } else if (bg === 'blue') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF04B0F1' } };
+            } else {
+              delete (cell as any).fill;
+            }
+            const fontColor = fg === 'red' ? 'FFFF0000' : 'FF000000';
+            cell.font = { name: '微软雅黑', size: 14, bold: true, color: { argb: fontColor } };
+          } else if (!f.img) {
+            cell.font = { name: '微软雅黑', size: 12 };
+          }
+          if (f.img) {
+            const url = pidImgUrl(look, byId);
+            if (url) imgCellsToFetch.push({ row: curRow, col: i + 2, url });
+          }
+        }
+        // 写完全行单元格后再按内容撑高，避免多行文本（款号/售价/库存…）被固定行高裁掉
+        fitExcelRowHeight(r, f.height ?? 35);
+        curRow++;
+      }
     }
   }
 
@@ -2224,7 +2280,10 @@ function LookPicker({
     const missingTokens = upperTokens.filter(
       (t) =>
         !PRODUCTS.some(
-          (p) => p.id.toUpperCase().includes(t) || p.name.toLowerCase().includes(t.toLowerCase()),
+          (p) =>
+            p.id.toUpperCase().includes(t) ||
+            p.name.toLowerCase().includes(t.toLowerCase()) ||
+            String(p.sub || '').toLowerCase().includes(t.toLowerCase()),
         ),
     );
     if (missingTokens.length === 0) {
@@ -2240,8 +2299,8 @@ function LookPicker({
 
   const pool = useMemo(() => {
     let list = [...PRODUCTS];
-    // 款号 / 名称精确搜索（实时过滤，无需点发送）
-    // 空格 / 逗号分隔多个款号时，命中任一即纳入候选
+    // 款号 / 名称 / 小名搜索（实时过滤，无需点发送）
+    // 空格 / 逗号分隔多个关键词时，命中任一即纳入候选
     const tokens = pidSearch.trim().split(/[\s,]+/).filter(Boolean);
     if (tokens.length > 0) {
       const uppers = tokens.map((t) => t.toUpperCase());
@@ -2249,7 +2308,8 @@ function LookPicker({
       list = list.filter(
         (p) =>
           uppers.some((t) => p.id.toUpperCase().includes(t)) ||
-          lowers.some((t) => p.name.toLowerCase().includes(t)),
+          lowers.some((t) => p.name.toLowerCase().includes(t)) ||
+          lowers.some((t) => String(p.sub || '').toLowerCase().includes(t)),
       );
     }
     // AI 指令（叠加在款号搜索之上）
@@ -2276,7 +2336,12 @@ function LookPicker({
       } else if (/^[A-Za-z0-9_-]{4,15}$/.test(q)) {
         // 用户直接在 AI 指令框输入款号（如 ME15FW033）时，作为款号搜索兜底匹配
         const upperQ = q.toUpperCase();
-        list = list.filter((p) => p.id.toUpperCase().includes(upperQ) || p.name.toLowerCase().includes(q.toLowerCase()));
+        list = list.filter(
+          (p) =>
+            p.id.toUpperCase().includes(upperQ) ||
+            p.name.toLowerCase().includes(q.toLowerCase()) ||
+            String(p.sub || '').toLowerCase().includes(q.toLowerCase()),
+        );
       }
     }
     // 排序：根据 AI 指令意图，把最相关的维度放在最前面
@@ -2399,14 +2464,14 @@ function LookPicker({
             </div>
           )}
 
-          {/* 按款号 / 名称直接搜：实时过滤，与 AI 指令可叠加 */}
-          <div className="mt-3 text-[11px] font-medium text-ink-muted">或按款号 / 名称直接搜</div>
+          {/* 按款号 / 名称 / 小名直接搜：实时过滤，与 AI 指令可叠加 */}
+          <div className="mt-3 text-[11px] font-medium text-ink-muted">或按款号 / 名称 / 小名直接搜</div>
           <div className="mt-2 flex items-center gap-2 rounded-md border border-edge-strong px-3 py-2 focus-within:border-edge">
             <Search size={13} className="text-ink-muted" />
             <input
               value={pidSearch}
               onChange={(e) => { setPidSearch(e.target.value); setSelected([]); }}
-              placeholder="如 ME01DW020 / 羊毛大衣（空格分隔可批量筛）"
+              placeholder="如 ME01DW020 / 羊毛大衣 / 机场大衣（空格分隔可批量筛）"
               className="w-full bg-transparent text-[12.5px] outline-none"
             />
             {pidSearch && (
