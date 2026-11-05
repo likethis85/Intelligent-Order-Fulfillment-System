@@ -25,6 +25,7 @@ SELECT
     ) ORDER BY skc, days
   ) AS batches
 FROM restock_planned
+WHERE deleted_at IS NULL                      -- 回收站里的货盘不计入
 GROUP BY tray_id, pdt_code;
 
 -- ② 不可翻单聚合（按 tray_id + pdt_code 汇总所有无面料 SKC 的原因）
@@ -41,6 +42,7 @@ SELECT
     ) ORDER BY skc
   ) AS items
 FROM no_restock
+WHERE deleted_at IS NULL                      -- 回收站里的货盘不计入
 GROUP BY tray_id, pdt_code;
 
 -- ③ 款号明细聚合（按 tray 聚合款数 / 坑位数 / 价格合计）
@@ -54,6 +56,7 @@ SELECT
   SUM(COALESCE(stock_main, 0)) AS total_stock,
   SUM(COALESCE(in_transit, 0)) AS total_in_transit
 FROM sku_detail
+WHERE deleted_at IS NULL                      -- 回收站里的货盘不计入
 GROUP BY tray_id;
 
 -- 启用 RLS：admin 通过 service_role 可以读这些 view

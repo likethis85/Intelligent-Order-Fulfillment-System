@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS restock_planned (
   live_date DATE,                                -- 货盘直播日期
   registered_at TIMESTAMPTZ,                     -- 登记时间（tray.updatedAt ?? createdAt）
   source VARCHAR(20) DEFAULT 'sales-sync',       -- sales-sync（sales.html 同步）/ bi-fallback / tray-level
+  deleted_at TIMESTAMPTZ,                        -- 进回收站的时间；NULL = 正常货盘（BI 侧过滤 deleted_at IS NULL）
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tray_id, pdt_code, skc, pieces, days)
 );
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS no_restock (
   fabric VARCHAR(500),                            -- 面料信息（fabric_no_restock 文案）
   section VARCHAR(50),                            -- 版块（主推 / 搭配 / ...）
   look_idx INTEGER,                               -- 坑位 1-based
+  deleted_at TIMESTAMPTZ,                         -- 进回收站的时间；NULL = 正常货盘
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tray_id, pdt_code, skc)
 );
@@ -61,6 +63,7 @@ CREATE TABLE IF NOT EXISTS sku_detail (
   ordered_qty INTEGER,
   goods_value NUMERIC(12,2),
   live_date DATE,
+  deleted_at TIMESTAMPTZ,                         -- 进回收站的时间；NULL = 正常货盘
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tray_id, section, look_idx, pdt_code)
 );
@@ -92,3 +95,14 @@ CREATE POLICY "service role full access on sku_detail" ON sku_detail
 -- upsert 未带 on_conflict 会重复插入等问题。
 -- 统一见 scripts/sales-tables-rls.sql（可重复执行）。
 -- =====================================================
+
+-- =====================================================
+-- 回收站删除标记（2026-11-05 新增，可重复执行）
+--   货盘进回收站时，服务端把 tray.trashedAt 写进三张表的 deleted_at；
+--   从回收站恢复时写回 NULL；只有彻底删除才会按 tray_id 删行。
+--   BI / 报表查询请加 WHERE deleted_at IS NULL，否则回收站里的货盘也会被统计。
+-- 老库（表已存在、没有这一列）直接执行下面三句即可。
+-- =====================================================
+ALTER TABLE restock_planned ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE no_restock ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE sku_detail ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

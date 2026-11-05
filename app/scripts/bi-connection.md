@@ -31,11 +31,16 @@
 
 | 表 | 主键 / 唯一约束 | 关键字段 | 用途 |
 | --- | --- | --- | --- |
-| `restock_planned` | `(tray_id, pdt_code, skc, pieces, days)` | `tray_id, pdt_code, skc, pieces, days, color, cycle, live_date, registered_at, source` | 每批翻单一行 |
-| `no_restock` | `(tray_id, pdt_code, skc)` | `tray_id, pdt_code, skc, color, fabric, section, look_idx` | 无面料不翻单每个 SKC 一行 |
-| `sku_detail` | `(tray_id, section, look_idx, pdt_code)` | `tray_id, pdt_code, skc=null, section, look_idx, name, color, price, stock_main, in_transit, restock, planned_qty, ordered_qty, goods_value, live_date` | 一坑位一pid 一行 |
+| `restock_planned` | `(tray_id, pdt_code, skc, pieces, days)` | `tray_id, pdt_code, skc, pieces, days, color, cycle, live_date, registered_at, source, deleted_at` | 每批翻单一行 |
+| `no_restock` | `(tray_id, pdt_code, skc)` | `tray_id, pdt_code, skc, color, fabric, section, look_idx, deleted_at` | 无面料不翻单每个 SKC 一行 |
+| `sku_detail` | `(tray_id, section, look_idx, pdt_code)` | `tray_id, pdt_code, skc=null, section, look_idx, name, color, price, stock_main, in_transit, restock, planned_qty, ordered_qty, goods_value, live_date, deleted_at` | 一坑位一pid 一行 |
 
 > `pid` / `pdt_code` 已全部归一为**小写**，方便 BI 跨款聚合。
+
+> **回收站标记**：货盘进回收站时 `deleted_at` 写入入回收站时间（恢复后写回 NULL），
+> 三张表的 `deleted_at` 不为 NULL 就是「在回收站里」的货盘。
+> **BI 里所有查询 / 数据集都必须加 `deleted_at IS NULL`**，否则回收站里的货盘也会被统计进去；
+> `scripts/bi-views.sql` 的三个 view 已内置该过滤。
 
 ---
 

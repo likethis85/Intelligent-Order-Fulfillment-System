@@ -120,6 +120,9 @@ async function isolatedBackend(t) {
       ...process.env, PORT: String(port), NODE_ENV: 'test',
       GUANCLI_PATH: path.join(root, 'missing-guancli.exe'),
       SUPABASE_URL: '', SUPABASE_KEY: '',
+      // 访问统计默认写 server/data/usage-stats.json；复制的 data 目录带着本地真实数据，
+      // 会让 pv 断言（期望 1）不稳定，这里指到隔离目录的空文件
+      USAGE_STATS_FILE: path.join(root, 'usage-stats-test.json'),
       VSCM_BASE_URL: upstreamOrigin, VSCM_APP_ID: 'fixture', VSCM_APP_SECRET: 'fixture', VSCM_LOOKBACK_DAYS: '1',
       SSO_BASE_URL: upstreamOrigin, SSO_CLIENT_ID: 'app_fixture', SSO_CLIENT_SECRET: 'sso-fixture-secret',
       SSO_REDIRECT_URI: origin + '/api/auth/sso/callback', SSO_REDIRECT_URIS: '',

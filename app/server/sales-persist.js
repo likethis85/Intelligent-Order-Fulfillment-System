@@ -62,6 +62,9 @@ export async function persistTray(tray) {
   const trayId = String(tray.id);
   const liveDate = tray.date || null;
   const registeredAt = tray.updatedAt || tray.createdAt || null;
+  // 回收站标记：进回收站的货盘不参与 BI 统计。写「入回收站时间」，恢复时 trashedAt 为 null 会写回 NULL；
+  // 只有彻底删除（墓碑）才由 removeTray 真删行，回收站里数据仍然可恢复。
+  const deletedAt = tray.trashedAt || null;
 
   try {
     // ① 计划翻单量：按 plannedRestockItems 展开，去重（款号多坑位只输出一次）
@@ -107,6 +110,7 @@ export async function persistTray(tray) {
                 live_date: liveDate,
                 registered_at: registeredAt,
                 source: it._source === 'sample' ? 'sample' : 'sales-sync',
+                deleted_at: deletedAt,
               });
             }
           }
@@ -134,6 +138,7 @@ export async function persistTray(tray) {
             fabric: it.fabric || null,
             section: s.label || null,
             look_idx: li + 1,
+            deleted_at: deletedAt,
           });
         }
       }
@@ -177,6 +182,7 @@ export async function persistTray(tray) {
               ordered_qty: orderedQty || null,
               goods_value: goodsValue || null,
               live_date: liveDate,
+              deleted_at: deletedAt,
             });
           } else {
             // products.json 没命中：只写基础字段，BI 可由 pid 关联其他数据源补齐
@@ -196,6 +202,7 @@ export async function persistTray(tray) {
               ordered_qty: null,
               goods_value: null,
               live_date: liveDate,
+              deleted_at: deletedAt,
             });
           }
         }
@@ -208,11 +215,32 @@ export async function persistTray(tray) {
       bulkUpsert('no_restock', noRestockRows),
       bulkUpsert('sku_detail', skuRows),
     ]);
+    // 进回收站的货盘：除本次 upsert 的行以外，tray 里已被删掉/改过坑位的历史行不会出现在 payload 里，
+    // 按 tray_id 统一打标，保证回收站货盘的全部行都不进 BI 统计。
+    // 恢复时由上面的 upsert 把这些行写回 NULL（当前行），历史行本来就已不属于该货盘。
+    if (deletedAt) {
+      for (const table of ['restock_planned', 'no_restock', 'sku_detail']) {
+        const { error } = await supabase.from(table).update({ deleted_at: deletedAt }).eq('tray_id', trayId);
+        if (error) console.warn(`[sales-persist] ${table} 回收站标记失败 tray=${trayId}: ${error.message}`);
+      }
+    }
     return { restock: restockN, noRestock: noRestockN, sku: skuN };
   } catch (err) {
     console.warn(`[sales-persist] tray=${trayId} 写入失败：`, err.message);
     return { restock: 0, noRestock: 0, sku: 0, skipped: 'error' };
   }
+}
+
+// deleted_at 迁移脚本还没执行时会提示一次（不影响写入：自动降级为旧结构）
+let deletedAtHinted = false;
+function warnDeletedAtMissing(table) {
+  if (deletedAtHinted) return;
+  deletedAtHinted = true;
+  console.warn(
+    `[supabase] ${table} 还没有 deleted_at 列，本次按旧结构写入。` +
+      '请在 Supabase SQL Editor 执行 scripts/sales-tables.sql 里的「回收站删除标记」ALTER 语句，' +
+      '之后货盘进回收站会自动打标记。',
+  );
 }
 
 async function bulkUpsert(table, rows) {
@@ -221,9 +249,24 @@ async function bulkUpsert(table, rows) {
   let inserted = 0;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
-    const { error, status, statusText } = await supabase
+    let { error, status, statusText } = await supabase
       .from(table)
       .upsert(batch, onConflict ? { onConflict } : undefined);
+    // 表还没加 deleted_at（迁移未执行）：去掉该列重试，保证货盘保存不受影响
+    if (error && String(error.message || '').includes('deleted_at')) {
+      warnDeletedAtMissing(table);
+      const legacy = batch.map((row) => {
+        const { deleted_at: _omit, ...rest } = row;
+        return rest;
+      });
+      ({ error, status, statusText } = await supabase
+        .from(table)
+        .upsert(legacy, onConflict ? { onConflict } : undefined));
+      if (!error) {
+        inserted += legacy.length;
+        continue;
+      }
+    }
     if (error) {
       warnIfRlsDenied(table, error);
       const detail = `${table} upsert 失败: status=${status} ${statusText} | message=${error.message || '(no message)'} | code=${error.code || '-'} | hint=${error.hint || '-'}`;
