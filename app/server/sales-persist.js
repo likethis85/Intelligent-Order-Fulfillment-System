@@ -39,6 +39,9 @@ function byIdFromDisk(pid) {
 
 const BATCH = 200; // 单次 upsert 行数上限（PostgREST 默认 1000，分批更稳）
 
+// 进程内记录每个货盘上次写入的直播日期，用来判断是否需要按 tray_id 统一刷新历史行
+const lastLiveDateByTray = new Map();
+
 // 每张表的业务唯一键。必须显式传给 PostgREST：
 // supabase-js 的 upsert 不带 onConflict 时，PostgREST 只按主键(id)判冲突，
 // 而 id 是 DEFAULT gen_random_uuid() → 每次保存都会插入一批新行而不是覆盖旧行。
@@ -65,6 +68,12 @@ export async function persistTray(tray) {
   // 回收站标记：进回收站的货盘不参与 BI 统计。写「入回收站时间」，恢复时 trashedAt 为 null 会写回 NULL；
   // 只有彻底删除（墓碑）才由 removeTray 真删行，回收站里数据仍然可恢复。
   const deletedAt = tray.trashedAt || null;
+  // 直播日期变更检测：upsert 只覆盖「当前货盘还在的行」，改过坑位/删过款号留下的旧行不在 payload 里，
+  // 日期会停留成旧值，BI 里同一个货盘出现两个直播日期。日期变了就按 tray_id 统一刷新一次。
+  // 用进程内缓存避免每次保存都多打请求；进程重启后的首次保存（缓存为空）也会刷一次。
+  const prevLiveDate = lastLiveDateByTray.get(trayId);
+  lastLiveDateByTray.set(trayId, liveDate);
+  const liveDateChanged = prevLiveDate !== liveDate;
 
   try {
     // ① 计划翻单量：按 plannedRestockItems 展开，去重（款号多坑位只输出一次）
@@ -215,6 +224,14 @@ export async function persistTray(tray) {
       bulkUpsert('no_restock', noRestockRows),
       bulkUpsert('sku_detail', skuRows),
     ]);
+    // 直播日期变了：把该 tray 的所有历史行（含已移出货盘的残留行）统一刷新，
+    // 避免 BI 里同一个货盘出现两个直播日期。只有 restock_planned / sku_detail 有 live_date 列。
+    if (liveDateChanged) {
+      for (const table of ['restock_planned', 'sku_detail']) {
+        const { error } = await supabase.from(table).update({ live_date: liveDate }).eq('tray_id', trayId);
+        if (error) console.warn(`[sales-persist] ${table} 直播日期刷新失败 tray=${trayId}: ${error.message}`);
+      }
+    }
     // 进回收站的货盘：除本次 upsert 的行以外，tray 里已被删掉/改过坑位的历史行不会出现在 payload 里，
     // 按 tray_id 统一打标，保证回收站货盘的全部行都不进 BI 统计。
     // 恢复时由上面的 upsert 把这些行写回 NULL（当前行），历史行本来就已不属于该货盘。
