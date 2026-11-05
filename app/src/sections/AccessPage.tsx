@@ -214,6 +214,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
     if (!q) return true;
     return row.name.toLowerCase().includes(q)
       || (row.email || '').toLowerCase().includes(q)
+      || (row.unionId || '').toLowerCase().includes(q)
       || row.userId.toLowerCase().includes(q);
   };
 
@@ -375,15 +376,26 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
 
   const filteredDepartments = useMemo(() => {
     const query = deptQuery.trim();
+    // 部门搜索框也支持搜人：命中姓名/邮箱/unionId/账号 id 后，
+    // 展示该成员所在的部门（含所有上级），而不是只剩 0 个部门。
+    const personDeptIds = new Set<string>();
+    if (query) {
+      for (const row of roster) {
+        if (!matchesQuery(row, query)) continue;
+        for (const deptId of row.deptIds) {
+          for (const ancestorId of ancestorsOf(deptId)) personDeptIds.add(ancestorId);
+        }
+      }
+    }
     return visibleTree.filter((d) => {
-      if (query && !d.name.includes(query)) return false;
+      if (query && !d.name.includes(query) && !personDeptIds.has(d.id)) return false;
       if (deptRoleFilter === 'set' && !d.role) return false;
       if (deptRoleFilter === 'inherit' && d.role) return false;
       if (deptSourceFilter !== 'all' && d.source !== deptSourceFilter) return false;
       if (onlyWithMembers && !(memberCounts.get(d.id) || 0)) return false;
       return true;
     });
-  }, [visibleTree, deptQuery, deptRoleFilter, deptSourceFilter, onlyWithMembers, memberCounts]);
+  }, [visibleTree, roster, deptQuery, deptRoleFilter, deptSourceFilter, onlyWithMembers, memberCounts]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDepartments.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -758,7 +770,7 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
           <input
             value={deptQuery}
             onChange={(e) => setDeptQuery(e.target.value)}
-            placeholder="搜索部门名称"
+            placeholder="搜索部门或人员"
             className="h-7 w-36 rounded border border-edge-strong bg-surface-card px-2 text-[12px] outline-none focus:border-edge"
           />
           <select
