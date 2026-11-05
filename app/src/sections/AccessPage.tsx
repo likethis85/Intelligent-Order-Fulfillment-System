@@ -442,6 +442,17 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
     return { role: draft?.settings.defaultRole || 'view', chain: ['未匹配到部门，按全局默认'] };
   };
 
+  // 部门搜索命中人员时，单独列出人员，而不是只显示“这个人所在的部门”。
+  const matchedPeople = useMemo(() => {
+    const q = deptQuery.trim();
+    if (!q) return [];
+    return roster.filter((row) => matchesQuery(row, q)).slice(0, 12).map((row) => ({
+      row,
+      departmentNames: (memberFor(row)?.deptIds || []).map(deptName),
+      explanation: explainRole(row),
+    }));
+  }, [roster, deptQuery, draft, deptRoleMap]);
+
   // 与上次保存的版本比，哪些部门被改过
   const changedDeptIds = useMemo(() => {
     const out = new Set<string>();
@@ -804,6 +815,52 @@ export default function AccessPage({ me, onChanged, onDirtyChange }: {
             </button>
           )}
         </div>
+
+        {deptQuery.trim() && (
+          <div className="mt-2 overflow-hidden rounded border border-edge bg-surface-card">
+            <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-subtle px-3 py-2 text-[12px]">
+              <Users size={13} className="text-ink-muted" />
+              <span className="font-medium">人员匹配</span>
+              <span className="text-ink-muted">
+                {matchedPeople.length ? `找到 ${matchedPeople.length} 人` : '没有匹配人员'}
+              </span>
+              <span className="ml-auto text-[11px] text-ink-faint">点击人员可查看最终权限</span>
+            </div>
+            {matchedPeople.length > 0 && (
+              <div className="divide-y divide-edge/60">
+                {matchedPeople.map(({ row, departmentNames, explanation }) => (
+                  <button
+                    key={row.key}
+                    type="button"
+                    onClick={() => { setCheckQuery(row.name); setCheckKey(row.key); }}
+                    className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left hover:bg-surface-subtle"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-[12.5px] font-medium">
+                        {row.name}
+                        <ProviderTag provider={row.provider} />
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-ink-muted">
+                        {row.email || row.unionId || row.userId || '无账号标识'}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-ink-secondary">
+                        部门：{departmentNames.length ? departmentNames.join('、') : '未分配'}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${ROLE_BADGE[explanation.role]}`}>
+                        {ROLE_LABEL[explanation.role]}
+                      </span>
+                      <span className="max-w-[320px] truncate text-[10.5px] text-ink-faint" title={explanation.chain.join(' → ')}>
+                        {explanation.chain.join(' → ')}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {checkedDepts.size > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-[12px]">
