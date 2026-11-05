@@ -113,7 +113,12 @@ button:focus-visible,
   outline-offset: 3px;
 }
 
-@media screen and (min-width: 768px) and (max-width: 1199px) {
+.desktop-nav button {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+@media screen and (min-width: 768px) and (max-width: 1535px) {
   .app-header {
     height: 108px;
     display: grid;
@@ -125,6 +130,9 @@ button:focus-visible,
   .desktop-nav {
     grid-column: 1 / -1;
     grid-row: 2;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
 
   .desktop-nav button {
