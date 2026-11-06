@@ -7,12 +7,31 @@ const BASE = process.env.VSCM_BASE_URL || 'https://open.scm321.com';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const FABRIC_CACHE_FILE = path.join(__dirname, 'data', 'fabric-query-cache.json');
+// 允许测试把缓存文件指到临时目录（FABRIC_CACHE_FILE），避免碰到线上 data 目录
+const FABRIC_CACHE_FILE = process.env.FABRIC_CACHE_FILE || path.join(__dirname, 'data', 'fabric-query-cache.json');
 
 // 款号级面料结果缓存（内存 + 磁盘持久化，4 小时 TTL）
 // 查过的款号秒回（< 5ms），大幅减轻领猫 SCM API 压力与限流
-const fabricQueryCache = new Map(); // key (uppercase) -> { time: number, data: any[] }
+const fabricQueryCache = new Map(); // key (uppercase) -> { time: number, data: any[], ttl?: number }
 const FABRIC_CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+// 物料基础信息（规格名称 / 颜色）没查到的结果别锁 4 小时：
+// 上游一次限流或超时会让整批行都是 "-"，再缓存 4 小时等于让人一直看不到数据。
+// 这种结果只缓存 2 分钟，下次打开就会重试。
+const FABRIC_CACHE_RETRY_MS = 2 * 60 * 1000;
+
+function cacheItemFresh(item, now = Date.now()) {
+  if (!item || !item.time || !item.data) return false;
+  return now - item.time < (item.ttl || FABRIC_CACHE_TTL_MS);
+}
+
+// 升级前写进缓存的「失败结果」：整片没有规格名/颜色，却没有 verified 标记。
+// 这种条目不作数，重新查一次（线上 ME14DW013 / ME14FF036 就是被它锁到现在的）。
+function isLegacyFailedRows(item) {
+  if (!item || item.verified !== undefined) return false;
+  const rows = Array.isArray(item.data) ? item.data : [];
+  if (rows.length === 0) return false;
+  return rows.every((r) => (!r?.mtSpecName || r.mtSpecName === '-') && (!r?.colorName || r.colorName === '-'));
+}
 
 function loadFabricCacheFromDisk() {
   try {
@@ -22,7 +41,7 @@ function loadFabricCacheFromDisk() {
       const now = Date.now();
       let count = 0;
       for (const [code, item] of Object.entries(json)) {
-        if (item && item.time && (now - item.time < FABRIC_CACHE_TTL_MS) && Array.isArray(item.data)) {
+        if (item && Array.isArray(item.data) && cacheItemFresh(item, now)) {
           fabricQueryCache.set(code.toUpperCase(), item);
           count++;
         }
@@ -47,7 +66,7 @@ function saveFabricCacheToDiskDebounced() {
       const obj = {};
       const now = Date.now();
       for (const [k, v] of fabricQueryCache.entries()) {
-        if (now - v.time < FABRIC_CACHE_TTL_MS) {
+        if (cacheItemFresh(v, now)) {
           obj[k] = v;
         }
       }
@@ -172,7 +191,9 @@ async function getMaterialBaseInfoForSample(mtCodes) {
   const typeMap = new Map();
   const specMap = new Map();
   const supplierMap = new Map();
-  if (!mtCodes) return { typeMap, specMap, supplierMap };
+  if (!mtCodes) return { typeMap, specMap, supplierMap, ok: true };
+  // ok=false：上游失败，规格/颜色只能留空 —— 调用方据此缩短缓存，别把空结果锁几小时
+  let ok = false;
 
   let pageIndex = 1;
   while (true) {
@@ -181,10 +202,14 @@ async function getMaterialBaseInfoForSample(mtCodes) {
       pageIndex,
       pageSize: 100,
     });
-    if (result.code !== 200 && result.code !== 0) break;
+    if (result.code !== 200 && result.code !== 0) {
+      console.warn(`[fabric] 面料基础信息返回 code=${result.code} ${result.msg || ''}（${mtCodes}），规格/颜色先留空`);
+      break;
+    }
     const data = result.data || {};
     const items = data.datas || [];
     if (items.length === 0) break;
+    ok = true;
 
     for (const item of items) {
       const mtCode = (item.mtCode || '').trim();
@@ -209,7 +234,7 @@ async function getMaterialBaseInfoForSample(mtCodes) {
     if (pageIndex * 100 >= total) break;
     pageIndex++;
   }
-  return { typeMap, specMap, supplierMap };
+  return { typeMap, specMap, supplierMap, ok };
 }
 
 async function getSampleDevMaterials(smCode) {
@@ -263,7 +288,7 @@ async function getSampleDevMaterials(smCode) {
   const materialCodes = [...new Set(allDatas
     .filter((it) => (it.smCode || '').toUpperCase() === upperCode)
     .map((it) => (it.materialCode || '').trim()))].sort().join(',');
-  const { typeMap: mtTypeMap, specMap: mtSpecMap, supplierMap: mtSupplierMap } = await getMaterialBaseInfoForSample(materialCodes);
+  const { typeMap: mtTypeMap, specMap: mtSpecMap, supplierMap: mtSupplierMap, ok: baseInfoOk } = await getMaterialBaseInfoForSample(materialCodes);
   // 样衣 BOM 同样要查真实库存：以前这里把 stock 写死 0，导致样衣款（没有大货标准 BOM）
   // 在面料查询里永远显示 0 库存。库存接口按物料规格码（materialSubCode）匹配，和标准 BOM 同一口径。
   const stockQueryCodes = [...new Set(allDatas
@@ -308,7 +333,8 @@ async function getSampleDevMaterials(smCode) {
         pdtCode: upperCode,
         skuCode: skuCode || '-',
         pdtColorName: (sub.smColorName || '').trim() || '-',
-        colorName: (sub.materialSubColorName || '').trim() || '-',
+        // 样衣 BOM 自己没带颜色时，用物料基础信息里的颜色兜底（否则整列 "-"）
+        colorName: (sub.materialSubColorName || '').trim() || (specInfo?.colorName || '').trim() || '-',
         mtCode: materialCode || '-',
         mtName: (item.materialName || '').trim() || '-',
         mtType,
@@ -343,7 +369,7 @@ async function getSampleDevMaterials(smCode) {
       }
     }
   }
-  return results;
+  return { rows: results, baseInfoOk };
 }
 
 async function getFabricMaterials(pdtCode) {
@@ -431,6 +457,9 @@ async function getFabricStock(mtCodes) {
 
 async function getMaterialBaseInfo(mtCodes) {
   const subCodeMap = new Map();
+  // ok=false：上游没给数据（失败/限流/空响应）。以前这里静默 break，调用方分不清
+  // 「查了但没有」和「没查到」，于是把整批 "-" 当正常结果缓存 4 小时。
+  let ok = false;
   let pageIndex = 1;
   while (true) {
     const result = await scmPost('/v1/BaseInfo/Getmaterials', {
@@ -438,10 +467,14 @@ async function getMaterialBaseInfo(mtCodes) {
       pageIndex,
       pageSize: 100,
     });
-    if (result.code !== 200 && result.code !== 0) break;
+    if (result.code !== 200 && result.code !== 0) {
+      console.warn(`[fabric] 面料基础信息返回 code=${result.code} ${result.msg || ''}（${mtCodes}），规格/颜色先留空`);
+      break;
+    }
     const data = result.data || {};
     const items = data.datas || [];
     if (items.length === 0) break;
+    ok = true;
 
     for (const item of items) {
       const mtPrice = parseFloat(item.price) || 0;
@@ -464,7 +497,7 @@ async function getMaterialBaseInfo(mtCodes) {
     if (pageIndex * 100 >= total) break;
     pageIndex++;
   }
-  return subCodeMap;
+  return { subCodeMap, ok };
 }
 
 async function fetchPurchaseWindow(mtCodes, modifiedBegin, modifiedEnd, acc, seenBills) {
@@ -577,27 +610,33 @@ export async function queryFabricInfo(pdtCode, forceRefresh = false) {
 
   if (!forceRefresh) {
     const cached = fabricQueryCache.get(normCode);
-    if (cached && (Date.now() - cached.time < FABRIC_CACHE_TTL_MS) && cached.data) {
+    if (cacheItemFresh(cached) && !isLegacyFailedRows(cached)) {
       return cached.data;
     }
   }
 
   const fabrics = await getFabricMaterials(normCode);
   if (fabrics.length === 0) {
-    const sampleFabrics = await getSampleDevMaterials(normCode);
-    if (sampleFabrics.length > 0) {
-      fabricQueryCache.set(normCode, { time: Date.now(), data: sampleFabrics });
+    const sample = await getSampleDevMaterials(normCode);
+    if (sample.rows.length > 0) {
+      fabricQueryCache.set(normCode, {
+        time: Date.now(),
+        data: sample.rows,
+        ttl: sample.baseInfoOk ? undefined : FABRIC_CACHE_RETRY_MS,
+        verified: sample.baseInfoOk,
+      });
       saveFabricCacheToDiskDebounced();
-      return sampleFabrics;
+      return sample.rows;
     }
     return [];
   }
 
   const mtCodes = [...new Set(fabrics.map((f) => f.mtCode))].sort().join(',');
-  const [stockMap, subCodeMap] = await Promise.all([
+  const [stockMap, baseInfoResult] = await Promise.all([
     getFabricStock(mtCodes),
     getMaterialBaseInfo(mtCodes),
   ]);
+  const subCodeMap = baseInfoResult.subCodeMap;
 
   async function fetchPOWithRetry() {
     const poPromise = getPurchaseBills(mtCodes);
@@ -609,17 +648,21 @@ export async function queryFabricInfo(pdtCode, forceRefresh = false) {
   const results = [];
   for (const fabric of fabrics) {
     const useAmt = fabric.useAmt || 0;
-    let mtSpecNameFromBase = '-';
+    // 规格/颜色以物料基础信息为准，查不到就退回 BOM 行自带的色号/颜色名
+    // （BOM 里一直有 colorCode/colorName，上游抽风时也不至于整列 "-"）
+    const bomColorCode = (fabric.colorCode || '').trim();
+    const bomColorName = (fabric.colorName || '').trim();
     const baseInfo = subCodeMap.get(fabric.mtSubCode);
-    if (baseInfo) {
-      const { colorCode, colorName, spColorName } = baseInfo;
-      if (colorCode || colorName || spColorName) {
-        mtSpecNameFromBase = spColorName
-          ? `[${colorCode}]${colorName}-${spColorName};`
-          : `[${colorCode}]${colorName};`;
-      }
+    const specColorCode = baseInfo?.colorCode || bomColorCode;
+    const specColorName = baseInfo?.colorName || bomColorName;
+    const specSpColorName = baseInfo?.spColorName || '';
+    let mtSpecNameFromBase = '-';
+    if (specColorCode || specColorName) {
+      mtSpecNameFromBase = specSpColorName
+        ? `[${specColorCode}]${specColorName}-${specSpColorName};`
+        : `[${specColorCode}]${specColorName};`;
     }
-    const colorNameFromBase = baseInfo ? (baseInfo.colorName || '-') : '-';
+    const colorNameFromBase = specColorName || '-';
     const mtPrice = fabric.mtPrice || (baseInfo ? baseInfo.mtPrice : 0) || 0;
     const mtCategory = (baseInfo ? baseInfo.mtCategory : '') || '';
 
@@ -674,9 +717,15 @@ export async function queryFabricInfo(pdtCode, forceRefresh = false) {
     }
   }
 
-  // 存入款号级缓存并异步刷盘
+  // 存入款号级缓存并异步刷盘。
+  // 基础信息没查到时只缓 2 分钟：否则一次上游抖动会让人 4 小时都看到 "-"
   if (results && results.length > 0) {
-    fabricQueryCache.set(normCode, { time: Date.now(), data: results });
+    fabricQueryCache.set(normCode, {
+      time: Date.now(),
+      data: results,
+      ttl: baseInfoResult.ok ? undefined : FABRIC_CACHE_RETRY_MS,
+      verified: baseInfoResult.ok,
+    });
     saveFabricCacheToDiskDebounced();
   }
 
@@ -694,7 +743,7 @@ export async function queryFabricInfoMulti(pdtCodes, concurrency = 3, forceRefre
     const code = trimmedCodes[i].toUpperCase();
     if (!forceRefresh) {
       const cached = fabricQueryCache.get(code);
-      if (cached && (Date.now() - cached.time < FABRIC_CACHE_TTL_MS) && cached.data) {
+      if (cacheItemFresh(cached) && !isLegacyFailedRows(cached)) {
         results[i] = cached.data;
         continue;
       }
