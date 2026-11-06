@@ -25,6 +25,7 @@ export const KEYED_FIELDS = [
   'sizeRangeOverrides',
   'colorOverrideByLook',
   'colorCodesByLook',
+  'colorFgByLook',
   'plannedRestockAllSkcs',
   'codeBgColorByLook',
   'codeFgColorByLook',

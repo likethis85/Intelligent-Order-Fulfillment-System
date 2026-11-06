@@ -16,7 +16,7 @@ export function newId(prefix: string): string {
 }
 
 // 与坑位 id 绑定的字段：坑位改名时必须跟着搬，否则配色/颜色文案/色号会丢
-const LOOK_KEYED_FIELDS = ['colorOverrideByLook', 'colorCodesByLook', 'codeBgColorByLook', 'codeFgColorByLook'] as const;
+const LOOK_KEYED_FIELDS = ['colorOverrideByLook', 'colorCodesByLook', 'colorFgByLook', 'codeBgColorByLook', 'codeFgColorByLook'] as const;
 
 function freeId(id: string, seen: Set<string>): string {
   let n = 2;

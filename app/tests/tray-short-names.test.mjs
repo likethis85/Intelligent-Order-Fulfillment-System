@@ -44,7 +44,8 @@ test('TraysPage: product modifier/short name editing support', async (t) => {
   });
 
   await t.test('库存情况 row passes shortNode with ShortNameEditor', () => {
-    assert.ok(code.includes('renderStockForProduct(p, short, shortNode)'));
+    // 第 4 个参数是颜色行勾选出来的可见颜色（勾掉的色号库存要隐藏）
+    assert.ok(code.includes('renderStockForProduct(p, short, shortNode, visibleColors)'));
   });
 
   await t.test('翻单周期 row renders ShortNameEditor for matching short prefixes', () => {

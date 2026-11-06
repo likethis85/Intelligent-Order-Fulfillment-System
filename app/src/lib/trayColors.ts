@@ -67,3 +67,81 @@ export function colorOverrideValue(colors: string[], defaultText: string): strin
   const text = joinColorText(colors);
   return text === defaultText ? '' : text;
 }
+
+// 库存行和颜色行的对应关系：BI 的颜色名可能比颜色行更细（"深灰千鸟" vs "深灰"），
+// 所以双向包含即算命中；没解析出颜色的行（"其他"）保留，别把不可归类的库存藏掉
+export function colorMatchesSelection(lineColor: string, visibleColors: string[]): boolean {
+  const color = String(lineColor || '').trim();
+  if (!color) return true;
+  return visibleColors.some((v) => {
+    const visible = v.trim();
+    return Boolean(visible) && (color.includes(visible) || visible.includes(color));
+  });
+}
+
+// ── 颜色字色：商品名称下面那行颜色可以逐条设字体颜色 ──
+// 预设色挑的是深浅主题下都能看清的中间调；键是色值，label 只用于弹窗里的提示
+export const COLOR_FG_PRESETS: Array<{ value: string; label: string }> = [
+  { value: '#dc2626', label: '红' },
+  { value: '#ea580c', label: '橙' },
+  { value: '#ca8a04', label: '黄' },
+  { value: '#16a34a', label: '绿' },
+  { value: '#0891b2', label: '青' },
+  { value: '#2563eb', label: '蓝' },
+  { value: '#7c3aed', label: '紫' },
+  { value: '#db2777', label: '粉' },
+];
+
+// 统一成 #rrggbb 小写（三位缩写补全）；认不出来就返回 ''，等于「用默认灰字」
+export function normalizeHexColor(input: string): string {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+  const m = withHash.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+  if (!m) return '';
+  const hex = m[1].toLowerCase();
+  return `#${hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex}`;
+}
+
+// 查某个颜色的字色：按颜色名精确匹配（颜色改名后旧色值就不再命中，跟色号一个口径）
+export function colorFgOf(fgByColor: Record<string, string> | undefined, color: string): string {
+  const key = String(color || '').trim();
+  if (!key) return '';
+  return normalizeHexColor(fgByColor?.[key] || '');
+}
+
+// 保存时只留仍然勾选的颜色对应的字色，删掉的颜色不再拖着一份配色
+export function pruneColorFg(
+  fgByColor: Record<string, string> | undefined,
+  keptColors: string[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const color of keptColors) {
+    const value = colorFgOf(fgByColor, color);
+    if (value) out[color.trim()] = value;
+  }
+  return out;
+}
+
+// 颜色文案 → 分段（每段一个颜色和它的字色），页面和 Excel 导出共用
+export function colorSegments(
+  text: string,
+  fgByColor?: Record<string, string>,
+): Array<{ text: string; color: string }> {
+  return splitColorText(text).map((c) => ({ text: c, color: colorFgOf(fgByColor, c) }));
+}
+
+// #rrggbb → ExcelJS 需要的 ARGB
+export function hexToArgb(hex: string): string {
+  const normalized = normalizeHexColor(hex);
+  return normalized ? `FF${normalized.slice(1).toUpperCase()}` : '';
+}
+
+// 库存按颜色行里选中的颜色过滤：勾掉的色号不显示库存；一个都没匹配上（比如手动写了
+// 系统里没有的颜色）就退回全量，避免整列库存被过滤成空
+export function pickEntriesByColors<T extends { color: string }>(entries: T[], visibleColors?: string[]): T[] {
+  const visible = (visibleColors ?? []).map((c) => c.trim()).filter(Boolean);
+  if (visible.length === 0 || entries.length === 0) return entries;
+  const kept = entries.filter((e) => colorMatchesSelection(e.color, visible));
+  return kept.length > 0 ? kept : entries;
+}

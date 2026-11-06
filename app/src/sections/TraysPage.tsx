@@ -18,7 +18,8 @@ import { fetchSamplesByCodes, fetchSalesSummary, uploadImage, fetchRemainingInve
 import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
-import { buildColorOptions, colorOverrideValue, defaultColorText, joinColorText, splitColorText } from '@/lib/trayColors';
+import { buildColorOptions, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
+import { parseStockLine } from '@/lib/stockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -345,8 +346,9 @@ function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: strin
 
 // 颜色行编辑入口：点击直接打开「颜色 / 色号」选择弹窗（按款号列出色号逐条勾选）；
 // 没有传 onOpenPicker 时退回原来的内联文本编辑。覆盖态右上 X 一键清除（回退到 pid.colors union）
-function ColorLineEditor({ value, defaultText, onSave, onClear, onOpenPicker }: {
+function ColorLineEditor({ value, defaultText, fgByColor, onSave, onClear, onOpenPicker }: {
   value: string; defaultText: string; onSave: (v: string) => void; onClear: () => void; onOpenPicker?: () => void;
+  fgByColor?: Record<string, string>; // 颜色名 → #rrggbb（商品名称下面那行逐条上色）
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -382,7 +384,14 @@ function ColorLineEditor({ value, defaultText, onSave, onClear, onOpenPicker }: 
         ? (overridden ? `已覆盖：${value}（点击按色号重选，× 还原）` : '点击按色号选择颜色')
         : (overridden ? `已覆盖：${value}（点击修改，× 还原）` : '点击修改颜色文案')}
     >
-      {value || '+ 颜色'}
+      {value
+        ? colorSegments(value, fgByColor).map((seg, i) => (
+            <span key={`${seg.text}-${i}`}>
+              {i > 0 && ' / '}
+              <span style={seg.color ? { color: seg.color } : undefined}>{seg.text}</span>
+            </span>
+          ))
+        : '+ 颜色'}
       {overridden && (
         <button
           onClick={(e) => { e.stopPropagation(); onClear(); }}
@@ -391,6 +400,83 @@ function ColorLineEditor({ value, defaultText, onSave, onClear, onOpenPicker }: 
         >×</button>
       )}
     </span>
+  );
+}
+
+// 颜色字色：勾选的颜色行右侧一个小色点，点开选色（商品名称下面那行按颜色上色）
+function FontColorSwatch({ color, fgColors, editing, onOpen }: {
+  color: string; fgColors: Record<string, string>; editing: boolean; onOpen: () => void;
+}) {
+  const value = colorFgOf(fgColors, color);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] cursor-pointer ${
+        editing ? 'border-action-primary bg-surface-card text-ink-primary' : 'border-edge text-ink-muted hover:bg-surface-card'
+      }`}
+      title={value ? `字体颜色 ${value}（点击修改）` : '设置这个颜色在表格里的字体颜色'}
+    >
+      <span
+        className="h-3 w-3 rounded-full border border-black/10 dark:border-white/20"
+        style={{ background: value || 'transparent' }}
+      />
+      字色
+    </button>
+  );
+}
+
+// 字色面板：8 个预设 + 自定义色值；「默认」= 清掉，回到灰字
+function FontColorPicker({ color, current, draft, onDraft, onPick }: {
+  color: string; current: string; draft: string; onDraft: (v: string) => void; onPick: (v: string) => void;
+}) {
+  return (
+    <div className="mb-1 mt-1.5 ml-6 rounded-lg border border-edge bg-surface-card p-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {COLOR_FG_PRESETS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => onPick(p.value)}
+            title={p.label}
+            aria-label={`把「${color}」设成${p.label}色`}
+            className={`h-5 w-5 rounded-full border cursor-pointer transition-transform hover:scale-110 ${
+              current === p.value ? 'border-ink-primary ring-2 ring-action-primary/40' : 'border-edge'
+            }`}
+            style={{ background: p.value }}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={() => onPick('')}
+          className="rounded-md border border-edge px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-subtle cursor-pointer"
+          title="清除字色，回到默认灰字"
+        >
+          默认
+        </button>
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <span className="shrink-0 text-[11px] text-ink-muted">自定义</span>
+        <input
+          value={draft}
+          onChange={(e) => onDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); onPick(draft); }
+          }}
+          placeholder="dc2626 或 #dc2626"
+          className="w-[128px] rounded-md border border-edge bg-surface-base px-2 py-1 font-mono text-[11px] text-ink-primary outline-none focus:border-action-primary"
+        />
+        <button
+          type="button"
+          onClick={() => onPick(draft)}
+          disabled={!normalizeHexColor(draft)}
+          className="rounded-md border border-edge px-2 py-1 text-[11px] text-ink-secondary hover:bg-surface-subtle disabled:opacity-40 cursor-pointer"
+        >
+          应用
+        </button>
+        {current && <span className="font-mono text-[10.5px] text-ink-faint">{current}</span>}
+      </div>
+    </div>
   );
 }
 
@@ -404,6 +490,7 @@ function LookColorDialog({
   sampleColorsByPid,
   skcsByPid,
   codesByLook,
+  fgByLook,
   onSave,
   onClose,
 }: {
@@ -413,7 +500,8 @@ function LookColorDialog({
   sampleColorsByPid?: Record<string, string[]>;
   skcsByPid?: Record<string, Array<{ code: string; color: string }>>;
   codesByLook?: Record<string, string>; // 手动添加的颜色 → 色号
-  onSave: (value: string, codes: Record<string, string>) => void;
+  fgByLook?: Record<string, string>;   // 颜色名 → #rrggbb（商品名称下面那行的字体颜色）
+  onSave: (value: string, codes: Record<string, string>, fgColors: Record<string, string>) => void;
   onClose: () => void;
 }) {
   const section = tray.sections.find((x) => x.id === target.sectionId);
@@ -449,6 +537,23 @@ function LookColorDialog({
   // 手动添加的颜色 → 色号；列表里色号优先用 SKC 的，没有再用这里填的
   const [codes, setCodes] = useState<Record<string, string>>(() => codesByLook || {});
   const codeOf = (color: string, skc?: string) => skc || codes[color] || '';
+  // 颜色 → 字体颜色；保存时只留仍然勾选的颜色
+  const [fgColors, setFgColors] = useState<Record<string, string>>(() => fgByLook || {});
+  const [fgEditing, setFgEditing] = useState<string | null>(null); // 正在调色的颜色名
+  const [fgDraft, setFgDraft] = useState('');
+  const setFg = (color: string, value: string) => {
+    const hex = normalizeHexColor(value);
+    setFgColors((prev) => {
+      const next = { ...prev };
+      if (hex) next[color] = hex; else delete next[color];
+      return next;
+    });
+  };
+  const openFg = (color: string) => {
+    if (fgEditing === color) { setFgEditing(null); return; }
+    setFgEditing(color);
+    setFgDraft(colorFgOf(fgColors, color).replace('#', ''));
+  };
   const has = (color: string) => selected.includes(color);
   const toggle = (color: string) =>
     setSelected((prev) => (prev.includes(color) ? prev.filter((c) => c !== color) : [...prev, color]));
@@ -473,7 +578,8 @@ function LookColorDialog({
       const code = (codes[color] || '').trim();
       if (code) keptCodes[color] = code;
     }
-    onSave(colorOverrideValue(selected, defaultText), keptCodes);
+    // 字色跟着勾选走：勾掉的颜色不再保留它的配色
+    onSave(colorOverrideValue(selected, defaultText), keptCodes, pruneColorFg(fgColors, selected));
     onClose();
   };
 
@@ -512,7 +618,16 @@ function LookColorDialog({
         <div className="flex items-center justify-between gap-2 border-b border-edge bg-surface-subtle/60 px-5 py-2">
           <div className="min-w-0 text-[12px] text-ink-secondary">
             <span className="text-ink-muted">展示：</span>
-            <span className={preview ? 'font-medium text-ink-primary' : 'text-ink-faint'}>{preview || '（无）'}</span>
+            <span className={preview ? 'font-medium text-ink-primary' : 'text-ink-faint'}>
+              {preview
+                ? colorSegments(preview, fgColors).map((seg, i) => (
+                    <span key={`${seg.text}-${i}`}>
+                      {i > 0 && ' / '}
+                      <span style={seg.color ? { color: seg.color } : undefined}>{seg.text}</span>
+                    </span>
+                  ))
+                : '（无）'}
+            </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -543,29 +658,48 @@ function LookColorDialog({
                 <div className="px-2 pt-2 pb-1 font-mono text-[11px] text-ink-muted">{pid.toUpperCase()}</div>
               )}
               {list.map((opt) => (
-                <button
+                <div
                   key={`${opt.pid}|${opt.color}`}
-                  type="button"
-                  onClick={() => toggle(opt.color)}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${
-                    has(opt.color) ? 'bg-action-primary/10' : 'hover:bg-surface-subtle'
-                  }`}
+                  className={`rounded-lg px-2 py-1.5 transition-colors ${has(opt.color) ? 'bg-action-primary/10' : 'hover:bg-surface-subtle'}`}
                 >
-                  <span
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                      has(opt.color) ? 'border-action-primary bg-action-primary text-white' : 'border-ink-disabled'
-                    }`}
-                  >
-                    {has(opt.color) && <Check size={11} strokeWidth={3} />}
-                  </span>
-                  <span className="text-[12.5px] text-ink-primary">{opt.color}</span>
-                  {codeOf(opt.color, opt.code) && (
-                    <span className="font-mono text-[10.5px] text-ink-faint">{codeOf(opt.color, opt.code)}</span>
+                  <div className="flex w-full items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggle(opt.color)}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
+                    >
+                      <span
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                          has(opt.color) ? 'border-action-primary bg-action-primary text-white' : 'border-ink-disabled'
+                        }`}
+                      >
+                        {has(opt.color) && <Check size={11} strokeWidth={3} />}
+                      </span>
+                      <span
+                        className="text-[12.5px] text-ink-primary"
+                        style={has(opt.color) && colorFgOf(fgColors, opt.color) ? { color: colorFgOf(fgColors, opt.color) } : undefined}
+                      >
+                        {opt.color}
+                      </span>
+                      {codeOf(opt.color, opt.code) && (
+                        <span className="font-mono text-[10.5px] text-ink-faint">{codeOf(opt.color, opt.code)}</span>
+                      )}
+                      {opt.sample && (
+                        <span className="rounded bg-amber-100 px-1 text-[9px] text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">样衣</span>
+                      )}
+                    </button>
+                    {has(opt.color) && <FontColorSwatch color={opt.color} fgColors={fgColors} editing={fgEditing === opt.color} onOpen={() => openFg(opt.color)} />}
+                  </div>
+                  {fgEditing === opt.color && (
+                    <FontColorPicker
+                      color={opt.color}
+                      current={colorFgOf(fgColors, opt.color)}
+                      draft={fgDraft}
+                      onDraft={setFgDraft}
+                      onPick={(v) => setFg(opt.color, v)}
+                    />
                   )}
-                  {opt.sample && (
-                    <span className="rounded bg-amber-100 px-1 text-[9px] text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">样衣</span>
-                  )}
-                </button>
+                </div>
               ))}
             </div>
           ))}
@@ -576,8 +710,16 @@ function LookColorDialog({
               <div className="flex flex-wrap gap-1.5 px-2">
                 {extraSelected.map((color) => (
                   <span key={color} className="inline-flex items-center gap-1 rounded-full bg-surface-subtle px-2 py-0.5 text-[12px] text-ink-primary">
-                    {color}
+                    <span style={colorFgOf(fgColors, color) ? { color: colorFgOf(fgColors, color) } : undefined}>{color}</span>
                     {codeOf(color) && <span className="font-mono text-[10px] text-ink-faint">{codeOf(color)}</span>}
+                    <button
+                      type="button"
+                      onClick={() => openFg(color)}
+                      className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-edge cursor-pointer"
+                      style={{ background: colorFgOf(fgColors, color) || 'transparent' }}
+                      title="设置这个颜色的字体颜色"
+                      aria-label={`设置「${color}」的字体颜色`}
+                    />
                     <button
                       type="button"
                       onClick={() => toggle(color)}
@@ -589,6 +731,15 @@ function LookColorDialog({
                   </span>
                 ))}
               </div>
+              {fgEditing && extraSelected.includes(fgEditing) && (
+                <FontColorPicker
+                  color={fgEditing}
+                  current={colorFgOf(fgColors, fgEditing)}
+                  draft={fgDraft}
+                  onDraft={setFgDraft}
+                  onPick={(v) => setFg(fgEditing, v)}
+                />
+              )}
             </div>
           )}
         </div>
@@ -1338,32 +1489,8 @@ function CostRatioRow({
   );
 }
 
-// 解析 stock 字符串行：抽出「颜色 + 现货 + 在途 + 交期 + 占单」
-// 兼容 BI 新格式 "深灰千鸟：现货40 在途179 占单320" / BI 旧 "深灰千鸟：40米·在途179" / mock "白占单180在途100"
-type StockEntry = { color: string; qty: number; eta: string | null; stock: number; inTransit: number; orderBook: number };
 // 占单小于这个数视为噪音，库存单元格里不显示（用户口径：占单 1~14 件不用写出来）
 const ORDER_BOOK_MIN_DISPLAY = 15;
-function parseStockLine(line: string, productColors: string[]): StockEntry {
-  const sorted = [...productColors].sort((a, b) => b.length - a.length);
-  const color = sorted.find((c) => line.includes(c)) || '';
-  // 现货 X（关键字「现货」或 X米）
-  const stockKwd = line.match(/现货\s*(\d+(?:\.\d+)?)/);
-  const stockMi = line.match(/(\d+(?:\.\d+)?)\s*米/);
-  const stock = stockKwd ? Number(stockKwd[1]) : stockMi ? Number(stockMi[1]) : 0;
-  // 在途 X
-  const inTransitMatch = line.match(/在途\s*(\d+(?:\.\d+)?)/);
-  const inTransit = inTransitMatch ? Number(inTransitMatch[1]) : 0;
-  // 占单 X
-  const orderMatch = line.match(/占单\s*(\d+(?:\.\d+)?)/);
-  const orderBook = orderMatch ? Number(orderMatch[1]) : 0;
-  // 交期日期
-  const etaMatch = line.match(/(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/);
-  const eta = etaMatch ? etaMatch[1] : null;
-  // 兼容字段：第一数字（旧渲染兜底用）
-  const numMatch = line.match(/(\d+(?:\.\d+)?)/);
-  const qty = numMatch ? Number(numMatch[1]) : 0;
-  return { color, qty, eta, stock, inTransit, orderBook };
-}
 
 const TYPE_COLOR: Record<string, string> = {
   // Marius（马总）= 自有品牌主盘，用品牌红突出，区别于其它彩色类型徽标
@@ -1757,7 +1884,7 @@ function costRatioText(pid: string, t: Tray, byId: TrayById, short?: string): st
 
 // 库存情况（主仓）文本：跟 FIELDS.库存情况（主仓）.render 同款
 // 领猫款用 p.stock 颜色聚合；BI 独有用 stockMain + inTransit；都没有则 '—'
-function stockCellText(p: Product, short?: string): string {
+function stockCellText(p: Product, short?: string, visibleColors?: string[]): string {
   const prefix = short ? `${short} ` : '';
   const lines = p.stock ?? [];
   if (lines.length === 0) {
@@ -1769,7 +1896,8 @@ function stockCellText(p: Product, short?: string): string {
     const body = parts.join(' · ') || '—';
     return short ? `${short}：${body}` : body;
   }
-  const parsed = lines.map((s) => parseStockLine(s, p.colors ?? []));
+  // 颜色行里勾掉的颜色，库存里也不显示（与 renderStockForProduct 同口径）
+  const parsed = pickEntriesByColors(lines.map((s) => parseStockLine(s, p.colors ?? [])), visibleColors);
   const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
   for (const e of parsed) {
     const k = e.color || '其他';
@@ -1793,7 +1921,7 @@ function stockCellText(p: Product, short?: string): string {
 // 商品名称 单元格：复刻 FIELDS.商品名称.aggregateRender 的 3 行结构
 // 行 1 小名(sub) + 行 2 主名(name) + 行 3 颜色(colors) 浅色字
 // 用 exceljs richText 支持一格内多段不同样式
-function nameCellRichText(ps: Product[], colorOverride?: string, sampleColorsByPid?: Record<string, string[]>): ExcelJS.CellRichTextValue | string {
+function nameCellRichText(ps: Product[], colorOverride?: string, sampleColorsByPid?: Record<string, string[]>, fgByColor?: Record<string, string>): ExcelJS.CellRichTextValue | string {
   if (ps.length === 0) return '';
   const uniqueNames = [...new Set(ps.map((p) => p.name).filter(Boolean))];
   const suitName = uniqueNames.find((n) => n.includes('/'));
@@ -1822,9 +1950,18 @@ function nameCellRichText(ps: Product[], colorOverride?: string, sampleColorsByP
   }
   if (colorText) {
     if (lines.length > 0) lines.push({ text: '\n', font: { name: '微软雅黑', size: 12, bold: true } });
-    // 覆盖态用橙红字标记，提示这是手工改的
+    // 覆盖态用橙红字标记，提示这是手工改的；逐条设了字色的颜色再按自己的色值上色
     const isOverridden = colorOverride !== undefined && colorOverride !== defaultColors;
-    lines.push({ text: colorText, font: { name: '微软雅黑', size: 11, color: { argb: isOverridden ? 'FFDC2626' : 'FF6B7280' } } });
+    const baseArgb = isOverridden ? 'FFDC2626' : 'FF6B7280';
+    const segments = colorSegments(colorText, fgByColor);
+    if (segments.length === 0) {
+      lines.push({ text: colorText, font: { name: '微软雅黑', size: 11, color: { argb: baseArgb } } });
+    } else {
+      segments.forEach((seg, i) => {
+        if (i > 0) lines.push({ text: ' / ', font: { name: '微软雅黑', size: 11, color: { argb: baseArgb } } });
+        lines.push({ text: seg.text, font: { name: '微软雅黑', size: 11, color: { argb: hexToArgb(seg.color) || baseArgb } } });
+      });
+    }
   }
   if (lines.length === 0) return '';
   return { richText: lines };
@@ -1984,7 +2121,7 @@ async function exportTrayLayoutExcel(
 
   const mainRows: FieldRow[] = [
     { label: '主图', img: true, height: 224, get: () => '' },
-    { label: '商品名称', height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
+    { label: '商品名称', height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid, t.colorFgByLook?.[l.id]) },
     { label: '款号', height: 40, dataStyle: 'codeBlue', get: (l) => codeCellText(l) },
     { label: '尺码', height: 32, get: (l) => {
       const ps = l.pids.map(byId);
@@ -2005,7 +2142,9 @@ async function exportTrayLayoutExcel(
     { label: '库存情况(主仓)', labelBlue: true, height: 70, get: (l) => {
       const ps = l.pids.map(byId);
       const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
-      return ps.map((p) => stockCellText(p, shortNames.get(p.id))).join('\n');
+      // 导出的库存表和颜色行走同一口径：勾掉的颜色不导出它的库存
+      const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;
+      return ps.map((p) => stockCellText(p, shortNames.get(p.id), visibleColors)).join('\n');
     } },
     { label: '翻单周期\n（下单日开始计算）', labelBlue: true, height: 60, get: (l) => restockCellText(l.pids.map(byId), t, l.restockShortNames) },
     {
@@ -2045,7 +2184,7 @@ async function exportTrayLayoutExcel(
   }
   const subRows: FieldRow[] = [
     { label: '主图', img: true, labelRed: true, height: 224, get: () => '' },
-    { label: '商品名称', labelRed: true, height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid) },
+    { label: '商品名称', labelRed: true, height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid, t.colorFgByLook?.[l.id]) },
     { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => codeCellText(l) },
     { label: '尺码', labelRed: true, height: 32, get: (l) => {
       const ps = l.pids.map(byId);
@@ -2061,7 +2200,9 @@ async function exportTrayLayoutExcel(
     { label: '库存情况(主仓)', labelRed: true, labelBlue: true, height: 70, get: (l) => {
       const ps = l.pids.map(byId);
       const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
-      return ps.map((p) => stockCellText(p, shortNames.get(p.id))).join('\n');
+      // 导出的库存表和颜色行走同一口径：勾掉的颜色不导出它的库存
+      const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;
+      return ps.map((p) => stockCellText(p, shortNames.get(p.id), visibleColors)).join('\n');
     } },
   ];
 
@@ -3078,6 +3219,8 @@ interface FieldRenderCtx {
   onClearSizeRange?: (pid: string) => void;
   // 颜色文案 override：per-look（整行覆盖 pid.colors union）
   colorOverride?: string;
+  // 颜色字色：颜色名 → #rrggbb（商品名称下面那行颜色逐条上色）
+  colorFgByColor?: Record<string, string>;
   // 样衣阶段颜色（黑巧/驼色等未转大货色）：pid → colorName[]，卡片颜色行追加展示
   sampleColorsByPid?: Record<string, string[]>;
   onSaveColor?: (lookId: string, value: string) => void;
@@ -3210,7 +3353,7 @@ function computeRestockShortNames(ps: Product[], overrides?: Record<string, stri
   return m;
 }
 
-function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode): ReactNode {
+function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode, visibleColors?: string[]): ReactNode {
   const prefix = short ? `${short} ` : '';
   const stockLines = p.stock ?? [];
   if (stockLines.length === 0) {
@@ -3233,7 +3376,8 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
       </div>
     );
   }
-  const parsed = stockLines.map((s) => parseStockLine(s, p.colors ?? []));
+  // 颜色行里勾掉的颜色，库存里也不显示
+  const parsed = pickEntriesByColors(stockLines.map((s) => parseStockLine(s, p.colors ?? [])), visibleColors);
   // 按颜色聚合（每色内可能有 现货/在途/交期/占单）
   const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
   for (const e of parsed) {
@@ -3335,6 +3479,7 @@ const FIELDS: FieldRow[] = [
               <ColorLineEditor
                 value={colorText}
                 defaultText={defaultColors}
+                fgByColor={ctx.colorFgByColor}
                 onSave={(v) => ctx.onSaveColor?.(ctx.lookId, v)}
                 onClear={() => ctx.onClearColor?.(ctx.lookId)}
                 onOpenPicker={ctx.onOpenColorTextPicker}
@@ -3780,8 +3925,10 @@ const FIELDS: FieldRow[] = [
     aggregate: true,
     render: (p) => renderStockForProduct(p),
     aggregateRender: (ps, _tpl, ctx) => {
+      // 颜色行里勾掉的颜色，对应库存也隐藏（没设颜色 override 时显示全部）
+      const visibleColors = ctx.colorOverride ? splitColorText(ctx.colorOverride) : undefined;
       if (ps.length === 1) {
-        return renderStockForProduct(ps[0]);
+        return renderStockForProduct(ps[0], undefined, undefined, visibleColors);
       }
       const shortNames = computeRestockShortNames(ps, ctx.restockShortNames);
       return (
@@ -3798,7 +3945,7 @@ const FIELDS: FieldRow[] = [
                 onClear={() => ctx.onClearRestockShortName?.(p.id)}
               />
             ) : null;
-            return <div key={p.id}>{renderStockForProduct(p, short, shortNode)}</div>;
+            return <div key={p.id}>{renderStockForProduct(p, short, shortNode, visibleColors)}</div>;
           })}
         </div>
       );
@@ -5954,21 +6101,38 @@ export default function TraysPage({
 
   // 颜色行 override（保存空字符串 = 清除，回到按款号自动拼接）
   // codes：手动添加的颜色 → 色号，跟文案一起存，下次打开弹窗还能看到色号
-  const setColorOverride = (_sectionId: string, lookId: string, value: string, codes: Record<string, string> = {}) => {
+  // fgColors：颜色 → 字体颜色（商品名称下面那行逐条上色），同样跟文案一起存
+  const setColorOverride = (
+    _sectionId: string,
+    lookId: string,
+    value: string,
+    codes: Record<string, string> = {},
+    fgColors: Record<string, string> = {},
+  ) => {
     const val = value.trim();
     const cleanCodes = Object.fromEntries(
       Object.entries(codes)
         .map(([color, code]): [string, string] => [color, String(code || '').trim()])
         .filter(([, code]) => Boolean(code)),
     );
+    // 只留文案里还在的颜色，别让删掉的色号拖着一份旧配色
+    const keptColors = new Set(splitColorText(val));
+    const cleanFg = Object.fromEntries(
+      Object.entries(fgColors)
+        .map(([color, hex]): [string, string] => [color.trim(), normalizeHexColor(hex)])
+        .filter(([color, hex]) => Boolean(hex) && keptColors.has(color)),
+    );
     upd((t) => {
       const next = { ...(t.colorOverrideByLook || {}) };
       if (val) next[lookId] = val; else delete next[lookId];
       const nextCodes = { ...(t.colorCodesByLook || {}) };
       if (Object.keys(cleanCodes).length > 0) nextCodes[lookId] = cleanCodes; else delete nextCodes[lookId];
+      const nextFg = { ...(t.colorFgByLook || {}) };
+      if (Object.keys(cleanFg).length > 0) nextFg[lookId] = cleanFg; else delete nextFg[lookId];
       const m = { ...t };
       if (Object.keys(next).length > 0) m.colorOverrideByLook = next; else delete m.colorOverrideByLook;
       if (Object.keys(nextCodes).length > 0) m.colorCodesByLook = nextCodes; else delete m.colorCodesByLook;
+      if (Object.keys(nextFg).length > 0) m.colorFgByLook = nextFg; else delete m.colorFgByLook;
       return m;
     });
   };
@@ -7145,6 +7309,7 @@ export default function TraysPage({
                                     onSaveSizeRange: saveSizeRange,
                                     onClearSizeRange: clearSizeRange,
                                     colorOverride: tray.colorOverrideByLook?.[l.id],
+                                    colorFgByColor: tray.colorFgByLook?.[l.id],
                                     sampleColorsByPid: sampleColorsByCode,
                                     onSaveColor: saveColor,
                                     onClearColor: clearColor,
@@ -7565,7 +7730,8 @@ export default function TraysPage({
           sampleColorsByPid={sampleColorsByCode}
           skcsByPid={skcsByCode}
           codesByLook={tray.colorCodesByLook?.[lookColorPicker.lookId]}
-          onSave={(v, codes) => setColorOverride(lookColorPicker.sectionId, lookColorPicker.lookId, v, codes)}
+          fgByLook={tray.colorFgByLook?.[lookColorPicker.lookId]}
+          onSave={(v, codes, fgColors) => setColorOverride(lookColorPicker.sectionId, lookColorPicker.lookId, v, codes, fgColors)}
           onClose={() => setLookColorPicker(null)}
         />
       )}

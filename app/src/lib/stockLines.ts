@@ -1,0 +1,44 @@
+// 货盘「库存情况」行的解析：把 BI 的一行文本拆成 颜色 + 现货 + 在途 + 交期 + 占单
+// 兼容 BI 新格式 "深灰千鸟：现货40 在途179 占单320" / BI 旧 "深灰千鸟：40米·在途179"
+// / mock "白占单180在途100"
+export type StockEntry = {
+  color: string;
+  qty: number;
+  eta: string | null;
+  stock: number;
+  inTransit: number;
+  orderBook: number;
+};
+
+function headColor(line: string): string {
+  // BI 行是「颜色：现货…」，冒号前那段就是颜色名
+  const head = line.split(/[：:]/)[0].trim();
+  if (!head || head.length > 20) return '';
+  // 没有冒号的 mock 行整行都是内容（"白占单180在途100"），别把描述当颜色
+  if (/[0-9]/.test(head) || /现货|在途|占单/.test(head)) return '';
+  return head;
+}
+
+export function parseStockLine(line: string, productColors: string[] = []): StockEntry {
+  const sorted = [...productColors].sort((a, b) => b.length - a.length);
+  // 领猫的颜色列表里没有这个色（比如后来补加的色号）时，退回用 BI 行头部的颜色名，
+  // 这样它也能单独成行、跟着颜色行的勾选显示/隐藏
+  const color = sorted.find((c) => line.includes(c)) || headColor(line);
+  // 现货 X（关键字「现货」或 X米）
+  const stockKwd = line.match(/现货\s*(\d+(?:\.\d+)?)/);
+  const stockMi = line.match(/(\d+(?:\.\d+)?)\s*米/);
+  const stock = stockKwd ? Number(stockKwd[1]) : stockMi ? Number(stockMi[1]) : 0;
+  // 在途 X
+  const inTransitMatch = line.match(/在途\s*(\d+(?:\.\d+)?)/);
+  const inTransit = inTransitMatch ? Number(inTransitMatch[1]) : 0;
+  // 占单 X
+  const orderMatch = line.match(/占单\s*(\d+(?:\.\d+)?)/);
+  const orderBook = orderMatch ? Number(orderMatch[1]) : 0;
+  // 交期日期
+  const etaMatch = line.match(/(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/);
+  const eta = etaMatch ? etaMatch[1] : null;
+  // 兼容字段：第一数字（旧渲染兜底用）
+  const numMatch = line.match(/(\d+(?:\.\d+)?)/);
+  const qty = numMatch ? Number(numMatch[1]) : 0;
+  return { color, qty, eta, stock, inTransit, orderBook };
+}

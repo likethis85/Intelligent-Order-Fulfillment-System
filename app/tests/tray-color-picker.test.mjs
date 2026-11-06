@@ -85,8 +85,8 @@ test('页面接线：点颜色打开弹窗，弹窗保存写回 colorOverrideByL
     '没接弹窗的场景仍保留原来的内联编辑',
   );
   assert.ok(
-    pageCode.includes('const setColorOverride = (_sectionId: string, lookId: string, value: string, codes: Record<string, string> = {})'),
-    '弹窗保存复用同一个写入函数（文案 + 色号一起写）',
+    pageCode.includes('const setColorOverride = (') && pageCode.includes('fgColors: Record<string, string> = {},'),
+    '弹窗保存复用同一个写入函数（文案 + 色号 + 字色一起写）',
   );
 });
 

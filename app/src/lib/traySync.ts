@@ -73,6 +73,7 @@ export function diffTray(prev: Tray, next: Tray): TrayOp[] {
   put('商品修饰名', fmtKeys(prev.restockShortNames, next.restockShortNames), fmtKeyChanges(prev.restockShortNames, next.restockShortNames));
   put('款号背景色', fmtKeys(prev.codeBgColorByLook, next.codeBgColorByLook), fmtKeyChanges(prev.codeBgColorByLook, next.codeBgColorByLook));
   put('款号字体色', fmtKeys(prev.codeFgColorByLook, next.codeFgColorByLook), fmtKeyChanges(prev.codeFgColorByLook, next.codeFgColorByLook));
+  put('颜色字色', fmtKeys(prev.colorFgByLook, next.colorFgByLook), fmtKeyChanges(prev.colorFgByLook, next.colorFgByLook));
   put('自定义款', fmtKeys(prev.customProducts, next.customProducts), fmtKeyChanges(prev.customProducts, next.customProducts));
 
   const pn = (prev.noRestockItems?.length || 0) + (prev.noRestockSkcs?.length || 0);

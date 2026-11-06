@@ -161,6 +161,7 @@ export interface Tray {
   codeFgColorByLook?: Record<string, 'red' | 'black' | string>; // 款号字体颜色（lookId → 'red' | 'black'）
   colorOverrideByLook?: Record<string, string>; // 颜色文案手动覆盖（lookId → 文案，如 "棕色 / 灰"），per-tray 优先于 pid.colors union；清空 = 清除 override
   colorCodesByLook?: Record<string, Record<string, string>>; // 手动添加的颜色对应的色号（lookId → 颜色名 → 色号），只在颜色弹窗里展示
+  colorFgByLook?: Record<string, Record<string, string>>; // 颜色字色（lookId → 颜色名 → #rrggbb），商品名称下面那行颜色按此上色；没设 = 默认灰字
   costOverrides?: Record<string, string>; // BOM 成本手动编辑（pid → "123.45"），per-tray 优先于 BI bom商品成本；清空 = 清除 override
   mcostOverrides?: Record<string, string>; // 马总 BOM 成本手动编辑（仅马总场显示），per-tray 优先；清空 = 清除 override
   sizeRangeOverrides?: Record<string, string>; // 尺码范围手动编辑（pid → "S~XL" / "均码"），per-tray 优先于 BI ETL 聚合的 sizeRange；清空 = 清除 override

@@ -23,6 +23,7 @@ const KEYED_FIELDS = new Set([
   'sizeRangeOverrides',
   'colorOverrideByLook',
   'colorCodesByLook',
+  'colorFgByLook',
   'plannedRestockAllSkcs',
   'codeBgColorByLook',
   'codeFgColorByLook',
