@@ -1063,12 +1063,66 @@
     // localStorage key
     const FABRIC_DATA_KEY = 'fabric_supplementary_data';
 
+    // 内存缓存：renderResults 每个单元格都会读一次，每次重新 JSON.parse 整份数据
+    // 在几万行时是 O(n²)，还会把主线程卡住
+    let savedDataCache = null;
+
     // 加载已保存的补充数据
     function loadSavedData() {
+      if (savedDataCache) return savedDataCache;
       try {
         const saved = localStorage.getItem(FABRIC_DATA_KEY);
-        return saved ? JSON.parse(saved) : {};
-      } catch { return {}; }
+        savedDataCache = saved ? JSON.parse(saved) : {};
+      } catch { savedDataCache = {}; }
+      return savedDataCache;
+    }
+    // 其它标签页改过就丢掉缓存，避免读到旧数据
+    window.addEventListener('storage', (e) => {
+      if (!e.key || e.key === FABRIC_DATA_KEY) savedDataCache = null;
+    });
+
+    // 一个格子里全是空值就没必要存
+    function isEmptyExtra(extra) {
+      if (!extra || typeof extra !== 'object') return true;
+      return !Object.entries(extra).some(([, v]) => String(v === undefined || v === null ? '' : v).trim());
+    }
+
+    // 当前查询结果涉及的行 key（瘦身时只留这些，历史行由服务器 /api/fabric-data 恢复）
+    function currentRowKeys() {
+      return new Set((queryResults || []).map(buildRowKey));
+    }
+
+    // 写补充数据到 localStorage。
+    // localStorage 只有 5MB，之前凡是「读出来合并再写回」的地方都会把历史款号越攒越多，
+    // 攒满后 setItem 直接抛 QuotaExceededError，整个查询就断了。
+    // 现在按体积逐级瘦身：全部 → 去掉空行 → 只留本次查询的行；都存不下就放弃本地缓存，
+    // 补充数据本来也会同步到服务器，刷新后照样能恢复。
+    function saveFabricData(data, keepKeys) {
+      const helpers = {
+        pruneEmpty: (src) => {
+          const out = {};
+          for (const [k, v] of Object.entries(src || {})) if (!isEmptyExtra(v)) out[k] = v;
+          return out;
+        },
+      };
+      const nonEmpty = helpers.pruneEmpty(data);
+      const attempts = [data, nonEmpty];
+      if (keepKeys && keepKeys.size > 0) {
+        const current = {};
+        for (const [k, v] of Object.entries(nonEmpty)) if (keepKeys.has(k)) current[k] = v;
+        attempts.push(current);
+      }
+      let lastErr = null;
+      for (const attempt of attempts) {
+        try {
+          localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(attempt));
+          savedDataCache = attempt;
+          return true;
+        } catch (err) { lastErr = err; }
+      }
+      savedDataCache = null;
+      console.warn('[面料查询] 本地存储空间不足，补充数据这次只同步到服务器，不再写本地缓存：', lastErr && lastErr.message);
+      return false;
     }
 
     // 保存补充数据到 localStorage（debounce）
@@ -1076,14 +1130,38 @@
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
         const data = {};
-        queryResults.forEach((item, idx) => {
+        queryResults.forEach((item) => {
           const key = buildRowKey(item);
-          if (item._extra) {
+          // 空白行不写：一次查几百个款号时，空值行占的体积比真正填过的还大
+          if (item._extra && !isEmptyExtra(item._extra)) {
             data[key] = { ...item._extra };
           }
         });
-        localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(data));
+        saveFabricData(data, currentRowKeys());
       }, 500);
+    }
+
+    // 老版本攒下来的超大 blob 会一直把 5MB 占满，连带采购明细覆盖、无面料标记这些同域的小数据
+    // 都写不进去。页面加载时先瘦身：先丢空行；还是太大就只留最近写入的 2000 行
+    // （服务器 /api/fabric-data 上有全量，重查时会回填）。
+    const SAVED_DATA_MAX_ROWS = 2000;
+    const SAVED_DATA_MAX_CHARS = 1000000; // 约 2MB，超过就先瘦身
+    function shrinkSavedData() {
+      try {
+        const raw = localStorage.getItem(FABRIC_DATA_KEY);
+        if (!raw || raw.length < SAVED_DATA_MAX_CHARS) return;
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch { parsed = null; }
+        let entries = Object.entries(parsed && typeof parsed === 'object' ? parsed : {})
+          .filter(([, v]) => !isEmptyExtra(v));
+        if (entries.length > SAVED_DATA_MAX_ROWS) entries = entries.slice(-SAVED_DATA_MAX_ROWS);
+        const shrunk = Object.fromEntries(entries);
+        localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(shrunk));
+        savedDataCache = shrunk;
+        console.info('[面料查询] 本地补充数据过大（' + raw.length + ' 字符），已瘦身到 ' + entries.length + ' 行，历史数据仍在服务器上');
+      } catch (err) {
+        console.warn('[面料查询] 瘦身失败，忽略本地补充数据：', err && err.message);
+      }
     }
 
     // 构建行的唯一 key（含物料编码，避免同 SKC 同仓库的不同面料共享补充数据）
@@ -1148,7 +1226,7 @@
         });
 
         if (changed) {
-          localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
+          saveFabricData(saved, currentRowKeys());
           renderResults(queryResults);
         }
       } catch (err) {
@@ -1278,6 +1356,8 @@
     // 立即检查登录状态（不等DOM加载）
     (async function checkAuth() {
       function initPage() {
+        // 先把老版本攒下的超大本地数据瘦下来，否则同域的小数据（采购覆盖、无面料标记）也写不进去
+        shrinkSavedData();
         const userEmailEl = document.getElementById('userEmail');
         if (userEmailEl) userEmailEl.textContent = currentUser?.email || '';
         loadConfig();
@@ -1624,7 +1704,7 @@
         saved[key] = out;
       });
 
-      if (changed) localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
+      if (changed) saveFabricData(saved, currentRowKeys());
     }
 
     // 查询后根据 PO 明细把主格值覆盖为 PO 覆盖值（PO overrides 持久化在 localStorage）
@@ -1678,7 +1758,7 @@
         }
       });
 
-      if (changed) localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(saved));
+      if (changed) saveFabricData(saved, currentRowKeys());
     }
 
     function showErrorState(title, message) {
@@ -1856,7 +1936,11 @@
     const noRestockKeys = new Set(JSON.parse(localStorage.getItem(NO_RESTOCK_LS_KEY) || '[]'));
     let lastRenderedRows = null;
     function saveNoRestockKeys() {
-      localStorage.setItem(NO_RESTOCK_LS_KEY, JSON.stringify([...noRestockKeys]));
+      try {
+        localStorage.setItem(NO_RESTOCK_LS_KEY, JSON.stringify([...noRestockKeys]));
+      } catch (err) {
+        console.warn('[面料查询] 无面料不翻单标记存不下，本次勾选只在当前页面生效：', err && err.message);
+      }
     }
     function noRestockComboKey(mtCode, mtSpecName, skc) {
       return (mtCode && mtSpecName)
@@ -2197,7 +2281,12 @@
       catch { return {}; }
     }
     function savePoOverrides() {
-      localStorage.setItem('fabric_po_overrides', JSON.stringify(poOverrides));
+      // 存不下也只是这次页面刷新后丢覆盖值，不要让整个采购明细弹窗报错
+      try {
+        localStorage.setItem('fabric_po_overrides', JSON.stringify(poOverrides));
+      } catch (err) {
+        console.warn('[面料查询] 采购明细覆盖数据存不下，本次修改只在当前页面生效：', err && err.message);
+      }
     }
 
     function togglePoPopover(btn, key) {
@@ -2328,7 +2417,7 @@
       queryResults.forEach(item => {
         data[buildRowKey(item)] = { ...item._extra };
       });
-      localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify(data));
+      saveFabricData(data, currentRowKeys());
 
       // 重新渲染表格
       renderResults(queryResults);
@@ -2347,7 +2436,7 @@
       localStorage.removeItem('fabric_po_overrides');
 
       // 1. 清空 localStorage 的全部补充数据
-      localStorage.setItem(FABRIC_DATA_KEY, JSON.stringify({}));
+      saveFabricData({});
 
       // 2. 清空当前查询结果的补充字段并重新渲染
       queryResults.forEach(item => {
