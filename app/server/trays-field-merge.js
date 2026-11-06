@@ -5,6 +5,8 @@
 // 现在对带字段清单的货盘，以库里的版本为底，只套用客户端声明的这些字段，其余字段保留
 // 服务端的值 —— 两个人同时改同一货盘的不同字段时，后到的保存不会把先到的改动冲掉。
 //
+// 粒度：键控字段到 key，版块到 sections:<id>，坑位到 sections:<id>:<lookId>
+// （同一版块里两个人改不同坑位时互不覆盖；坑位增删/换序仍整块同步）。
 // 口径必须与前端 src/lib/trayMerge.ts 的 applyField 保持一致（tests/collab-field-merge 有对照）。
 
 const KEYED_FIELDS = new Set([
@@ -63,10 +65,30 @@ function applyField(target, incoming, key) {
   const sub = sep > 0 ? key.slice(sep + 1) : null;
 
   if (field === 'sections' && sub !== null) {
-    // 按版块 id 替换/新增/删除；基于已合并的结果继续叠加，多个版块改动不会互相盖掉
+    // 版块 id 里不含冒号：`sections:<版块>` 是整块同步，`sections:<版块>:<坑位>` 只同步一个坑位
+    const cut = sub.indexOf(':');
+    const sectionId = cut > 0 ? sub.slice(0, cut) : sub;
+    const lookId = cut > 0 ? sub.slice(cut + 1) : null;
     const base = Array.isArray(target.sections) ? [...target.sections] : [];
-    const rs = (incoming.sections || []).find((s) => s?.id === sub);
-    const idx = base.findIndex((s) => s?.id === sub);
+    const idx = base.findIndex((s) => s?.id === sectionId);
+    const rs = (incoming.sections || []).find((s) => s?.id === sectionId);
+
+    if (lookId !== null) {
+      // 只换这一个坑位，保留服务端对同一版块其它坑位的改动。
+      // 坑位的增删/换序一律走整块同步，所以这里找不到就什么都不做。
+      if (!rs || idx < 0) return;
+      const looks = Array.isArray(base[idx]?.looks) ? [...base[idx].looks] : [];
+      const li = looks.findIndex((l) => l?.id === lookId);
+      if (li < 0) return;
+      const rl = (rs.looks || []).find((l) => l?.id === lookId);
+      if (!rl) return;
+      looks[li] = rl;
+      base[idx] = { ...base[idx], looks };
+      target.sections = base;
+      return;
+    }
+
+    // 按版块 id 替换/新增/删除；基于已合并的结果继续叠加，多个版块改动不会互相盖掉
     if (rs) {
       if (idx >= 0) base[idx] = rs;
       else base.push(rs);

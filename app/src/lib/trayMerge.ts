@@ -5,7 +5,8 @@
 // 对方的整条广播，对方的改动在这台机器上永远看不到，下次保存还会把它冲回服务端。
 //
 // 现在广播带上 changedFields() 算出的「本次真正改了哪些字段」（map 精确到 key，
-// 版块精确到版块 id），接收方只应用这些字段，并且每个字段单独比较时间戳。
+// 版块精确到版块 id，坑位精确到 sections:版块:坑位），接收方只应用这些字段，
+// 并且每个字段单独比较时间戳。
 // 没有字段清单的旧消息退回整盘 LWW，行为与以前一致。
 import type { Tray } from '../data/products';
 
@@ -64,9 +65,22 @@ function asObj(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 }
 
+type AnySection = { id: string; looks?: { id: string }[] } & Record<string, unknown>;
+
+const looksOf = (section: unknown): { id: string }[] =>
+  Array.isArray((section as AnySection | undefined)?.looks) ? ((section as AnySection).looks as { id: string }[]) : [];
+
+// 版块除 looks 以外的部分（标题/可见性/是否备用区）
+function sectionSansLooks(section: unknown): string {
+  if (!section || typeof section !== 'object') return '';
+  const { looks: _looks, ...rest } = section as AnySection;
+  return JSON.stringify(rest);
+}
+
 // 对比前后两份货盘，返回本次真正改动的字段清单：
 //   - 键控字段 → `字段:key`（两个人改同一张表的不同行时互不覆盖）
 //   - 版块 → `sections:版块id`（两个人改不同版块时互不覆盖）
+//   - 坑位 → `sections:版块id:坑位id`（同一版块里两个人改不同坑位时互不覆盖）
 //   - 其余字段 → 字段名
 export function changedFields(prev: Tray, next: Tray): string[] {
   const out: string[] = [];
@@ -98,7 +112,24 @@ export function changedFields(prev: Tray, next: Tray): string[] {
   const pm = new Map((prev.sections || []).map((s) => [s.id, s]));
   const nm = new Map((next.sections || []).map((s) => [s.id, s]));
   for (const id of new Set([...pm.keys(), ...nm.keys()])) {
-    if (JSON.stringify(pm.get(id)) !== JSON.stringify(nm.get(id))) out.push(`sections:${id}`);
+    const before = pm.get(id);
+    const after = nm.get(id);
+    if (JSON.stringify(before) === JSON.stringify(after)) continue;
+    // 版块整体新增/删除、坑位增删或换序、版块标题/可见性变化 → 整块同步
+    const beforeLooks = looksOf(before).map((l) => l.id);
+    const afterLooks = looksOf(after).map((l) => l.id);
+    if (!before || !after || beforeLooks.join('|') !== afterLooks.join('|') || sectionSansLooks(before) !== sectionSansLooks(after)) {
+      out.push(`sections:${id}`);
+      continue;
+    }
+    // 只有坑位内容变了：按坑位分别同步，两人改同一版块的不同坑位也不互相覆盖
+    const beforeById = new Map(looksOf(before).map((l) => [l.id, l]));
+    const afterById = new Map(looksOf(after).map((l) => [l.id, l]));
+    for (const lookId of afterLooks) {
+      if (JSON.stringify(beforeById.get(lookId)) !== JSON.stringify(afterById.get(lookId))) {
+        out.push(`sections:${id}:${lookId}`);
+      }
+    }
   }
 
   return out;
@@ -125,10 +156,30 @@ function applyField(target: Record<string, unknown>, remote: Tray, key: string):
   const r = remote as unknown as Record<string, unknown>;
 
   if (field === 'sections' && sub !== null) {
+    // 版块 id 里不含冒号：`sections:<版块>` 是整块同步，`sections:<版块>:<坑位>` 只同步一个坑位
+    const cut = sub.indexOf(':');
+    const sectionId = cut > 0 ? sub.slice(0, cut) : sub;
+    const lookId = cut > 0 ? sub.slice(cut + 1) : null;
+    const base = Array.isArray(target.sections) ? [...(target.sections as AnySection[])] : [];
+    const idx = base.findIndex((s) => s.id === sectionId);
+    const rs = (remote.sections || []).find((s) => s.id === sectionId) as AnySection | undefined;
+
+    if (lookId !== null) {
+      // 只换这一个坑位，保留本机对同一版块其它坑位（以及版块标题）的任何改动。
+      // 坑位的增删/换序一律走整块同步，所以这里找不到就什么都不做。
+      if (!rs || idx < 0) return;
+      const looks = Array.isArray(base[idx].looks) ? [...(base[idx].looks as { id: string }[])] : [];
+      const li = looks.findIndex((l) => l.id === lookId);
+      if (li < 0) return;
+      const rl = (rs.looks || []).find((l) => l.id === lookId);
+      if (!rl) return;
+      looks[li] = rl;
+      base[idx] = { ...base[idx], looks };
+      target.sections = base;
+      return;
+    }
+
     // 按版块 id 替换/新增/删除；基于已合并的结果继续叠加，多个版块改动不会互相盖掉
-    const base = Array.isArray(target.sections) ? [...(target.sections as { id: string }[])] : [];
-    const rs = (remote.sections || []).find((s) => s.id === sub);
-    const idx = base.findIndex((s) => s.id === sub);
     if (rs) {
       if (idx >= 0) base[idx] = rs;
       else base.push(rs);

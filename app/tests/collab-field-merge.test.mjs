@@ -14,7 +14,15 @@ const base = () => ({
   type: '马总直播货盘',
   template: 'mazong',
   sections: [
-    { id: 's1', label: '主推A', visible: true, looks: [{ id: 'L1', pids: ['ME01'], cover: 'ME01' }] },
+    {
+      id: 's1',
+      label: '主推A',
+      visible: true,
+      looks: [
+        { id: 'L1', pids: ['ME01'], cover: 'ME01' },
+        { id: 'L2', pids: ['ME02'], cover: 'ME02' },
+      ],
+    },
     { id: 's2', label: '现货', visible: true, looks: [] },
   ],
   viewPerm: [],
@@ -99,6 +107,58 @@ test('新增版块按版块 id 同步，两个人各加一个版块都保留；�
   assert.ok(changedFields(prev, reordered).includes('sections'), '纯调整顺序要整份同步');
 });
 
+// 同一个版块里两个人各改一个坑位（最常见的协作场景：你排你的坑位、我改我的封面）
+const editLook = (lookId, patch, at2 = '2026-11-06T10:00:05.000Z') => {
+  const tray = base();
+  return {
+    ...tray,
+    sections: tray.sections.map((s) =>
+      s.id === 's1' ? { ...s, looks: s.looks.map((l) => (l.id === lookId ? { ...l, ...patch } : l)) } : s,
+    ),
+    updatedAt: at2,
+  };
+};
+
+test('同一版块里两个人改不同坑位，互不覆盖', () => {
+  const prev = base();
+  const a = editLook('L1', { cover: 'ME02' });
+  const b = editLook('L2', { pids: ['ME02', 'ME03'] }, '2026-11-06T10:00:04.000Z');
+
+  assert.deepEqual(changedFields(prev, a), ['sections:s1:L1'], '坑位级差异精确到坑位 id');
+  assert.deepEqual(changedFields(prev, b), ['sections:s1:L2']);
+
+  const { tray } = mergeTray(b, a, changedFields(prev, a), {});
+  const s1 = tray.sections.find((s) => s.id === 's1');
+  assert.equal(s1.looks.find((l) => l.id === 'L1').cover, 'ME02', 'A 改的坑位要能进来');
+  assert.deepEqual(s1.looks.find((l) => l.id === 'L2').pids, ['ME02', 'ME03'], 'B 改的另一个坑位不能被盖掉');
+});
+
+test('同一个坑位本地改得更晚 → 保留本地', () => {
+  const prev = base();
+  const a = editLook('L1', { cover: 'ME02' });
+  const local = editLook('L1', { cover: 'ME09' }, '2026-11-06T10:00:03.000Z');
+  const { tray, applied } = mergeTray(local, a, changedFields(prev, a), { 'sections:s1:L1': at(9) });
+  assert.equal(tray.sections.find((s) => s.id === 's1').looks.find((l) => l.id === 'L1').cover, 'ME09');
+  assert.deepEqual(applied, []);
+});
+
+test('坑位增删、换序或版块标题变化仍整块同步', () => {
+  const prev = base();
+  const s1Of = (looks) => prev.sections.map((s) => (s.id === 's1' ? { ...s, looks } : s));
+
+  const added = { ...prev, sections: s1Of([...prev.sections[0].looks, { id: 'L9', pids: ['ME09'], cover: 'ME09' }]) };
+  assert.deepEqual(changedFields(prev, added), ['sections:s1'], '新增坑位要整块同步，位置才有语义');
+
+  const dropped = { ...prev, sections: s1Of(prev.sections[0].looks.slice(0, 1)) };
+  assert.deepEqual(changedFields(prev, dropped), ['sections:s1'], '删除坑位要整块同步');
+
+  const swapped = { ...prev, sections: s1Of([...prev.sections[0].looks].reverse()) };
+  assert.deepEqual(changedFields(prev, swapped), ['sections:s1'], '换序要整块同步');
+
+  const relabeled = { ...prev, sections: prev.sections.map((s) => (s.id === 's1' ? { ...s, label: '改标题' } : s)) };
+  assert.deepEqual(changedFields(prev, relabeled), ['sections:s1'], '版块自身字段变化要整块同步');
+});
+
 test('服务端按字段合并：库里为底，只套用客户端声明的字段', async () => {
   const { applyChangedFields } = await import('../server/trays-field-merge.js');
   const prev = base();
@@ -118,6 +178,11 @@ test('前端和后端的字段合并口径一致（同一批用例结果相同�
     { changed: ['fabricOverrides:ME01'], next: { fabricOverrides: { ME01: '羊毛', ME09: '醋酸' } } },
     { changed: ['priceOverrides:ME02'], next: { priceOverrides: { ME02: '999' } } },
     { changed: ['sections:s1'], next: { sections: prev.sections.map((s) => (s.id === 's1' ? { ...s, label: '改' } : s)) } },
+    {
+      changed: ['sections:s1:L1'],
+      next: { sections: prev.sections.map((s) => (s.id === 's1' ? { ...s, looks: s.looks.map((l) => (l.id === 'L1' ? { ...l, cover: 'ME02' } : l)) } : s)) },
+    },
+    { changed: ['sections:s1:L9'], next: { sections: prev.sections } },
     { changed: ['plannedRestockItems'], next: { plannedRestockItems: [{ pdt: 'ME01', skc: 'SK1', pieces: 10, days: 7 }] } },
     { changed: ['trashedAt', 'trashedBy'], next: { trashedAt: '2026-11-06T10:00:05.000Z', trashedBy: '张三' } },
     { changed: ['name'], next: { name: '新名字' } },
