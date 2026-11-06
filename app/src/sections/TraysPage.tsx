@@ -1202,6 +1202,19 @@ function cleanFabricText(text: string): string {
 
 const LOOKS_PER_BAND = 8;
 
+// 按鼠标坐标算坑位落点：拖拽期间页面会自动滚动，浏览器不保证给新露出来的元素派发
+// dragover/drop，靠它自己的命中测试跨排就会丢事件。表头带 data-look-id / data-look-section，
+// 这里直接问「这个坐标下面是谁」，插前/插后按落点在列内左右半边判断。
+function lookHitAt(x: number, y: number): { sectionId: string; lookId: string; position: 'before' | 'after' } | null {
+  if (x <= 0 || y <= 0 || x >= window.innerWidth || y >= window.innerHeight) return null;
+  const th = document.elementFromPoint(x, y)?.closest('[data-look-id]') as HTMLElement | null;
+  const lookId = th?.dataset.lookId;
+  const sectionId = th?.dataset.lookSection;
+  if (!th || !lookId || !sectionId) return null;
+  const rect = th.getBoundingClientRect();
+  return { sectionId, lookId, position: x < rect.left + rect.width / 2 ? 'before' : 'after' };
+}
+
 // ── 导出计划翻单量 + 不可翻单清单 ──
 // Sheet 1「计划翻单量」按批次展开一行：与钉钉表 1:1 对齐
 // - 只导出 fabric_Q 实际填过的批次（tray.plannedRestockItems + sampleRestockItems）；
@@ -4760,8 +4773,75 @@ export default function TraysPage({
   const [purgeTarget, setPurgeTarget] = useState<Tray | null>(null);
   // 版块拖拽重排：{ fromId, overId, position: 'before' | 'after' }
   const [sectionDrag, setSectionDrag] = useState<{ fromId: string; overId: string; position: 'before' | 'after' } | null>(null);
-  // 坑位拖拽重排（同一排内）：拖动表头左右调整顺序，落点决定插在目标坑位前/后
+  // 坑位拖拽重排：拖动表头调整顺序，落点决定插在目标坑位前/后（同一版块内可跨排）
   const [lookDrag, setLookDrag] = useState<{ sectionId: string; fromId: string; overId: string; position: 'before' | 'after' } | null>(null);
+  // 拖拽期间浏览器会把滚轮事件吞给拖拽操作本身，跨排往下拖就滚不动、看不到下面的坑位。
+  // 这里在拖拽时按鼠标离容器边缘的距离自动滚：上下滚页面/内层滚动区，左右滚货盘表格。
+  const lookDragging = lookDrag !== null;
+  // 拖拽期间最后一次鼠标坐标：dragend 的坐标在部分场景会是 0，用它兜底
+  const lookPointRef = useRef({ x: -1, y: -1 });
+  useEffect(() => {
+    if (!lookDragging) return;
+    const EDGE = 90; // 鼠标进入容器边缘 90px 内开始滚
+    const MAX_STEP = 26; // 每帧最多滚 26px，越贴边越快
+    const point = lookPointRef.current;
+    point.x = -1;
+    point.y = -1;
+    // 元素能不能滚拖拽期间不会变，缓存一下，免得起 rAF 每帧都 getComputedStyle
+    const axisCache = new Map<Element, { x: boolean; y: boolean }>();
+    const axesOf = (el: Element) => {
+      let hit = axisCache.get(el);
+      if (!hit) {
+        const cs = getComputedStyle(el);
+        hit = { x: /auto|scroll/.test(cs.overflowX), y: /auto|scroll/.test(cs.overflowY) };
+        axisCache.set(el, hit);
+      }
+      return hit;
+    };
+    const delta = (pos: number, start: number, end: number) => {
+      if (pos < start + EDGE) return -Math.ceil(Math.min(1, (EDGE - (pos - start)) / EDGE) * MAX_STEP);
+      if (pos > end - EDGE) return Math.ceil(Math.min(1, (EDGE - (end - pos)) / EDGE) * MAX_STEP);
+      return 0;
+    };
+    // 指针停住不动也要继续滚，所以用 rAF 循环，不依赖 dragover 的触发频率
+    const track = (e: DragEvent) => {
+      point.x = e.clientX;
+      point.y = e.clientY;
+    };
+    let frame = 0;
+    const step = () => {
+      frame = requestAnimationFrame(step);
+      if (point.x < 0 || point.y < 0) return;
+      let node: Element | null = document.elementFromPoint(point.x, point.y);
+      while (node) {
+        const rect = node.getBoundingClientRect();
+        const axes = axesOf(node);
+        if (axes.y && node.scrollHeight - node.clientHeight > 4) node.scrollTop += delta(point.y, rect.top, rect.bottom);
+        if (axes.x && node.scrollWidth - node.clientWidth > 4) node.scrollLeft += delta(point.x, rect.left, rect.right);
+        node = node.parentElement;
+      }
+      const doc = document.scrollingElement;
+      if (doc && doc.scrollHeight - doc.clientHeight > 4) window.scrollBy(0, delta(point.y, 0, window.innerHeight));
+      // 插入线跟着坐标走：页面自动滚动时浏览器不一定派发 dragover，落点不能等它来更新
+      const hit = lookHitAt(point.x, point.y);
+      setLookDrag((prev) => {
+        if (!prev) return prev;
+        if (!hit || hit.sectionId !== prev.sectionId || hit.lookId === prev.fromId) {
+          return prev.overId ? { ...prev, overId: '', position: 'before' } : prev;
+        }
+        if (prev.overId === hit.lookId && prev.position === hit.position) return prev;
+        return { ...prev, overId: hit.lookId, position: hit.position };
+      });
+    };
+    window.addEventListener('dragover', track, true);
+    window.addEventListener('drag', track, true);
+    frame = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('dragover', track, true);
+      window.removeEventListener('drag', track, true);
+    };
+  }, [lookDragging]);
   // WPS 核价表登录态：null=检查中; loggedIn=true/false 在按钮旁显示状态点
   // 同步完成后通过 dataVersion 触发重新检查
   const [hengjiStatus, setHengjiStatus] = useState<HengjiStatus | null>(null);
@@ -5403,7 +5483,7 @@ export default function TraysPage({
       return { ...t, sections: arr };
     });
 
-  // 同 band 内横向左右移动（跨 band 禁止）
+  // 同版块内横向左右移动（可跨排：行只是按 LOOKS_PER_BAND 切出来的视觉分排）
   const moveLook = (sectionId: string, lookId: string, dir: -1 | 1) => {
     const section = tray.sections.find((s) => s.id === sectionId);
     if (!section) return;
@@ -5411,10 +5491,6 @@ export default function TraysPage({
     if (i === -1) return;
     const j = i + dir;
     if (j < 0 || j >= section.looks.length) return;
-    if (Math.floor(i / LOOKS_PER_BAND) !== Math.floor(j / LOOKS_PER_BAND)) {
-      toast.error('跨排坑位不能左右移，请先调整排数');
-      return;
-    }
     upd((t) => ({
       ...t,
       sections: t.sections.map((s) => {
@@ -5427,17 +5503,15 @@ export default function TraysPage({
     toast.success(dir === -1 ? '已左移一位' : '已右移一位');
   };
 
-  // 拖拽调整坑位顺序：把 lookId 插到 targetId 的前面/后面（规则与 moveLook 一致，只能同一排内）
+  // 拖拽调整坑位顺序：把 lookId 插到 targetId 的前面/后面（同一版块内，可跨排）
+  // looks 是线性数组，行只是渲染时按 LOOKS_PER_BAND 切出来的视觉分排，
+  // 跨排拖动就是按全局下标插入：源位置到目标位置之间的坑位整体平移一位。
   const reorderLook = (sectionId: string, lookId: string, targetId: string, position: 'before' | 'after') => {
     const section = tray.sections.find((s) => s.id === sectionId);
     if (!section) return;
     const fromIdx = section.looks.findIndex((l) => l.id === lookId);
     const targetIdx = section.looks.findIndex((l) => l.id === targetId);
     if (fromIdx === -1 || targetIdx === -1 || fromIdx === targetIdx) return;
-    if (Math.floor(fromIdx / LOOKS_PER_BAND) !== Math.floor(targetIdx / LOOKS_PER_BAND)) {
-      toast.error('跨排坑位不能拖拽，请先调整排数');
-      return;
-    }
     upd((t) => ({
       ...t,
       sections: t.sections.map((s) => {
@@ -6419,28 +6493,18 @@ export default function TraysPage({
                           const dragFromHere = lookDrag?.sectionId === s.id && lookDrag.fromId === l.id;
                           const dropBefore = lookDrag?.sectionId === s.id && lookDrag.overId === l.id && lookDrag.position === 'before' && !dragFromHere;
                           const dropAfter = lookDrag?.sectionId === s.id && lookDrag.overId === l.id && lookDrag.position === 'after' && !dragFromHere;
-                          // 拖动经过表头：按鼠标在列内的左右半边决定插到前面还是后面；跨排直接拒绝
+                          // 拖动经过表头：只负责放行（允许 drop、显示移动光标），
+                          // 插入位置由 lookHitAt 按鼠标坐标算（见拖拽期间的 rAF 循环）
                           const handleLookDragOver = (e: React.DragEvent<HTMLTableCellElement>) => {
                             if (!lookDrag || lookDrag.sectionId !== s.id) return;
-                            if (lookDrag.fromId === l.id) return;
-                            const fromIdx = s.looks.findIndex((x) => x.id === lookDrag.fromId);
-                            if (fromIdx < 0 || Math.floor(fromIdx / LOOKS_PER_BAND) !== Math.floor(gi / LOOKS_PER_BAND)) {
-                              e.dataTransfer.dropEffect = 'none';
-                              return;
-                            }
                             e.preventDefault();
                             e.dataTransfer.dropEffect = 'move';
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const position = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
-                            setLookDrag((prev) => {
-                              if (!prev) return prev;
-                              if (prev.overId === l.id && prev.position === position) return prev;
-                              return { ...prev, overId: l.id, position };
-                            });
                           };
                           return (
                             <th
                               key={l.id}
+                              data-look-id={l.id}
+                              data-look-section={s.id}
                               className={`${cell} relative bg-surface-card py-1 font-medium ${dragFromHere ? 'opacity-40' : ''}`}
                               style={{ width: 220 }}
                               draggable={!readOnly}
@@ -6454,15 +6518,25 @@ export default function TraysPage({
                               }}
                               onDragEnter={handleLookDragOver}
                               onDragOver={handleLookDragOver}
+                              // drop 只记录松手坐标；真正落地在 dragend 里按坐标结算——
+                              // 拖拽时页面在自动滚动，浏览器给的 drop 命中会丢（跨排尤其明显）
                               onDrop={(e) => {
                                 e.preventDefault();
+                                lookPointRef.current.x = e.clientX;
+                                lookPointRef.current.y = e.clientY;
+                              }}
+                              onDragEnd={(e) => {
                                 const drag = lookDrag;
                                 setLookDrag(null);
-                                if (!drag || drag.sectionId !== s.id || drag.fromId === l.id) return;
-                                reorderLook(s.id, drag.fromId, l.id, drag.position);
+                                if (!drag) return;
+                                // dragend 的坐标偶尔是 0（拖到窗口外等），用拖拽期间记下的最后坐标兜底
+                                const x = e.clientX > 0 ? e.clientX : lookPointRef.current.x;
+                                const y = e.clientY > 0 ? e.clientY : lookPointRef.current.y;
+                                const hit = lookHitAt(x, y);
+                                if (!hit || hit.sectionId !== drag.sectionId || hit.lookId === drag.fromId) return;
+                                reorderLook(drag.sectionId, drag.fromId, hit.lookId, hit.position);
                               }}
-                              onDragEnd={() => setLookDrag(null)}
-                              title={readOnly ? undefined : '拖动表头左右调整坑位顺序'}
+                              title={readOnly ? undefined : '拖动表头调整坑位顺序（可跨排）'}
                             >
                               {dropBefore && (
                                 <span className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-1 rounded-full bg-action-link shadow-[0_0_8px_rgba(46,95,163,0.8)]" title="释放插入到此位置" />
