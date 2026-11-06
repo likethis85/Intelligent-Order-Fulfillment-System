@@ -144,7 +144,10 @@ test('彻底删除：客户端写墓碑、随保存一起提交', () => {
     /const purgeTray[\s\S]*?setTombstones\(\(list\) => mergeTombstones\(list, \[\{ id, at: new Date\(\)\.toISOString\(\), by: collabUser \}\]\)\)/.test(appCode),
     '彻底删除必须写墓碑，否则其他客户端的旧数据会把它带回来',
   );
-  assert.ok(appCode.includes('JSON.stringify({ trays, deletedTrayIds, tombstones })'), '保存时 tombstones 要一起提交');
+  assert.ok(
+    /JSON\.stringify\(\{\s*trays,\s*deletedTrayIds,[\s\S]{0,300}?tombstones/.test(appCode),
+    '保存时 tombstones 要一起提交',
+  );
   assert.ok(appCode.includes('[trays, traysReady, tombstones]'), '墓碑变化要触发一次保存');
   assert.ok(appCode.includes('stripTombstoned'), 'WS / 轮询写入的货盘要过墓碑过滤');
   assert.ok(appCode.includes("Array.isArray(data.tombstones)"), '初始化要从服务端读墓碑');

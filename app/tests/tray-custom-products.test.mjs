@@ -9,7 +9,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 test('TraysPage: custom unlisted products support (不在库自定义款，含自定义颜色)', async (t) => {
   const productsTs = fs.readFileSync(path.join(__dirname, '../src/data/products.ts'), 'utf8');
   const productsContextTsx = fs.readFileSync(path.join(__dirname, '../src/data/ProductsContext.tsx'), 'utf8');
-  const traySyncTs = fs.readFileSync(path.join(__dirname, '../src/lib/traySync.ts'), 'utf8');
+  // KEYED_FIELDS 已抽到 lib/trayMerge.ts，diff 文案还在 traySync.ts，两处合起来校验
+  const traySyncTs =
+    fs.readFileSync(path.join(__dirname, '../src/lib/traySync.ts'), 'utf8') +
+    fs.readFileSync(path.join(__dirname, '../src/lib/trayMerge.ts'), 'utf8');
   const traysPageTsx = fs.readFileSync(path.join(__dirname, '../src/sections/TraysPage.tsx'), 'utf8');
 
   await t.test('data types support CustomProduct with colors and Tray.customProducts', () => {

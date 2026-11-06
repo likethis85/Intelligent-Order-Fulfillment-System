@@ -120,26 +120,44 @@ export function attachTrayWs(server, auth, accessControl = null) {
         }
         const tray = msg.tray;
         if (!tray || !tray.id) return;
-        // 整盘保存（沿用现有 store，自动留快照），异步，不阻塞广播
-        saveTrays([tray]).catch((e) => console.warn('[ws-trays] saveTrays 失败:', e.message));
-        persistTray(tray).catch((e) => console.warn('[ws-trays] persistTray 失败:', e.message));
-        appendLog(
-          (msg.ops || []).map((op) => ({
-            user: ws._user || '匿名',
-            trayId: tray.id,
-            trayName: tray.name || '',
-            action: op.action || '修改',
-            detail: op.detail || '',
-            change: op.change || '',
-          })),
-        );
-        broadcast(tray.id, {
-          type: 'tray-updated',
-          tray,
-          ops: msg.ops || [],
-          user: ws._user || '匿名',
-          at: new Date().toISOString(),
-        }, ws);
+        // 本次真正改动的字段（接收方只应用这些字段，避免整盘覆盖对方刚改的其它字段）
+        const changed = Array.isArray(msg.changed) ? msg.changed.filter((k) => typeof k === 'string') : undefined;
+        // 保存（沿用现有 store，自动留快照）。带上改动字段 → 服务端按字段合并；
+        // 没有字段清单的旧消息才走「比服务端旧就丢弃」的守卫。
+        saveTrays([tray], [], changed && changed.length > 0 ? { [tray.id]: changed } : undefined)
+          .then((r) => {
+            const stale = (r.rejected || []).some((x) => x.id === tray.id);
+            // 实际落盘的版本：按字段合并后可能和客户端发来的不一样，广播和落库都要用它
+            const saved = (r.trays || []).find((x) => x.id === tray.id) || tray;
+            if (stale) {
+              console.warn(`[ws-trays] ${ws._user || '匿名'} 提交的货盘「${tray.name || tray.id}」比服务端旧，已丢弃`);
+              // 把服务端版本回推给发送方，让它自己纠正过来（否则要等 15 秒轮询）
+              if (ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'tray-updated', tray: saved, ops: [], changed: [], user: '服务端', at: new Date().toISOString() }));
+              }
+              return;
+            }
+            persistTray(saved).catch((e) => console.warn('[ws-trays] persistTray 失败:', e.message));
+            appendLog(
+              (msg.ops || []).map((op) => ({
+                user: ws._user || '匿名',
+                trayId: tray.id,
+                trayName: saved.name || '',
+                action: op.action || '修改',
+                detail: op.detail || '',
+                change: op.change || '',
+              })),
+            );
+            broadcast(tray.id, {
+              type: 'tray-updated',
+              tray: saved,
+              ops: msg.ops || [],
+              changed,
+              user: ws._user || '匿名',
+              at: new Date().toISOString(),
+            }, ws);
+          })
+          .catch((e) => console.warn('[ws-trays] saveTrays 失败:', e.message));
       } else if (msg.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
       }

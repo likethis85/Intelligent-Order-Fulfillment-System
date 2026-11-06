@@ -13,7 +13,7 @@ import UsagePage from '@/sections/UsagePage';
 import { ProductsProvider } from '@/data/ProductsContext';
 import { fetchProducts, syncProducts, syncHengjiCost, readProductsCache, fetchAccessMe, fetchStockSyncStatus } from '@/data/api';
 import type { AccessMe } from '@/data/api';
-import { useTraySync, diffTray } from '@/lib/traySync';
+import { useTraySync, diffTray, changedFields, changedByTray } from '@/lib/traySync';
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
 import type { AuthUser } from '@/lib/api-client';
 import { isTrashExpired, stripTombstoned, mergeTombstones, sameTombstones, type Tombstone } from '@/lib/trayTrash';
@@ -284,7 +284,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
   // 多人实时协同：WS 广播 + 收远端按键级合并
   const collabUser = user.displayName.slice(0, 30);
-  const collabRef = useRef<{ broadcast: (t: Tray, ops: ReturnType<typeof diffTray>) => void } | null>(null);
+  const collabRef = useRef<{ broadcast: (t: Tray, ops: ReturnType<typeof diffTray>, changed?: string[]) => void } | null>(null);
   const { broadcast } = useTraySync(
     traysReady ? activeTrayId : null,
     collabUser,
@@ -391,7 +391,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   // prevTraysRef 记上次 PUT 时提交的 tray 列表，用来 diff 出 deletedTrayIds
   //   → 后端同步把 supabase 三张表里那些 tray 的行清掉（避免过期行残留）
   const prevTraysRef = useRef<Tray[] | null>(null);
-  const pendingSaveRef = useRef<{ trays: Tray[]; body: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const pendingSaveRef = useRef<{ trays: Tray[]; body: () => string; timer: ReturnType<typeof setTimeout> } | null>(null);
   useEffect(() => {
     if (!traysReady) return;
     const at = Date.now();
@@ -403,16 +403,26 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     const prevIds = new Set((prevTrays || []).map((t) => t.id));
     const nextIds = new Set(trays.map((t) => t.id));
     const deletedTrayIds = [...prevIds].filter((id) => !nextIds.has(id));
-    // tombstones 一起提交：彻底删除的 id 要让服务端和其他客户端都知道，否则旧数据会把货盘带回来
-    const body = JSON.stringify({ trays, deletedTrayIds, tombstones });
+    // body 延迟到真正发送时再拼：changedByTray 要 diff 每个货盘的字段，跟着每次按键算太浪费
+    //   changedByTray → 服务端以库里版本为底，只套用这些字段，不会被本机的旧副本整盘冲掉
+    const body = () =>
+      JSON.stringify({
+        trays,
+        deletedTrayIds,
+        // tombstones 一起提交：彻底删除的 id 要让服务端和其他客户端都知道，否则旧数据会把货盘带回来
+        tombstones,
+        changedByTray: prevTrays ? changedByTray(prevTrays, trays) : undefined,
+      });
     const timer = setTimeout(() => {
       pendingSaveRef.current = null;
-      prevTraysRef.current = trays;
       authenticatedFetch(API_BASE + '/trays', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body,
-      }).catch((err) => console.warn('[trays] 云端备份失败：', err.message));
+        body: body(),
+      })
+        // 只有服务端确认收到才推进基点，失败时下次继续带上这些字段（否则改动会被当成「没改」丢掉）
+        .then(() => { prevTraysRef.current = trays; })
+        .catch((err) => console.warn('[trays] 云端备份失败：', err.message));
     }, 500);
     pendingSaveRef.current = { trays, body, timer };
     return () => clearTimeout(timer);
@@ -429,7 +439,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
         authenticatedFetch(API_BASE + '/trays', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: pending.body,
+          body: pending.body(),
           keepalive: true,
         }).catch(() => {});
       } catch {
@@ -486,7 +496,9 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
       const next = { ...fn(prev), updatedAt: new Date().toISOString() };
       if (JSON.stringify(prev) === JSON.stringify(next)) return ts;
       const ops = diffTray(prev, next);
-      if (ops.length > 0) collabRef.current?.broadcast(next, ops);
+      // 带上本次真正改动的字段：接收方只应用这些字段，不会把对方刚改的其它字段盖回旧值
+      const changed = changedFields(prev, next);
+      if (ops.length > 0) collabRef.current?.broadcast(next, ops, changed);
       return ts.map((t) => (t.id === id ? next : t));
     });
   };
@@ -536,7 +548,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     if (!t) return;
     const now = new Date().toISOString();
     const trashed: Tray = { ...t, trashedAt: now, trashedBy: collabUser, updatedAt: now };
-    collabRef.current?.broadcast(trashed, [{ action: '删除货盘', detail: t.name }]);
+    collabRef.current?.broadcast(trashed, [{ action: '删除货盘', detail: t.name }], ['trashedAt', 'trashedBy']);
     logTrayOp(id, t.name, '删除货盘');
     setTrays((ts) => ts.map((x) => (x.id === id ? trashed : x)));
     // 删的正好是当前打开的货盘 → 切到剩下的第一个
@@ -557,7 +569,7 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     const now = new Date().toISOString();
     const restored: Tray = { ...t, trashedAt: null, updatedAt: now };
     delete restored.trashedBy;
-    collabRef.current?.broadcast(restored, [{ action: '恢复货盘', detail: t.name }]);
+    collabRef.current?.broadcast(restored, [{ action: '恢复货盘', detail: t.name }], ['trashedAt', 'trashedBy']);
     logTrayOp(id, t.name, '恢复货盘');
     setTrays((ts) => ts.map((x) => (x.id === id ? restored : x)));
     toast.success(`货盘「${t.name}」已恢复`);

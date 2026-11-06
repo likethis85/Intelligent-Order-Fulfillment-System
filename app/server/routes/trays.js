@@ -37,8 +37,20 @@ router.put('/', async (req, res) => {
   // 只有墓碑里的删除才是真的删除；没有墓碑的 id 服务端会保留（防误覆盖），supabase 行也不能删
   const tombIds = new Set(tombstones.map((t) => t.id));
   const removedIds = deletedIds.filter((id) => tombIds.has(id));
+  // body.changedByTray: { [trayId]: 本次真正改动的字段[] } → 服务端按字段合并，不用旧副本整盘覆盖
+  const changedByTray = {};
+  const rawChanged = req.body?.changedByTray;
+  if (rawChanged && typeof rawChanged === 'object' && !Array.isArray(rawChanged)) {
+    for (const [id, list] of Object.entries(rawChanged)) {
+      if (!Array.isArray(list)) continue;
+      const fields = list.filter((k) => typeof k === 'string' && k.length > 0 && k.length <= 120).slice(0, 400);
+      if (fields.length > 0) changedByTray[id] = fields;
+    }
+  }
   try {
-    const r = await saveTrays(trays, tombstones);
+    const r = await saveTrays(trays, tombstones, changedByTray);
+    // 比服务端更旧、被丢弃的副本不能再往 Supabase 写，否则会把同事刚同步的明细冲成旧值
+    const rejectedIds = new Set((r.rejected || []).map((x) => x.id));
     // 异步：被删的 tray 清三张表；其余的 tray 做单条 upsert
     (async () => {
       const results = [];
@@ -50,9 +62,12 @@ router.put('/', async (req, res) => {
           results.push({ trayId: id, action: 'remove-failed', error: e.message });
         }
       }
+      // 落库用实际落盘的版本（可能已按字段合并），不能用客户端原始副本把旧值写进 Supabase
+      const savedById = new Map((r.trays || []).map((x) => [x.id, x]));
       for (const t of trays) {
+        if (rejectedIds.has(t?.id)) continue;
         try {
-          const c = await persistTray(t);
+          const c = await persistTray(savedById.get(t?.id) || t);
           results.push({ trayId: t?.id, action: 'upserted', ...c });
         } catch (e) {
           results.push({ trayId: t?.id, action: 'upsert-failed', error: e.message });
@@ -64,7 +79,8 @@ router.put('/', async (req, res) => {
         console.log(`[supabase] 增量更新：upsert ${upserted} 个 tray${removed ? ` / remove ${removed} 个 tray` : ''}`);
       }
     })().catch((e) => console.warn('[supabase] persist 异常:', e.message));
-    res.json(r);
+    // 不回整个 trays 列表（前端不用，白传几 MB）；只回报结果与被拒的副本
+    res.json({ ok: true, at: r.at, count: r.count, rejected: r.rejected });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

@@ -13,7 +13,10 @@ const traySyncPath = path.resolve(__dirname, '../src/lib/traySync.ts');
 test('TraysPage: style code cell background and font color customization', async (t) => {
   const code = fs.readFileSync(traysPagePath, 'utf8');
   const productsCode = fs.readFileSync(productsPath, 'utf8');
-  const syncCode = fs.readFileSync(traySyncPath, 'utf8');
+  // 合并用的 KEYED_FIELDS 已抽到 lib/trayMerge.ts，diff 文案还在 traySync.ts，两处合起来校验
+  const syncCode =
+    fs.readFileSync(traySyncPath, 'utf8') +
+    fs.readFileSync(path.resolve(__dirname, '../src/lib/trayMerge.ts'), 'utf8');
 
   await t.test('data types support codeBgColor and codeFgColor', () => {
     assert.match(productsCode, /codeBgColor\?: 'yellow' \| 'blue' \| 'none' \| string;/);

@@ -1,75 +1,16 @@
-// 货盘多人实时协同：WebSocket 客户端 + 键级合并 + 变更描述生成
+// 货盘多人实时协同：WebSocket 客户端 + 字段级合并 + 变更描述生成
+// 合并规则见 lib/trayMerge.ts（广播带改动字段清单，接收方只应用这些字段）
 import { useEffect, useRef } from 'react';
 import type { Tray } from '../data/products';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
+import { mergeTray, changedFields, changedByTray, trayTs } from './trayMerge';
+
+export { mergeTray, changedFields, changedByTray };
 
 export interface TrayOp {
   action: string;
   detail: string;
   change?: string; // 修改前后的值（如 "483.86 → 572.9"）
-}
-
-// 键控字段：远端较新时按远端覆盖本地（保证接收方能看到发送方的最新值）
-const KEYED_FIELDS = [
-  'fabricOverrides',
-  'fabricNotes',
-  'costOverrides',
-  'priceOverrides',
-  'priceSuffixOverrides',
-  'mpriceOverrides',
-  'mcostOverrides',
-  'restockOverrides',
-  'restockShortNames',
-  'codeSuffixOverrides',
-  'sizeRangeOverrides',
-  'plannedRestockAllSkcs',
-  'codeBgColorByLook',
-  'codeFgColorByLook',
-  'customProducts',
-] as const;
-
-// 数组成员按稳定子键去重合并（先到的优先 → 远端优先）
-const ARRAY_FIELDS: Record<string, (a: unknown) => string> = {
-  plannedRestockItems: (it) => `${String((it as { pdt?: string }).pdt || '').toLowerCase()}|${String((it as { skc?: string }).skc || '').toLowerCase()}|${Number((it as { pieces?: number }).pieces) || 0}|${Number((it as { days?: number }).days) || 0}`,
-  noRestockItems: (it) => String((it as { skc?: string }).skc || '').toLowerCase(),
-};
-
-// 远端后写赢：按 tray.updatedAt 比较，本地较新就保留本地，远程较新就把远端值铺到结果上。
-// 这样保证接收方看到发送方的最新修改（不会因为本地旧值覆盖掉远端新值）。
-// 数组字段（plannedRestockItems / noRestockItems）按子键去重，先出现的优先 → 远端优先。
-export function mergeTray(local: Tray, remote: Tray): Tray {
-  const localAt = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
-  const remoteAt = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
-  // 本地刚刚广播过（localAt 更新）→ 保留本地，避免同事的旧广播覆盖用户正在编辑的值
-  if (localAt && remoteAt && localAt > remoteAt) return local;
-
-  // 远端较新（或相等）→ 远端覆盖
-  const merged: Tray = { ...local, ...remote } as Tray;
-  for (const f of KEYED_FIELDS) {
-    const rk = (remote as unknown as Record<string, Record<string, unknown>>)[f];
-    const lk = (local as unknown as Record<string, Record<string, unknown>>)[f];
-    if (rk || lk) {
-      (merged as unknown as Record<string, Record<string, unknown>>)[f] = {
-        ...(lk || {}),
-        ...(rk || {}),
-      };
-    }
-  }
-  for (const [f, keyFn] of Object.entries(ARRAY_FIELDS)) {
-    const rk = (remote as unknown as Record<string, unknown[]>)[f];
-    const lk = (local as unknown as Record<string, unknown[]>)[f];
-    if (!rk && !lk) continue;
-    const seen = new Set<string>();
-    const out: unknown[] = [];
-    for (const it of [...(rk || []), ...(lk || [])]) {
-      const k = keyFn(it);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(it);
-    }
-    (merged as unknown as Record<string, unknown[]>)[f] = out;
-  }
-  return merged;
 }
 
 function valStr(v: unknown): string {
@@ -186,7 +127,7 @@ export interface StockSyncedEvent {
 }
 
 // ── WS 客户端 hook ──
-// activeTrayId 变化时切 room；收 tray-updated 按键级合并进 setTrays；收 stock-synced 通知库存更新
+// activeTrayId 变化时切 room；收 tray-updated 按「改动字段」合并进 setTrays；收 stock-synced 通知库存更新
 export function useTraySync(
   activeTrayId: string | null,
   userName: string,
@@ -200,6 +141,9 @@ export function useTraySync(
   const onRemoteRef = useRef(onRemoteUpdate);
   const onStockSyncedRef = useRef(onStockSynced);
   const userRef = useRef(userName);
+  // 每个货盘里「每个字段最后一次改动的本机时间」：接收远端广播时用来判断这个字段要不要采纳
+  // （本地刚改过的字段，比对方那条广播更新，保留本地；其余字段照常采纳对方的改动）
+  const fieldTimesRef = useRef<Map<string, Record<string, number>>>(new Map());
   trayIdRef.current = activeTrayId;
   setTraysRef.current = setTrays;
   onRemoteRef.current = onRemoteUpdate;
@@ -234,13 +178,21 @@ export function useTraySync(
         }
         if (msg.type === 'tray-updated' && msg.tray?.id) {
           const remote = msg.tray as Tray;
+          const changed = Array.isArray(msg.changed) ? (msg.changed as string[]) : undefined;
           setTraysRef.current((ts) => {
             const local = ts.find((t) => t.id === remote.id);
             if (!local) {
               // 本地还没有这个货盘（对方新建）→ 直接加进来
               return [...ts, remote];
             }
-            const merged = mergeTray(local, remote);
+            const times = fieldTimesRef.current.get(remote.id) || {};
+            const { tray: merged, applied } = mergeTray(local, remote, changed, times);
+            if (applied.length > 0) {
+              // 记录这些字段的版本时间，之后比它更旧的广播不会再把它们改回去
+              const at = trayTs(remote.updatedAt);
+              for (const k of applied) times[k] = at;
+              fieldTimesRef.current.set(remote.id, times);
+            }
             if (JSON.stringify(merged) === JSON.stringify(local)) return ts;
             return ts.map((t) => (t.id === merged.id ? merged : t));
           });
@@ -276,12 +228,19 @@ export function useTraySync(
   }, [activeTrayId]);
 
   // 暴露 broadcast（App.tsx 在 setTrays 后调用）
+  // changed = 本次真正改动的字段（changedFields 的结果），接收方只应用这些字段
   return {
-    broadcast: (tray: Tray, ops: TrayOp[]) => {
+    broadcast: (tray: Tray, ops: TrayOp[], changed?: string[]) => {
+      if (Array.isArray(changed) && changed.length > 0) {
+        const times = fieldTimesRef.current.get(tray.id) || {};
+        const at = trayTs(tray.updatedAt) || Date.now();
+        for (const k of changed) times[k] = at;
+        fieldTimesRef.current.set(tray.id, times);
+      }
       const ws = wsRef.current;
       if (!ws || ws.readyState !== 1 || ops.length === 0) return;
       try {
-        ws.send(JSON.stringify({ type: 'tray-update', user: userRef.current, tray, ops }));
+        ws.send(JSON.stringify({ type: 'tray-update', user: userRef.current, tray, ops, changed }));
       } catch { /* ignore */ }
     },
   };
