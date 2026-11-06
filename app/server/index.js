@@ -54,7 +54,11 @@ console.log(
 const ssoConfig = readSsoConfig();
 const usageStats = createUsageStats();
 const ssoTelemetry = createSsoTelemetry(ssoConfig);
-const ssoAuth = createSsoAuth(ssoConfig);
+// 会话落盘到 server/.cache（部署包不包含该目录），重启后无需重新登录。
+// 表里只有 sha256(sessionId)，没有 IdP token，文件泄露也伪造不出登录态。
+const ssoAuth = createSsoAuth(ssoConfig, {
+  sessionFile: process.env.SSO_SESSIONS_FILE || path.join(__dirname, '.cache', 'sessions.json'),
+});
 
 ssoAuth.onLogin(({ key, session }) => {
   usageStats.startSession({ key, user: session.user, telemetrySessionId: session.telemetrySessionId });

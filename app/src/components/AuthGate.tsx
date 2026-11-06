@@ -27,11 +27,45 @@ function getCleanReturnTo(): string {
   }
 }
 
+// 会话过期（部署重启、超过 8 小时）时自动回统一登录走一圈：SSO 侧通常仍是登录状态，
+// 用户几乎看不到登录页。60 秒内只跳一次，SSO 故障时退回到手动登录按钮，避免死循环。
+const AUTO_RELOGIN_KEY = 'marius:sso-auto-relogin-at';
+const AUTO_RELOGIN_WINDOW_MS = 60_000;
+
+let reloginInFlight = false;
+
+function autoRelogin(notify: (message: string) => void): boolean {
+  if (reloginInFlight) return true; // 已经在跳转，并发 401 别再改提示
+  let last = 0;
+  try {
+    last = Number(sessionStorage.getItem(AUTO_RELOGIN_KEY) || 0);
+  } catch {
+    last = 0; // 隐私模式禁用 storage：当作没跳过
+  }
+  if (Number.isFinite(last) && last > 0 && Date.now() - last < AUTO_RELOGIN_WINDOW_MS) return false;
+  try {
+    sessionStorage.setItem(AUTO_RELOGIN_KEY, String(Date.now()));
+  } catch {
+    // 写不进去也要跳，否则过期后只能停在登录页
+  }
+  reloginInFlight = true;
+  notify('登录状态已过期，正在重新登录…');
+  location.assign('/api/auth/sso/start?' + new URLSearchParams({
+    origin: location.origin,
+    returnTo: getCleanReturnTo(),
+  }));
+  return true;
+}
+
 export default function AuthGate() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const version = useRef(0);
+  // 主动退出登录时，退出请求前后的 401 不能触发自动重新登录，否则刚退出又被拉回来
+  const loggingOut = useRef(false);
+  // 只是「以前登录过」，用来区分「会话过期」和「第一次打开页面」
+  const wasAuthenticated = useRef(false);
   const [message, setMessage] = useState(() => {
     const url = new URL(location.href);
     if (url.searchParams.has('logged_out')) return '已退出登录。';
@@ -65,9 +99,14 @@ export default function AuthGate() {
         if (!response.ok) throw new Error('session_unavailable');
         const next = await response.json() as AuthSession;
         if (alive && checkedVersion === version.current) {
+          const wasSignedIn = wasAuthenticated.current;
+          wasAuthenticated.current = next.authenticated;
           setSession(next);
           if (!next.ssoConfigured) {
             setMessage('统一登录尚未配置，请联系管理员。');
+          } else if (!next.authenticated && wasSignedIn && !loggingOut.current) {
+            // 轮询发现掉线（后端重启/会话到期）也自动续登录，不用等用户点按钮
+            if (!autoRelogin(setMessage)) setMessage('登录已过期，请重新登录。');
           } else {
             setMessage((current) => ['暂时无法连接系统，请稍后重试。', '统一登录尚未配置，请联系管理员。'].includes(current) ? '' : current);
           }
@@ -83,9 +122,11 @@ export default function AuthGate() {
     };
 
     const expired = () => {
+      if (loggingOut.current) return;
       version.current++;
       setSession((current) => current ? { ...current, authenticated: false, user: null, expiresAt: null } : { authenticated: false, ssoConfigured: true, user: null, expiresAt: null });
-      setMessage('登录已过期，请重新登录。');
+      // 能进到这里说明之前是登录状态（只是会话过期），直接回 SSO 续上
+      if (!autoRelogin(setMessage)) setMessage('登录已过期，请重新登录。');
     };
 
     const focused = () => { void check(); };
@@ -103,17 +144,18 @@ export default function AuthGate() {
   }, [busy]);
 
   useEffect(() => {
-    if (!session?.authenticated || !session.expiresAt) return;
+    if (!session?.authenticated || !session.expiresAt || !session.ssoConfigured) return;
     const timer = setTimeout(() => {
       version.current++;
       setSession((current) => current ? { ...current, authenticated: false, user: null, expiresAt: null } : null);
-      setMessage('登录已过期，请重新登录。');
+      if (!autoRelogin(setMessage)) setMessage('登录已过期，请重新登录。');
     }, Math.max(0, session.expiresAt - Date.now()));
     return () => clearTimeout(timer);
-  }, [session?.authenticated, session?.expiresAt]);
+  }, [session?.authenticated, session?.expiresAt, session?.ssoConfigured]);
 
   const logout = async () => {
     if (busy) return;
+    loggingOut.current = true;
     version.current++;
     setBusy(true);
     try {

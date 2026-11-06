@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import express from 'express';
 import { WebSocket } from 'ws';
@@ -11,13 +15,14 @@ const origin = 'http://localhost:3000';
 const user = { id: 'u_sso_test', provider: 'dingtalk', email: null, display_name: '测试同事', avatar_url: null };
 const env = { SSO_BASE_URL: 'http://sso.example', SSO_CLIENT_ID: 'app_test', SSO_CLIENT_SECRET: 'server-only-test-secret', SSO_REDIRECT_URI: origin + '/api/auth/sso/callback', SSO_REDIRECT_URIS: 'http://127.0.0.1:3000/api/auth/sso/callback' };
 
-async function fixture(t, { tokenStatus = 200, result, unavailable = false, configEnv = env, dingtalk = {} } = {}) {
+async function fixture(t, { tokenStatus = 200, result, unavailable = false, configEnv = env, dingtalk = {}, sessionFile = null } = {}) {
   let time = Date.now();
   let exchanges = 0;
   let authorization;
   const upstreamRequests = [];
   const sid = 'a'.repeat(32);
   const auth = createSsoAuth(makeSsoConfig(configEnv), {
+    sessionFile,
     now: () => time,
     fetchImpl: async (url, options) => {
       upstreamRequests.push({ url, method: options.method || 'GET' });
@@ -334,7 +339,8 @@ test('WebSocket identity comes from SSO, ignores supplied names, and closes imme
   const reply = once(ws, 'message');
   ws.send(JSON.stringify({ type: 'hello', user: 'forged name', trayId: 'test-room' }));
   const [raw] = await reply;
-  assert.deepEqual(JSON.parse(raw.toString()).users, [user.display_name]);
+  // users 现在带 canEdit（前端据此给只读账号标「（只读）」）
+  assert.deepEqual(JSON.parse(raw.toString()).users, [{ name: user.display_name, canEdit: true }]);
   const closed = once(ws, 'close');
   await fetch(f.base + '/api/auth/logout', { method: 'POST', headers: { Cookie: session, Origin: origin } });
   const [code] = await closed;
@@ -350,4 +356,90 @@ test('an expired WebSocket session cannot send or receive further collaboration 
   const closed = once(ws, 'close');
   ws.send(JSON.stringify({ type: 'ping' }));
   assert.equal((await closed)[0], 1008);
+});
+
+// ---- 会话落盘：部署重启不掉线 ----
+
+function readSessions(file) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+  } catch {
+    return [];
+  }
+}
+
+async function waitFor(check, message, timeout = 3000) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    const value = check();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('等待超时：' + message);
+}
+
+function tempSessionFile(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sso-sessions-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return path.join(dir, 'sessions.json');
+}
+
+test('登录会话落盘：重启后同一个 cookie 仍然有效，不会全员掉线', async (t) => {
+  const file = tempSessionFile(t);
+  const before = await fixture(t, { sessionFile: file });
+  const { session } = await login(before);
+  const saved = await waitFor(() => readSessions(file).length === 1 && readSessions(file), '登录会话应写入磁盘');
+  assert.equal(saved[0].session.user.id, user.id);
+  assert.match(saved[0].key, /^[0-9a-f]{64}$/, '磁盘上只存 sessionId 的 sha256，泄露也伪造不出 cookie');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(session.split('=')[1]), '不能把 cookie 明文写到磁盘');
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, '会话文件仅本进程可读');
+  }
+
+  // 模拟 PM2 重启：同一份文件、全新实例、没有任何内存状态
+  const after = await fixture(t, { sessionFile: file });
+  const identity = await (await fetch(after.base + '/api/auth/session', { headers: { Cookie: session } })).json();
+  assert.equal(identity.authenticated, true);
+  assert.equal(identity.user.id, user.id);
+  assert.equal((await fetch(after.base + '/api/private', { headers: { Cookie: session } })).status, 200);
+});
+
+test('过期的会话重启后不复活，损坏的文件当作没有会话', async (t) => {
+  const file = tempSessionFile(t);
+  const config = makeSsoConfig(env);
+  const now = Date.now();
+  const expiredSid = 'e'.repeat(43);
+  const freshSid = 'f'.repeat(43);
+  const keyOf = (value) => createHash('sha256').update(value).digest('hex');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    v: 1,
+    sessions: [
+      { key: keyOf(expiredSid), session: { user: { id: 'old' }, expiresAt: now - 1, createdAt: now - 3600_000, telemetrySessionId: null } },
+      { key: keyOf(freshSid), session: { user: { id: 'fresh' }, expiresAt: now + 3600_000, createdAt: now, telemetrySessionId: null } },
+    ],
+  }));
+  const restored = createSsoAuth(config, { sessionFile: file });
+  t.after(() => restored.close());
+  const asRequest = (sid) => ({ headers: { cookie: 'marius_fulfillment_session=' + sid } });
+  assert.equal(restored.getSession(asRequest(expiredSid)), null, '过期的会话不能带回来');
+  assert.equal(restored.getSession(asRequest(freshSid))?.user.id, 'fresh');
+
+  fs.writeFileSync(file, '{not json');
+  const broken = createSsoAuth(config, { sessionFile: file });
+  t.after(() => broken.close());
+  assert.equal(broken.getSession(asRequest(freshSid)), null, '文件损坏不能拖垮启动');
+});
+
+test('退出登录后会话从磁盘移除，重启也不会复活', async (t) => {
+  const file = tempSessionFile(t);
+  const before = await fixture(t, { sessionFile: file });
+  const { session } = await login(before);
+  await waitFor(() => readSessions(file).length === 1, '登录会话应写入磁盘');
+  assert.equal((await fetch(before.base + '/api/auth/logout', { method: 'POST', headers: { Cookie: session, Origin: origin } })).status, 200);
+  await waitFor(() => readSessions(file).length === 0, '登出后磁盘上也要删掉');
+
+  const after = await fixture(t, { sessionFile: file });
+  assert.equal((await fetch(after.base + '/api/private', { headers: { Cookie: session } })).status, 401);
 });

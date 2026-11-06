@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LineChart, Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck } from 'lucide-react';
+import { LineChart, Layers, LayoutGrid, BarChart3, Settings2, ListOrdered, CloudSun, LogOut, ShieldCheck, Users } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import BoardPage from '@/sections/BoardPage';
@@ -284,12 +284,21 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
   // 多人实时协同：WS 广播 + 收远端按键级合并
   const collabUser = user.displayName.slice(0, 30);
+  // 有人更新当前货盘时，在在线名单上闪一下（代替以前每条广播都弹一次 toast，多账号时会被刷屏）
+  const [flashUser, setFlashUser] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleRemoteUpdate = useCallback((who: string) => {
+    setFlashUser(who);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashUser(null), 2500);
+  }, []);
+  useEffect(() => () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current); }, []);
   const collabRef = useRef<{ broadcast: (t: Tray, ops: ReturnType<typeof diffTray>, changed?: string[]) => void } | null>(null);
-  const { broadcast } = useTraySync(
+  const { broadcast, others } = useTraySync(
     traysReady ? activeTrayId : null,
     collabUser,
     setTraysSafe,
-    (user, trayName) => toast.info(`${user} 更新了货盘「${trayName}」`, { duration: 3000 }),
+    handleRemoteUpdate,
     (event) => {
       toast.success(event.message || '观远 BI 最新库存已同步完成，数据已更新', { duration: 4000 });
       fetchProducts().then((items) => {
@@ -787,6 +796,24 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
             <span className="auth-refresh-stamp" title={cacheStamp}>上次刷新 {fmtStamp(cacheStamp)}</span>
           )}
           <span className="app-target">当前选款目标：<span className="font-medium text-ink-primary">{activeTray?.name} · {activeTray?.date}</span></span>
+          {others.length > 0 && (
+            <span
+              className={`app-presence flex items-center gap-1 ${flashUser ? 'text-action-link' : ''}`}
+              title={`同一货盘在线：${others.map((o) => (o.canEdit ? o.name : `${o.name}（只读）`)).join('、')}`}
+            >
+              <Users size={12} strokeWidth={1.8} className={flashUser ? 'animate-pulse' : undefined} />
+              {/* 宽屏显示名字，窄屏只显示人数（顶栏在这两个区间只剩一行） */}
+              <span className="hidden whitespace-nowrap 2xl:inline">
+                {others.slice(0, 2).map((o, i) => (
+                  <span key={o.name} className={flashUser === o.name ? 'font-semibold' : 'font-medium text-ink-primary'}>
+                    {i > 0 ? '、' : ''}{o.name}{o.canEdit ? '' : '（只读）'}
+                  </span>
+                ))}
+                {others.length > 2 ? ` 等${others.length}人` : ''} 也在看
+              </span>
+              <span className="font-medium text-ink-primary 2xl:hidden">{others.length}</span>
+            </span>
+          )}
           {canManage && (
             <button
               type="button"

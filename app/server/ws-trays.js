@@ -91,7 +91,8 @@ export function attachTrayWs(server, auth, accessControl = null) {
   function roomUsers(trayId) {
     const set = rooms.get(trayId);
     if (!set) return [];
-    return [...set].map((w) => w._user).filter(Boolean);
+    // 带上 canEdit：只读账号也在这个名单里，但前端要能标出来「（只读）」
+    return [...set].filter((w) => w._user).map((w) => ({ name: w._user, canEdit: w._canEdit !== false }));
   }
 
   wss.on('connection', (ws, req) => {
@@ -110,7 +111,10 @@ export function attachTrayWs(server, auth, accessControl = null) {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       if (msg.type === 'hello') {
+        const prevRoom = ws._room;
         joinRoom(ws, msg.trayId || null);
+        // 切走以后，原来那个货盘的成员列表也要刷新（否则对方一直以为他还在看）
+        if (prevRoom && prevRoom !== ws._room) broadcast(prevRoom, { type: 'users', users: roomUsers(prevRoom) });
         broadcast(ws._room, { type: 'users', users: roomUsers(ws._room) }, ws);
         ws.send(JSON.stringify({ type: 'users', users: roomUsers(ws._room), canEdit: ws._canEdit }));
       } else if (msg.type === 'tray-update') {

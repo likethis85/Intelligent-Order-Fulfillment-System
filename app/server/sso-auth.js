@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { writeJsonAtomic } from './atomic-write.js';
 
 const SESSION_COOKIE = 'marius_fulfillment_session';
 const BROWSER_COOKIE = 'marius_fulfillment_sso_browser';
@@ -82,16 +83,81 @@ function normalizeUser(user) {
   };
 }
 
-export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date.now, sessionFile = null } = {}) {
   const router = Router();
   const states = new Map();
   const sessions = new Map();
   const events = new EventEmitter();
   const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: config.secure, path: '/' };
 
+  // 会话落盘：以前会话只在内存里，PM2 一重启（每次部署）所有人的 cookie 就失效，
+  // 页面显示「登录已过期」。现在登录/登出时把会话表写到磁盘，启动时读回来（过期的丢掉）。
+  // 注意表里存的是 sha256(sessionId) 而不是 cookie 本身，文件泄露也伪造不出登录态。
+  let closing = false;
+  let persistTimer = null;
+  let persistChain = Promise.resolve();
+
+  function loadPersisted() {
+    if (!sessionFile) return;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+      const list = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+      const time = now();
+      for (const entry of list) {
+        const key = entry?.key;
+        const session = entry?.session;
+        if (typeof key !== 'string' || !session || typeof session.expiresAt !== 'number') continue;
+        if (session.expiresAt <= time) continue; // 已经过期的不用恢复
+        if (sessions.size >= MAX_ENTRIES) break;
+        sessions.set(key, session);
+      }
+      if (sessions.size > 0) console.log(`[sso] 已恢复 ${sessions.size} 个登录会话（重启不算掉线）`);
+    } catch {
+      // 文件不存在 / 损坏：当作没有会话，不影响正常登录
+    }
+  }
+
+  function snapshot() {
+    return { v: 1, at: now(), sessions: [...sessions].map(([key, session]) => ({ key, session })) };
+  }
+
+  function writeNow(data) {
+    persistChain = persistChain
+      .then(() => writeJsonAtomic(sessionFile, data))
+      .then(() => { try { fs.chmodSync(sessionFile, 0o600); } catch { /* 文件系统不支持时忽略 */ } })
+      .catch((err) => console.warn('[sso] 会话落盘失败:', err.message));
+    return persistChain;
+  }
+
+  function persistNow() {
+    if (!sessionFile || closing) return;
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    writeNow(snapshot());
+  }
+
+  function persist() {
+    if (!sessionFile || closing) return;
+    if (persistTimer) clearTimeout(persistTimer);
+    // 合并短时间内的多次变更（批量过期），再原子写一次
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      if (closing) return;
+      writeNow(snapshot());
+    }, 100);
+    persistTimer.unref?.();
+  }
+
+  loadPersisted();
+
   function revoke(key) {
     const session = sessions.get(key);
-    if (sessions.delete(key)) events.emit('revoked', key, session || null);
+    if (sessions.delete(key)) {
+      events.emit('revoked', key, session || null);
+      persist();
+    }
   }
 
   function cleanup() {
@@ -228,6 +294,7 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
         telemetrySessionId: typeof result.telemetry_session_id === 'string' ? result.telemetry_session_id : null,
       };
       sessions.set(key, session);
+      persistNow(); // 登录立刻落盘：刚登录就赶上部署也不会掉线
       res.cookie(SESSION_COOKIE, sessionId, { ...cookieOptions, maxAge: expiresAt - now() });
       events.emit('login', { key, session });
       // Only the opaque application session cookie reaches the browser.
@@ -242,6 +309,7 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   router.post('/logout', requireOrigin, (req, res) => {
     const session = getSession(req);
     if (session) revoke(session.key);
+    persistNow(); // 退出要马上落盘，避免重启后又被恢复回来
     const browser = cookie(req, BROWSER_COOKIE);
     if (browser) for (const [key, pending] of states) if (pending.browserHash === hash(browser)) states.delete(key);
     res.clearCookie(SESSION_COOKIE, cookieOptions);
@@ -265,6 +333,17 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
     router, requireSession, getSession, isAllowedOrigin,
     onRevoke(handler) { events.on('revoked', handler); return () => events.off('revoked', handler); },
     onLogin(handler) { events.on('login', handler); return () => events.off('login', handler); },
-    close() { clearInterval(timer); for (const key of sessions.keys()) revoke(key); states.clear(); },
+    close() {
+      // 进程退出（部署重启）时不能把落盘的会话清空，否则又变成全员掉线
+      if (persistTimer) {
+        clearTimeout(persistTimer);
+        persistTimer = null;
+        writeNow(snapshot());
+      }
+      closing = true;
+      clearInterval(timer);
+      for (const key of sessions.keys()) revoke(key);
+      states.clear();
+    },
   };
 }

@@ -1,9 +1,11 @@
 // 货盘多人实时协同：WebSocket 客户端 + 字段级合并 + 变更描述生成
 // 合并规则见 lib/trayMerge.ts（广播带改动字段清单，接收方只应用这些字段）
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Tray } from '../data/products';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 import { mergeTray, changedFields, changedByTray, trayTs } from './trayMerge';
+import { roomOthers } from './presence';
+import type { RoomUser } from './presence';
 
 export { mergeTray, changedFields, changedByTray };
 
@@ -144,6 +146,8 @@ export function useTraySync(
   // 每个货盘里「每个字段最后一次改动的本机时间」：接收远端广播时用来判断这个字段要不要采纳
   // （本地刚改过的字段，比对方那条广播更新，保留本地；其余字段照常采纳对方的改动）
   const fieldTimesRef = useRef<Map<string, Record<string, number>>>(new Map());
+  // 同一货盘还有谁在看（服务端在进出房间时推 users）
+  const [others, setOthers] = useState<RoomUser[]>([]);
   trayIdRef.current = activeTrayId;
   setTraysRef.current = setTrays;
   onRemoteRef.current = onRemoteUpdate;
@@ -176,6 +180,11 @@ export function useTraySync(
           onStockSyncedRef.current?.(msg as StockSyncedEvent);
           return;
         }
+        if (msg.type === 'users') {
+          // 房间成员变化（有人进/出当前货盘）
+          setOthers(roomOthers(msg.users, userRef.current));
+          return;
+        }
         if (msg.type === 'tray-updated' && msg.tray?.id) {
           const remote = msg.tray as Tray;
           const changed = Array.isArray(msg.changed) ? (msg.changed as string[]) : undefined;
@@ -203,6 +212,7 @@ export function useTraySync(
       };
       ws.onclose = () => {
         wsRef.current = null;
+        setOthers([]); // 断线期间成员列表不可信，重连后服务端会重新推
         if (!closed) retryTimer = setTimeout(connect, 3000);
       };
       ws.onerror = () => {
@@ -221,6 +231,7 @@ export function useTraySync(
 
   // activeTrayId 变化 → 换 room
   useEffect(() => {
+    setOthers([]); // 上一间房间的成员不能带到新货盘上
     const ws = wsRef.current;
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'hello', user: userRef.current, trayId: activeTrayId }));
@@ -230,6 +241,7 @@ export function useTraySync(
   // 暴露 broadcast（App.tsx 在 setTrays 后调用）
   // changed = 本次真正改动的字段（changedFields 的结果），接收方只应用这些字段
   return {
+    others,
     broadcast: (tray: Tray, ops: TrayOp[], changed?: string[]) => {
       if (Array.isArray(changed) && changed.length > 0) {
         const times = fieldTimesRef.current.get(tray.id) || {};
