@@ -17,6 +17,7 @@ import { useTraySync, diffTray, changedFields, changedByTray } from '@/lib/trayS
 import { API_BASE, authenticatedFetch } from '@/lib/api-client';
 import type { AuthUser } from '@/lib/api-client';
 import { isTrashExpired, stripTombstoned, mergeTombstones, sameTombstones, type Tombstone } from '@/lib/trayTrash';
+import { newId, repairDuplicateIds } from '@/lib/trayIds';
 import type { Look, Product, Tray, TraySection, TrayType } from '@/data/products';
 import { normalizeTrayImages } from '@/data/products';
 
@@ -90,8 +91,10 @@ function writeLocalTrays(trays: Tray[], at?: number) {
 
 const mkSection = (id: string, label: string, looks: Look[]): TraySection => ({ id, label, visible: true, looks });
 
-let seq = 100;
-const nid = (p: string) => `${p}-${++seq}`;
+// 版块 / 坑位 id：以前是模块级计数器 `let seq = 100`，刷新页面就从头数，
+// 隔天再开页面加坑位会和上次生成的 id 撞（线上 t-111 两个 L-101 就是这么来的）。
+// 改用带时间戳+随机的 newId，见 lib/trayIds.ts。
+const nid = (p: string) => newId(p);
 
 // ── 真实款号清单（已 BI 卡片「商品全表数据(款式)」验证存在） ──
 // 这些款号在 card preview CSV 中有真实价格 / 库存 / 退货率等字段
@@ -391,7 +394,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
       // 服务端的墓碑优先：本地缓存里可能还留着别人彻底删除的货盘
       applyCloudTombstones(cloudTombstones);
       if (merged.length > 0) {
-        const normalizedMerged = stripTombstoned(merged.map(normalizeTrayImages), cloudTombstones);
+        // 载入时顺手修掉历史上重复的坑位 id（确定性改名，下一次保存就落库）
+        const normalizedMerged = stripTombstoned(merged.map((t) => repairDuplicateIds(normalizeTrayImages(t))), cloudTombstones);
         if (normalizedMerged.length > 0) setTrays(normalizedMerged);
         writeLocalTrays(normalizedMerged, Date.now());
       }

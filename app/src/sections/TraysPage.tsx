@@ -17,6 +17,7 @@ import { useProducts, useProductsById, useProductResolver } from '@/data/Product
 import { fetchSamplesByCodes, fetchSalesSummary, uploadImage, fetchRemainingInventory, fetchHengjiStatus, fetchSampleMaterials, fetchRestockStock, type HengjiStatus, type RemainingGroup, type SampleMaterialRow, type RestockStockFabric } from '@/data/api';
 import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
+import { newId } from '@/lib/trayIds';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -5468,7 +5469,8 @@ export default function TraysPage({
               ),
             };
           // 新建坑位：cover 留空（待用户主动确认主图）
-          return { ...s, looks: [...s.looks, { id: `l${Date.now()}`, pids, cover: null }] };
+          // 同一毫秒里连点两次也不能生成同一个 id（重复 key 会让拖拽后表格串列）
+          return { ...s, looks: [...s.looks, { id: newId('l'), pids, cover: null }] };
         }),
       };
     });
@@ -6393,13 +6395,13 @@ export default function TraysPage({
           );
         })}
         <button
-          onClick={() => { const l = prompt('新版块名称'); if (l?.trim()) upd((t) => ({ ...t, sections: [...t.sections, { id: `s${Date.now()}`, label: l.trim(), visible: true, looks: [] }] })); }}
+          onClick={() => { const l = prompt('新版块名称'); if (l?.trim()) upd((t) => ({ ...t, sections: [...t.sections, { id: newId('s'), label: l.trim(), visible: true, looks: [] }] })); }}
           className="flex items-center gap-1 rounded-full border border-dashed border-ink-faint px-2.5 py-1 text-[11.5px] text-ink-muted hover:border-edge hover:text-ink-primary"
         >
           <Plus size={11} /> 加版块
         </button>
         <button
-          onClick={() => { const l = prompt('备用版块名称', '备用'); if (l?.trim()) upd((t) => ({ ...t, sections: [...t.sections, { id: `s${Date.now()}`, label: l.trim(), visible: true, looks: [], isBackup: true }] })); }}
+          onClick={() => { const l = prompt('备用版块名称', '备用'); if (l?.trim()) upd((t) => ({ ...t, sections: [...t.sections, { id: newId('s'), label: l.trim(), visible: true, looks: [], isBackup: true }] })); }}
           className="flex items-center gap-1 rounded-full border border-dashed border-ink-faint px-2.5 py-1 text-[11.5px] text-ink-muted hover:border-edge hover:text-ink-primary"
           title="备用区域：暂存已选但暂不播的坑位，面料/翻单覆盖随款号保留"
         >
