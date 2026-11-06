@@ -15,8 +15,8 @@ export function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// 与坑位 id 绑定的字段：坑位改名时必须跟着搬，否则配色/颜色文案会丢
-const LOOK_KEYED_FIELDS = ['colorOverrideByLook', 'codeBgColorByLook', 'codeFgColorByLook'] as const;
+// 与坑位 id 绑定的字段：坑位改名时必须跟着搬，否则配色/颜色文案/色号会丢
+const LOOK_KEYED_FIELDS = ['colorOverrideByLook', 'colorCodesByLook', 'codeBgColorByLook', 'codeFgColorByLook'] as const;
 
 function freeId(id: string, seen: Set<string>): string {
   let n = 2;
@@ -67,9 +67,9 @@ export function repairDuplicateIds(tray: Tray): Tray {
 
   const next = { ...tray, sections } as unknown as Record<string, unknown>;
   for (const field of LOOK_KEYED_FIELDS) {
-    const map = (tray as unknown as Record<string, Record<string, string> | undefined>)[field];
+    const map = (tray as unknown as Record<string, Record<string, unknown> | undefined>)[field];
     if (!map) continue;
-    let copy: Record<string, string> | undefined;
+    let copy: Record<string, unknown> | undefined;
     for (const [from, to] of renames) {
       if (!(from in map) || to in map) continue;
       copy = copy || { ...map };

@@ -18,6 +18,7 @@ import { fetchSamplesByCodes, fetchSalesSummary, uploadImage, fetchRemainingInve
 import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
+import { buildColorOptions, colorOverrideValue, defaultColorText, joinColorText, splitColorText } from '@/lib/trayColors';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -342,11 +343,10 @@ function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: strin
   );
 }
 
-// 颜色行内联编辑：整行一起改（per-look override）
-// 用法同 CodeSuffixEditor：Enter / Cmd+Enter / blur 保存，Esc 还原
-// 覆盖态右上 X 一键清除（回退到 pid.colors union）
-function ColorLineEditor({ value, defaultText, onSave, onClear }: {
-  value: string; defaultText: string; onSave: (v: string) => void; onClear: () => void;
+// 颜色行编辑入口：点击直接打开「颜色 / 色号」选择弹窗（按款号列出色号逐条勾选）；
+// 没有传 onOpenPicker 时退回原来的内联文本编辑。覆盖态右上 X 一键清除（回退到 pid.colors union）
+function ColorLineEditor({ value, defaultText, onSave, onClear, onOpenPicker }: {
+  value: string; defaultText: string; onSave: (v: string) => void; onClear: () => void; onOpenPicker?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -376,9 +376,11 @@ function ColorLineEditor({ value, defaultText, onSave, onClear }: {
   }
   return (
     <span
-      onClick={() => setEditing(true)}
-      className={`select-none cursor-text rounded-sm px-1 hover:bg-surface-subtle ${overridden ? 'text-stage-return-fg' : 'text-ink-secondary'}`}
-      title={overridden ? `已覆盖：${value}（点击修改，× 还原）` : '点击修改颜色文案'}
+      onClick={() => { if (onOpenPicker) onOpenPicker(); else setEditing(true); }}
+      className={`select-none cursor-pointer rounded-sm px-1 hover:bg-surface-subtle ${overridden ? 'text-stage-return-fg' : 'text-ink-secondary'}`}
+      title={onOpenPicker
+        ? (overridden ? `已覆盖：${value}（点击按色号重选，× 还原）` : '点击按色号选择颜色')
+        : (overridden ? `已覆盖：${value}（点击修改，× 还原）` : '点击修改颜色文案')}
     >
       {value || '+ 颜色'}
       {overridden && (
@@ -389,6 +391,257 @@ function ColorLineEditor({ value, defaultText, onSave, onClear }: {
         >×</button>
       )}
     </span>
+  );
+}
+
+// ── 颜色 / 色号选择弹窗：按款号列出色号（SKC + 颜色），逐条勾选要展示的颜色 ──
+// 以前颜色行只能整段手输（"黑色 / 金扣黑带身" 一串，分不清哪个是哪个），
+// 现在点开这里勾选，勾完拼回同一段文案（colorOverrideByLook），导出/协同都不用改。
+function LookColorDialog({
+  target,
+  tray,
+  resolveProduct,
+  sampleColorsByPid,
+  skcsByPid,
+  codesByLook,
+  onSave,
+  onClose,
+}: {
+  target: { sectionId: string; lookId: string; pids: string[]; lookIdx?: number };
+  tray: Tray;
+  resolveProduct: (id: string) => Product;
+  sampleColorsByPid?: Record<string, string[]>;
+  skcsByPid?: Record<string, Array<{ code: string; color: string }>>;
+  codesByLook?: Record<string, string>; // 手动添加的颜色 → 色号
+  onSave: (value: string, codes: Record<string, string>) => void;
+  onClose: () => void;
+}) {
+  const section = tray.sections.find((x) => x.id === target.sectionId);
+  const look = section?.looks.find((y) => y.id === target.lookId);
+  const lookId = look?.id ?? target.lookId;
+  const products = target.pids.map((pid) => resolveProduct(pid));
+  const defaultText = defaultColorText(products, sampleColorsByPid);
+  const currentText = tray.colorOverrideByLook?.[lookId] || defaultText;
+
+  // 统一用 product.id（小写）当键：样衣色、SKC 列表在服务端也是按小写款号存的
+  const options = useMemo(
+    () => buildColorOptions({
+      pids: products.map((p) => p.id),
+      colorsByPid: Object.fromEntries(products.map((p) => [p.id, p.colors ?? []])),
+      sampleColorsByPid,
+      skcsByPid,
+    }),
+    [target.pids.join(','), resolveProduct, sampleColorsByPid, skcsByPid],
+  );
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof options>();
+    for (const opt of options) {
+      const list = map.get(opt.pid) || [];
+      list.push(opt);
+      map.set(opt.pid, list);
+    }
+    return [...map.entries()];
+  }, [options]);
+
+  const [selected, setSelected] = useState<string[]>(() => splitColorText(currentText));
+  const [custom, setCustom] = useState('');
+  const [customCode, setCustomCode] = useState('');
+  // 手动添加的颜色 → 色号；列表里色号优先用 SKC 的，没有再用这里填的
+  const [codes, setCodes] = useState<Record<string, string>>(() => codesByLook || {});
+  const codeOf = (color: string, skc?: string) => skc || codes[color] || '';
+  const has = (color: string) => selected.includes(color);
+  const toggle = (color: string) =>
+    setSelected((prev) => (prev.includes(color) ? prev.filter((c) => c !== color) : [...prev, color]));
+  const addCustom = () => {
+    const color = custom.trim();
+    const code = customCode.trim();
+    if (color) {
+      setSelected((prev) => (prev.includes(color) ? prev : [...prev, color]));
+      if (code) setCodes((prev) => ({ ...prev, [color]: code }));
+    }
+    setCustom('');
+    setCustomCode('');
+  };
+  // 旧文案里手工写的内容（不在任何款号的色号列表里）也保留成可删的标签
+  const extraSelected = selected.filter((c) => !options.some((o) => o.color === c));
+  // 一个都不勾 = 回到自动拼接（存储层就是清掉 override），预览按最终会显示的内容给
+  const preview = joinColorText(selected.length > 0 ? selected : splitColorText(defaultText));
+  const save = () => {
+    // 只留仍然选中的颜色对应的色号，删掉的颜色不再保留
+    const keptCodes: Record<string, string> = {};
+    for (const color of selected) {
+      const code = (codes[color] || '').trim();
+      if (code) keptCodes[color] = code;
+    }
+    onSave(colorOverrideValue(selected, defaultText), keptCodes);
+    onClose();
+  };
+
+  return (
+    <div className="look-color-dialog fixed inset-0 z-50 flex items-center justify-center p-3 select-none">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="颜色 / 色号选择"
+        className="relative flex flex-col w-[430px] max-w-[95vw] max-h-[88vh] rounded-2xl border border-edge bg-surface-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-edge px-5 py-3.5 bg-surface-base">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-primary/10 text-action-primary">
+              <Palette size={16} />
+            </div>
+            <div>
+              <h3 className="text-[14px] font-semibold text-ink-primary">颜色 / 色号</h3>
+              <p className="text-[11px] text-ink-muted">
+                {section?.label || ''} · 坑位 {typeof target.lookIdx === 'number' ? target.lookIdx + 1 : ''}（{target.pids.length} 款）
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-ink-muted hover:bg-surface-subtle hover:text-ink-primary transition-colors cursor-pointer"
+            aria-label="关闭"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-b border-edge bg-surface-subtle/60 px-5 py-2">
+          <div className="min-w-0 text-[12px] text-ink-secondary">
+            <span className="text-ink-muted">展示：</span>
+            <span className={preview ? 'font-medium text-ink-primary' : 'text-ink-faint'}>{preview || '（无）'}</span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(options.map((o) => o.color))}
+              className="rounded-md border border-edge px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-card cursor-pointer"
+            >
+              全选
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(splitColorText(defaultText))}
+              className="rounded-md border border-edge px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-card cursor-pointer"
+              title="回到按款号自动拼接的颜色"
+            >
+              还原默认
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-2">
+          {options.length === 0 && (
+            <div className="px-2 py-6 text-center text-[12px] text-ink-muted">这些款号暂时没有颜色数据，可在下方手动添加</div>
+          )}
+          {groups.map(([pid, list]) => (
+            <div key={pid} className="mb-1">
+              {groups.length > 1 && (
+                <div className="px-2 pt-2 pb-1 font-mono text-[11px] text-ink-muted">{pid.toUpperCase()}</div>
+              )}
+              {list.map((opt) => (
+                <button
+                  key={`${opt.pid}|${opt.color}`}
+                  type="button"
+                  onClick={() => toggle(opt.color)}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${
+                    has(opt.color) ? 'bg-action-primary/10' : 'hover:bg-surface-subtle'
+                  }`}
+                >
+                  <span
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                      has(opt.color) ? 'border-action-primary bg-action-primary text-white' : 'border-ink-disabled'
+                    }`}
+                  >
+                    {has(opt.color) && <Check size={11} strokeWidth={3} />}
+                  </span>
+                  <span className="text-[12.5px] text-ink-primary">{opt.color}</span>
+                  {codeOf(opt.color, opt.code) && (
+                    <span className="font-mono text-[10.5px] text-ink-faint">{codeOf(opt.color, opt.code)}</span>
+                  )}
+                  {opt.sample && (
+                    <span className="rounded bg-amber-100 px-1 text-[9px] text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">样衣</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ))}
+
+          {extraSelected.length > 0 && (
+            <div className="mb-1">
+              <div className="px-2 pt-2 pb-1 text-[11px] text-ink-muted">手动添加 / 旧文案</div>
+              <div className="flex flex-wrap gap-1.5 px-2">
+                {extraSelected.map((color) => (
+                  <span key={color} className="inline-flex items-center gap-1 rounded-full bg-surface-subtle px-2 py-0.5 text-[12px] text-ink-primary">
+                    {color}
+                    {codeOf(color) && <span className="font-mono text-[10px] text-ink-faint">{codeOf(color)}</span>}
+                    <button
+                      type="button"
+                      onClick={() => toggle(color)}
+                      className="text-ink-faint hover:text-action-danger-fg cursor-pointer"
+                      aria-label={`移除 ${color}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-edge bg-surface-base px-5 py-3">
+          <div className="flex items-center gap-2">
+            <input
+              value={customCode}
+              onChange={(e) => setCustomCode(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); addCustom(); }
+              }}
+              placeholder="色号"
+              className="w-[92px] shrink-0 rounded-lg border border-edge bg-surface-card px-2.5 py-1.5 font-mono text-[12px] text-ink-primary outline-none focus:border-action-primary"
+              title="选填：这个颜色的色号（如 1937 / SKC 编码）"
+            />
+            <input
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); addCustom(); }
+              }}
+              placeholder="手动添加颜色，如 金扣黑带身"
+              className="min-w-0 flex-1 rounded-lg border border-edge bg-surface-card px-2.5 py-1.5 text-[12px] text-ink-primary outline-none focus:border-action-primary"
+            />
+            <button
+              type="button"
+              onClick={addCustom}
+              disabled={!custom.trim()}
+              className="shrink-0 rounded-lg border border-edge px-2.5 py-1.5 text-[12px] text-ink-secondary hover:bg-surface-subtle disabled:opacity-40 cursor-pointer"
+            >
+              添加
+            </button>
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-edge px-3 py-1.5 text-[12px] text-ink-secondary hover:bg-surface-subtle cursor-pointer"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              className="rounded-lg bg-action-primary px-3.5 py-1.5 text-[12px] font-medium text-white hover:opacity-90 cursor-pointer"
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2829,6 +3082,7 @@ interface FieldRenderCtx {
   sampleColorsByPid?: Record<string, string[]>;
   onSaveColor?: (lookId: string, value: string) => void;
   onClearColor?: (lookId: string) => void;
+  onOpenColorTextPicker?: () => void; // 点击颜色行：打开按色号勾选的弹窗
   allPids?: string[];
   // 销量注脚：仅「已播完」的货盘（tray.date < 今天）才传日期；否则 null
   pastDate?: string | null;
@@ -3062,10 +3316,7 @@ const FIELDS: FieldRow[] = [
         ),
       ];
       // 颜色：跨款号去重后 / 拼接；样衣阶段颜色（黑巧/驼色等）追加在后；per-look override（colorOverrideByLook[lookId]）优先
-      const colorSet = new Set<string>();
-      for (const p of ps) for (const c of (p.colors ?? [])) colorSet.add(c);
-      for (const p of ps) for (const c of (ctx.sampleColorsByPid?.[p.id] ?? [])) colorSet.add(c);
-      const defaultColors = [...colorSet].join(' / ');
+      const defaultColors = defaultColorText(ps, ctx.sampleColorsByPid);
       const colorText = ctx.colorOverride ?? defaultColors;
       const hasCustom = ps.some((p) => p.isCustom);
       return (
@@ -3086,6 +3337,7 @@ const FIELDS: FieldRow[] = [
                 defaultText={defaultColors}
                 onSave={(v) => ctx.onSaveColor?.(ctx.lookId, v)}
                 onClear={() => ctx.onClearColor?.(ctx.lookId)}
+                onOpenPicker={ctx.onOpenColorTextPicker}
               />
             </div>
           )}
@@ -4594,6 +4846,8 @@ export default function TraysPage({
   const [restockPicker, setRestockPicker] = useState<{ sectionId: string; lookId: string } | null>(null);
   const [deletePidTarget, setDeletePidTarget] = useState<{ sectionId: string; lookId: string; lookIdx: number } | null>(null);
   const [colorPickerTarget, setColorPickerTarget] = useState<{ sectionId: string; lookId: string; pids: string[]; lookIdx?: number } | null>(null);
+  // 颜色行「按色号勾选」弹窗（和上面的款号格子配色弹窗是两回事）
+  const [lookColorPicker, setLookColorPicker] = useState<{ sectionId: string; lookId: string; pids: string[]; lookIdx?: number } | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   // 修改记录抽屉：右侧滑出，读 /api/trays/log
@@ -4741,16 +4995,16 @@ export default function TraysPage({
   }, [editing]);
 
   useEffect(() => {
-    if (!picker && !coverMenu && !fabricPicker && !restockPicker && !showLog && !deletePidTarget) return;
+    if (!picker && !coverMenu && !fabricPicker && !restockPicker && !showLog && !deletePidTarget && !lookColorPicker) return;
     const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
-    const dialog = document.querySelector<HTMLElement>('.product-picker, .cover-dialog, .tray-iframe-dialog, .tray-history, .delete-pid-dialog, .code-color-dialog');
+    const dialog = document.querySelector<HTMLElement>('.product-picker, .cover-dialog, .tray-iframe-dialog, .tray-history, .delete-pid-dialog, .code-color-dialog, .look-color-dialog');
     const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select, textarea, iframe, [tabindex="0"]') ?? []).filter((el) => el.getClientRects().length > 0);
     focusable()[0]?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setPicker(null); setCoverMenu(null); setFabricPicker(null); setRestockPicker(null); setShowLog(false); setDeletePidTarget(null); setColorPickerTarget(null);
+        setPicker(null); setCoverMenu(null); setFabricPicker(null); setRestockPicker(null); setShowLog(false); setDeletePidTarget(null); setColorPickerTarget(null); setLookColorPicker(null);
       }
       if (event.key === 'Tab') {
         const items = focusable();
@@ -4765,7 +5019,7 @@ export default function TraysPage({
       document.removeEventListener('keydown', onKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
-  }, [picker, coverMenu, fabricPicker, restockPicker, showLog, deletePidTarget, colorPickerTarget]);
+  }, [picker, coverMenu, fabricPicker, restockPicker, showLog, deletePidTarget, colorPickerTarget, lookColorPicker]);
   // 删除确认弹窗：点击 trash 图标先 set 这个，再渲染 Radix AlertDialog 二次确认
   //   避免之前 window.confirm 在某些场景下被自动 dismiss 或被误点
   const [pendingDelete, setPendingDelete] = useState<Tray | null>(null);
@@ -5695,6 +5949,27 @@ export default function TraysPage({
         codeFgColorByLook: Object.keys(nextByLook).length > 0 ? nextByLook : undefined,
         sections: nextSections,
       };
+    });
+  };
+
+  // 颜色行 override（保存空字符串 = 清除，回到按款号自动拼接）
+  // codes：手动添加的颜色 → 色号，跟文案一起存，下次打开弹窗还能看到色号
+  const setColorOverride = (_sectionId: string, lookId: string, value: string, codes: Record<string, string> = {}) => {
+    const val = value.trim();
+    const cleanCodes = Object.fromEntries(
+      Object.entries(codes)
+        .map(([color, code]): [string, string] => [color, String(code || '').trim()])
+        .filter(([, code]) => Boolean(code)),
+    );
+    upd((t) => {
+      const next = { ...(t.colorOverrideByLook || {}) };
+      if (val) next[lookId] = val; else delete next[lookId];
+      const nextCodes = { ...(t.colorCodesByLook || {}) };
+      if (Object.keys(cleanCodes).length > 0) nextCodes[lookId] = cleanCodes; else delete nextCodes[lookId];
+      const m = { ...t };
+      if (Object.keys(next).length > 0) m.colorOverrideByLook = next; else delete m.colorOverrideByLook;
+      if (Object.keys(nextCodes).length > 0) m.colorCodesByLook = nextCodes; else delete m.colorCodesByLook;
+      return m;
     });
   };
 
@@ -6873,6 +7148,7 @@ export default function TraysPage({
                                     sampleColorsByPid: sampleColorsByCode,
                                     onSaveColor: saveColor,
                                     onClearColor: clearColor,
+                                    onOpenColorTextPicker: () => setLookColorPicker({ sectionId: s.id, lookId: l.id, pids: l.pids, lookIdx: s.looks.indexOf(l) }),
                                     onSaveFabricNote: saveFabricNote,
                                     onClearFabricNote: clearFabricNote,
                                     readOnly,
@@ -7277,6 +7553,20 @@ export default function TraysPage({
             setCodeBgColor(colorPickerTarget.sectionId, colorPickerTarget.lookId, '');
             setCodeFgColor(colorPickerTarget.sectionId, colorPickerTarget.lookId, '');
           }}
+        />
+      )}
+
+      {lookColorPicker && (
+        <LookColorDialog
+          key={lookColorPicker.lookId}
+          target={lookColorPicker}
+          tray={tray}
+          resolveProduct={fullByIdWithCost}
+          sampleColorsByPid={sampleColorsByCode}
+          skcsByPid={skcsByCode}
+          codesByLook={tray.colorCodesByLook?.[lookColorPicker.lookId]}
+          onSave={(v, codes) => setColorOverride(lookColorPicker.sectionId, lookColorPicker.lookId, v, codes)}
+          onClose={() => setLookColorPicker(null)}
         />
       )}
 

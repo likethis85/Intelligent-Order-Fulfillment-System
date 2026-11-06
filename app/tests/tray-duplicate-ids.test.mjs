@@ -61,6 +61,7 @@ test('repairDuplicateIds：改名时把按坑位 id 存的配色 / 颜色文案�
     codeBgColorByLook: { 'L-101': 'yellow', 'L-999': 'blue' },
     codeFgColorByLook: { 'L-101': 'red' },
     colorOverrideByLook: { 'L-101': '棕色 / 灰' },
+    colorCodesByLook: { 'L-101': { '棕色': '1937' } },
   };
   const fixed = repairDuplicateIds(t);
   assert.deepEqual(fixed.sections[0].looks.map((l) => l.id), ['L-101', 'L-101-2']);
@@ -69,6 +70,7 @@ test('repairDuplicateIds：改名时把按坑位 id 存的配色 / 颜色文案�
   assert.equal(fixed.codeBgColorByLook['L-999'], 'blue', '无关的键不动');
   assert.equal(fixed.codeFgColorByLook['L-101-2'], 'red');
   assert.equal(fixed.colorOverrideByLook['L-101-2'], '棕色 / 灰');
+  assert.deepEqual(fixed.colorCodesByLook['L-101-2'], { '棕色': '1937' }, '手动填的颜色色号也要跟着搬');
 });
 
 test('repairDuplicateIds：没有重复就原样返回同一个对象（不制造多余渲染和保存）', () => {
