@@ -291,6 +291,62 @@ test('session expiration removes access and logout invalidates captured cookies'
   assert.equal((await fetch(f.base + '/api/private', { headers: { Cookie: second.session } })).status, 401);
 });
 
+test('活动期间自动续期：一直在用的人不会整点被上游 60 分钟令牌踢下线', async (t) => {
+  const f = await fixture(t);
+  const { session } = await login(f);
+  const before = await (await fetch(f.base + '/api/auth/session', { headers: { Cookie: session } })).json();
+  assert.ok(before.authenticated);
+  // 上游令牌 60 分钟到期，这里走到只剩 15 分钟
+  f.advance(45 * 60_000);
+  const renewed = await fetch(f.base + '/api/private', { headers: { Cookie: session } });
+  assert.equal(renewed.status, 200);
+  assert.match(renewed.headers.getSetCookie().join(';'), /marius_fulfillment_session=/, '续期要把 Cookie 的 maxAge 一起往后推');
+  const after = await (await fetch(f.base + '/api/auth/session', { headers: { Cookie: session } })).json();
+  assert.ok(after.expiresAt > before.expiresAt + 40 * 60_000, `过期时间要往后推（${after.expiresAt - before.expiresAt} ms）`);
+  // 越过原来的 60 分钟点，只要还在用就仍然有效
+  f.advance(50 * 60_000);
+  assert.equal((await fetch(f.base + '/api/private', { headers: { Cookie: session } })).status, 200);
+});
+
+test('只开着页面（只剩登录态轮询）也会续期', async (t) => {
+  const f = await fixture(t);
+  const { session } = await login(f);
+  const first = await (await fetch(f.base + '/api/auth/session', { headers: { Cookie: session } })).json();
+  f.advance(40 * 60_000);
+  const second = await (await fetch(f.base + '/api/auth/session', { headers: { Cookie: session } })).json();
+  assert.ok(second.authenticated);
+  assert.ok(second.expiresAt > first.expiresAt, '轮询 /session 也要把到期时间往后推');
+});
+
+test('完全不活动超过 60 分钟仍然掉线', async (t) => {
+  const f = await fixture(t);
+  const { session } = await login(f);
+  f.advance(61 * 60_000);
+  assert.equal((await fetch(f.base + '/api/private', { headers: { Cookie: session } })).status, 401);
+});
+
+test('续期有绝对上限：最多 12 小时，之后必须重新登录', async (t) => {
+  const f = await fixture(t);
+  const { session } = await login(f);
+  // 每 40 分钟用一次，一路续到 11 小时 20 分（上限 12 小时）
+  for (let i = 1; i <= 17; i++) {
+    f.advance(40 * 60_000);
+    const response = await fetch(f.base + '/api/private', { headers: { Cookie: session } });
+    assert.equal(response.status, 200, `第 ${i} 次续期后仍应有效`);
+  }
+  f.advance(61 * 60_000);
+  assert.equal((await fetch(f.base + '/api/private', { headers: { Cookie: session } })).status, 401, '超过绝对上限要重新登录');
+});
+
+test('续期不改变会话身份，落盘文件里仍然只有哈希', async (t) => {
+  const f = await fixture(t);
+  const { session } = await login(f);
+  f.advance(45 * 60_000);
+  await fetch(f.base + '/api/private', { headers: { Cookie: session } });
+  const identity = await (await fetch(f.base + '/api/auth/session', { headers: { Cookie: session } })).json();
+  assert.equal(identity.user.displayName, '测试同事');
+});
+
 test('logout cancels pending authorization attempts for this browser', async (t) => {
   const f = await fixture(t);
   const pending = await start(f);

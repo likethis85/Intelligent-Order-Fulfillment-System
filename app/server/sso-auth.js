@@ -89,6 +89,12 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   const sessions = new Map();
   const events = new EventEmitter();
   const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: config.secure, path: '/' };
+  // 会话寿命：上游令牌一般只有 60 分钟，但人还在页面上干活（每 15 秒有请求）时不该到点被踢。
+  // 所以做成滑动过期——活动就续期，只有闲置 idleMs 才掉线，最长不超过 maxMs。
+  // 从 process.env 读（.env.sso 在 readSsoConfig 里已加载，createSsoAuth 调用时生效）。
+  const idleMs = (Number(process.env.SSO_SESSION_IDLE_MINUTES) || 60) * 60_000;
+  const maxMs = (Number(process.env.SSO_SESSION_MAX_HOURS) || 12) * 3600_000;
+  const renewWithinMs = Math.floor(idleMs / 2);
 
   // 会话落盘：以前会话只在内存里，PM2 一重启（每次部署）所有人的 cookie 就失效，
   // 页面显示「登录已过期」。现在登录/登出时把会话表写到磁盘，启动时读回来（过期的丢掉）。
@@ -179,6 +185,25 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
     return { ...session, key };
   }
 
+  // 滑动续期：剩余不足一半寿命（默认 30 分钟）时，把会话和 Cookie 一起往后推。
+  // 早先直接用上游令牌的到期时间（约 60 分钟），结果一直在用的人也会整点被踢下线。
+  function renewIfNeeded(session, sessionId, res) {
+    const time = now();
+    if (session.expiresAt - time >= renewWithinMs) return;
+    const hardStop = session.createdAt + maxMs;
+    if (time >= hardStop) return;
+    const stored = sessions.get(session.key);
+    if (!stored) return;
+    const expiresAt = Math.min(time + idleMs, hardStop);
+    if (expiresAt <= stored.expiresAt) return;
+    stored.expiresAt = expiresAt;
+    if (res && sessionId) {
+      // Cookie 自己也有 maxAge，不跟着推的话浏览器到点就把它丢了
+      try { res.cookie(SESSION_COOKIE, sessionId, { ...cookieOptions, maxAge: expiresAt - time }); } catch { /* 响应头已发出 */ }
+    }
+    persist();
+  }
+
   const isAllowedOrigin = (origin) => typeof origin === 'string' && config.origins.has(origin);
   const requireOrigin = (req, res, next) => {
     let origin = req.headers.origin;
@@ -198,7 +223,13 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   });
 
   router.get('/session', (req, res) => {
-    const session = getSession(req);
+    let session = getSession(req);
+    if (session) {
+      // 前端每 60 秒查一次登录态：这条也算「还在用」，顺手续期，
+      // 免得停在没轮询的页面上的人被整点踢掉
+      renewIfNeeded(session, cookie(req, SESSION_COOKIE), res);
+      session = getSession(req);
+    }
     res.json({ authenticated: Boolean(session), ssoConfigured: config.configured, user: session?.user || null, expiresAt: session?.expiresAt || null });
   });
 
@@ -320,7 +351,11 @@ export function createSsoAuth(config, { fetchImpl = globalThis.fetch, now = Date
   function requireSession(req, res, next) {
     const isPublicRead = req.method === 'GET' && req.path === '/health';
     const session = getSession(req);
-    if (session) req.auth = session;
+    if (session) {
+      req.auth = session;
+      // 每次带登录态的请求都顺手续一下期（只在快到期时才真正写，见 renewIfNeeded）
+      renewIfNeeded(session, cookie(req, SESSION_COOKIE), res);
+    }
     if (isPublicRead) return next();
 
     res.setHeader('Cache-Control', 'private, no-store');
