@@ -462,13 +462,14 @@
     /* 紧凑列宽定义：消除大屏拉伸时的空隙，左右间距紧凑贴合内容 */
     th:nth-child(1), td:nth-child(1) { min-width: 76px; max-width: 88px; }   /* 款式编码 */
     th:nth-child(2), td:nth-child(2) { min-width: 88px; max-width: 102px; }  /* SKC */
-    th:nth-child(3), td:nth-child(3) { min-width: 52px; max-width: 66px; }   /* 成衣颜色 */
+    /* 颜色列按内容放宽：之前 66px 会把「深灰千鸟」「米白/浅灰」这类直接截断成省略号 */
+    th:nth-child(3), td:nth-child(3) { min-width: 60px; max-width: 120px; }  /* 成衣颜色 */
     th:nth-child(4), td:nth-child(4) { min-width: 86px; max-width: 98px; }   /* 物料编码 */
     th:nth-child(5), td:nth-child(5) { min-width: 80px; max-width: 130px; }  /* 物料名称 */
     th:nth-child(6), td:nth-child(6) { min-width: 48px; max-width: 58px; }   /* 物料类型 */
     th:nth-child(7), td:nth-child(7) { min-width: 105px; max-width: 170px; } /* 物料规格名称 */
     th:nth-child(8), td:nth-child(8) { min-width: 76px; max-width: 150px; }  /* 供应商 */
-    th:nth-child(9), td:nth-child(9) { min-width: 52px; max-width: 66px; }   /* 物料颜色 */
+    th:nth-child(9), td:nth-child(9) { min-width: 60px; max-width: 140px; }  /* 物料颜色（面料颜色，长的也给够宽度） */
     th:nth-child(10), td:nth-child(10) { min-width: 46px; max-width: 58px; } /* 仓库 */
     th:nth-child(11), td:nth-child(11) { min-width: 50px; max-width: 62px; } /* 用量(米) */
     th:nth-child(12), td:nth-child(12) { min-width: 50px; max-width: 62px; } /* 单价(元) */
@@ -826,10 +827,10 @@
         min-width: 88px;
         max-width: 100px;
       }
-      /* 成衣颜色列宽 */
+      /* 成衣颜色列宽（手机上也要能看清完整颜色，不再截断） */
       th.freeze-col:nth-of-type(3), td.freeze-col:nth-of-type(3) {
-        min-width: 50px;
-        max-width: 64px;
+        min-width: 58px;
+        max-width: 104px;
       }
       /* 第 4 列及之后（物料编码等）在移动端取消强制 sticky，随表格平滑横向滚动 */
       th.freeze-col:nth-of-type(n+4), td.freeze-col:nth-of-type(n+4) {
@@ -2070,13 +2071,13 @@
         tr.innerHTML = `
           <td class="freeze-col">${item.pdtCode}</td>
           <td class="freeze-col">${showDash ? '-' : (item.skuCode || '-')}</td>
-          <td class="freeze-col">${showDash ? '-' : (item.pdtColorName || '-')}</td>
+          <td class="freeze-col" title="${showDash ? '' : String(item.pdtColorName || '').replace(/"/g, '&quot;')}">${showDash ? '-' : (item.pdtColorName || '-')}</td>
           <td class="freeze-col">${showDash ? '-' : item.mtCode}</td>
           <td class="freeze-col">${showDash ? '-' : (item.mtName || '-')}</td>
           <td class="freeze-col">${showDash ? '-' : (item.mtType || '-')}</td>
           <td class="freeze-col">${showDash ? '-' : (item.mtSpecName || '-')}</td>
           <td>${showDash ? '-' : (item.supplierName || '-')}</td>
-          <td>${showDash ? '-' : (item.colorName || '-')}</td>
+          <td title="${showDash ? '' : String(item.colorName || '').replace(/"/g, '&quot;')}">${showDash ? '-' : (item.colorName || '-')}</td>
           <td>${showDash ? '-' : (item.warehouse || '-')}</td>
           <td>${showDash ? '-' : item.useAmt.toFixed(2)}</td>
           <td>${showDash ? '-' : formatPrice(item.mtPrice)}</td>
