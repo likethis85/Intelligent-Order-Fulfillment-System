@@ -976,7 +976,7 @@
         <h2 id="errorTitle">查询未成功</h2>
         <p id="errorMsg"></p>
         <div class="error-actions">
-          <button type="button" class="btn-primary btn-sm" onclick="handleQuery()">重新查询</button>
+          <button type="button" class="btn-primary btn-sm" onclick="handleQuery(true)">重新查询</button>
           <button type="button" class="btn-outline btn-sm mobile-panel-toggle" onclick="toggleMobileLeftPanel()">🔍 修改款号</button>
         </div>
       </div>
@@ -990,6 +990,7 @@
             </div>
             <div class="result-header-tools">
               <button type="button" class="btn-outline btn-sm mobile-panel-toggle" onclick="toggleMobileLeftPanel()" title="查看/修改查询款号">🔍 改款号</button>
+              <button type="button" class="btn-outline btn-sm" onclick="handleQuery(true)" title="跳过 4 小时缓存，重新从领猫拉取这些款号的面料数据">⟳ 强制刷新</button>
               <button type="button" class="btn-success btn-sm" onclick="handleDownload()">下载CSV</button>
               <button type="button" class="btn-outline btn-sm" onclick="resetSupplementaryData()">重置补充</button>
             </div>
@@ -1701,20 +1702,22 @@
     }
 
     let isQueryRunning = false;
-    async function handleQuery() {
+    // forceRefresh：跳过服务端 4 小时缓存，强制重新拉上游（「重新查询」「强制刷新」用）
+    async function handleQuery(forceRefresh = false) {
       if (isQueryRunning) return;
       const textarea = document.getElementById('pdtCodes');
       const input = textarea ? textarea.value.trim() : '';
-      
-      if (!input) {
-        showErrorState('请输入款式编码', '请在左侧或上方输入至少一个款式编码后再进行查询。');
-        return;
+
+      let pdtCodes = input.split('\n').map(s => s.trim()).filter(s => s);
+      // 输入框被清空时（比如手机上收起了输入面板），沿用当前结果里的款号，
+      // 让结果区的「强制刷新」还能用
+      if (pdtCodes.length === 0 && Array.isArray(queryResults) && queryResults.length > 0) {
+        pdtCodes = [...new Set(queryResults.map((it) => it.pdtCode).filter(Boolean))];
       }
 
-      const pdtCodes = input.split('\n').map(s => s.trim()).filter(s => s);
-      
       if (pdtCodes.length === 0) {
-        showErrorState('款式编码无效', '未能解析到有效的款式编码，请检查输入的款号格式。');
+        if (!input) showErrorState('请输入款式编码', '请在左侧或上方输入至少一个款式编码后再进行查询。');
+        else showErrorState('款式编码无效', '未能解析到有效的款式编码，请检查输入的款号格式。');
         return;
       }
 
@@ -1734,7 +1737,7 @@
         const response = await authFetch('/api/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdtCodes })
+          body: JSON.stringify({ pdtCodes, refresh: !!forceRefresh })
         });
         
         if (!response.ok) {

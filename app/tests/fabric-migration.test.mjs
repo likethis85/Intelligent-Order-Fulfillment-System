@@ -83,6 +83,18 @@ test('fabric-public index.html includes mobile responsiveness and iframe-mode op
   assert.ok(indexHtml.includes("credentials: 'include'"), 'index.html authFetch must include credentials');
 });
 
+test('面料查询页可以手动跳过缓存强制刷新', () => {
+  const indexHtml = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'index.html'), 'utf8');
+  // 后端 /api/query 支持 refresh，页面上的「重新查询」「强制刷新」要把它传上去
+  assert.ok(indexHtml.includes('async function handleQuery(forceRefresh = false)'), 'handleQuery 要能接收 forceRefresh');
+  assert.ok(indexHtml.includes('JSON.stringify({ pdtCodes, refresh: !!forceRefresh })'), '请求体要带 refresh');
+  assert.ok(indexHtml.includes('onclick="handleQuery(true)"'), '重新查询 / 强制刷新按钮走 forceRefresh');
+  // 普通查询、货盘预填仍需走缓存，不能每次都打上游
+  assert.ok(indexHtml.includes('onclick="handleQuery()">查询</button>'), '主查询按钮保持走缓存');
+  // 输入框被清空时，结果区的强制刷新沿用当前结果的款号
+  assert.ok(indexHtml.includes("queryResults.map((it) => it.pdtCode)"), '强制刷新要能回退到当前结果的款号');
+});
+
 test('prefill-listener debounces rapid repeated prefill invocations', () => {
   const listenerCode = fs.readFileSync(path.join(appDir, 'server', 'fabric-public', 'prefill-listener.js'), 'utf8');
   assert.ok(listenerCode.includes('lastAppliedKey'), 'prefill listener must have deduplication key');
