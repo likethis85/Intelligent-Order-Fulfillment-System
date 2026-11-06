@@ -435,7 +435,8 @@ function enqueueSave(task) {
   return run;
 }
 
-async function save(trays, tombstones = [], changedByTray = null) {
+async function save(trays, tombstones = [], changedByTray = null, options = {}) {
+  const partial = options.partial === true;
   return enqueueSave(async () => {
     await mkdir(CACHE_DIR, { recursive: true });
     // 读取旧托盘以便对比哪些图片被废弃（恢复原图/删除坑位/删除货盘）
@@ -460,7 +461,7 @@ async function save(trays, tombstones = [], changedByTray = null) {
     //    这里逐盘比较 updatedAt，比库里旧的保留库里的版本，并记录下来供调用方跳过落库/广播。
     const prevById = new Map(prevTrays.filter((t) => t?.id).map((t) => [t.id, t]));
     const rejected = [];
-    const next = [];
+    let next = [];
     for (const t of Array.isArray(trays) ? trays : []) {
       if (isTombstoned(t, mergedTombstones)) continue;
       const prev = t?.id ? prevById.get(t.id) : null;
@@ -496,10 +497,20 @@ async function save(trays, tombstones = [], changedByTray = null) {
       if (!t?.id || incomingIds.has(t.id) || isTombstoned(t, mergedTombstones)) continue;
       next.push(t);
       incomingIds.add(t.id);
-      recovered.push(t.name || t.id);
+      // 增量保存（partial）本来就不带没变的货盘，别拿它当「数据残缺」告警
+      if (!partial) recovered.push(t.name || t.id);
     }
     if (recovered.length > 0) {
       console.warn(`[trays-store] 客户端提交缺少 ${recovered.length} 个货盘（${recovered.slice(0, 5).join('、')}${recovered.length > 5 ? ' 等' : ''}），已从服务端保留，避免残缺数据冲掉货盘`);
+    }
+    // 3b) 增量保存：保持库里的货盘顺序，只替换本次变动的那些，新货盘按提交顺序追加
+    if (partial) {
+      const mergedById = new Map(next.map((t) => [t.id, t]));
+      const ordered = prevTrays
+        .filter((t) => t?.id && !isTombstoned(t, mergedTombstones))
+        .map((t) => mergedById.get(t.id) ?? t);
+      for (const t of next) if (!prevById.has(t.id)) ordered.push(t);
+      next = ordered;
     }
     // 4) 回收站过期清理：过期货盘从数据里真正移除（其自传图随后由 cleanupAbandonedImages 一起清掉）
     const kept = next.filter((t) => !isTrashExpired(t, now));
@@ -602,9 +613,9 @@ export async function loadTrays() {
   return { trays: active, tombstones, at: Date.now() };
 }
 
-export async function saveTrays(trays, tombstones = [], changedByTray = null) {
+export async function saveTrays(trays, tombstones = [], changedByTray = null, options = {}) {
   if (!Array.isArray(trays)) throw new Error('trays 必须是数组');
-  const r = await save(trays, tombstones, changedByTray);
+  const r = await save(trays, tombstones, changedByTray, options);
   // rejected：比服务端更旧、被丢弃的货盘副本（调用方据此跳过 Supabase 落库与广播）
   // trays：实际落盘的内容（按字段合并后的版本）
   return {

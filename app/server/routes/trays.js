@@ -18,7 +18,9 @@ router.get('/', async (_req, res) => {
 });
 
 // PUT /api/trays → 增量写云端（同时自动留快照）
-//   body.trays: 当前所有 tray（已删除的不在里面）
+//   body.trays: 当前所有 tray（已删除的不在里面）；
+//               带 body.partial=true 时只放本次真正变动的 tray，其余以库里的版本为准
+//   body.partial: 增量保存标记（老客户端不带 = 整份保存，行为不变）
 //   body.deletedTrayIds: 这次提交相对上一次被删除的 tray.id 列表
 //   body.tombstones: 彻底删除的墓碑（id + 时间）；服务端据此拒绝旧客户端把已删货盘带回来，
 //                    也只在有墓碑时才清 supabase 三张表的对应行
@@ -47,8 +49,11 @@ router.put('/', async (req, res) => {
       if (fields.length > 0) changedByTray[id] = fields;
     }
   }
+  // 增量保存：body.trays 只含变动的货盘，服务端其余货盘保持库里版本，
+  // supabase 也只 upsert 这次带上来的这几个（以前整份保存会一次 upsert 全部货盘）
+  const partial = req.body?.partial === true;
   try {
-    const r = await saveTrays(trays, tombstones, changedByTray);
+    const r = await saveTrays(trays, tombstones, changedByTray, { partial });
     // 比服务端更旧、被丢弃的副本不能再往 Supabase 写，否则会把同事刚同步的明细冲成旧值
     const rejectedIds = new Set((r.rejected || []).map((x) => x.id));
     // 异步：被删的 tray 清三张表；其余的 tray 做单条 upsert

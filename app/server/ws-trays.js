@@ -128,7 +128,8 @@ export function attachTrayWs(server, auth, accessControl = null) {
         const changed = Array.isArray(msg.changed) ? msg.changed.filter((k) => typeof k === 'string') : undefined;
         // 保存（沿用现有 store，自动留快照）。带上改动字段 → 服务端按字段合并；
         // 没有字段清单的旧消息才走「比服务端旧就丢弃」的守卫。
-        saveTrays([tray], [], changed && changed.length > 0 ? { [tray.id]: changed } : undefined)
+        // partial: 这里本来就只有这一个货盘，其余货盘保持库里版本（也不会被当成「数据残缺」告警）
+        saveTrays([tray], [], changed && changed.length > 0 ? { [tray.id]: changed } : undefined, { partial: true })
           .then((r) => {
             const stale = (r.rejected || []).some((x) => x.id === tray.id);
             // 实际落盘的版本：按字段合并后可能和客户端发来的不一样，广播和落库都要用它

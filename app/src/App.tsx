@@ -341,6 +341,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
 
   // 从云端 + localStorage 恢复货盘：合并两者，本地独有货盘不会被云端旧数据覆盖
   // 云端/本地任一来源有数据就恢复；都没有才进入默认示例货盘生成逻辑
+  // prevTraysRef = 服务端已确认的版本，既是增量保存的 diff 基线，也用来算 deletedTrayIds
+  const prevTraysRef = useRef<Tray[] | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -354,6 +356,8 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
           if (Array.isArray(data.trays)) {
             cloudTrays = data.trays.map(normalizeTrayImages);
             cloudAt = typeof data.updatedAt === 'number' ? data.updatedAt : data.at ?? 0;
+            // 刚拿到的云端版本就是「服务端已确认」的基线：页面加载后的第一次保存也只发改动的货盘
+            prevTraysRef.current = cloudTrays;
           }
           if (Array.isArray(data.tombstones)) cloudTombstones = data.tombstones;
         }
@@ -399,7 +403,6 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
   // 写盘：本地 + 云端（云端异步，不阻塞 UI；失败时只 console.warn）
   // prevTraysRef 记上次 PUT 时提交的 tray 列表，用来 diff 出 deletedTrayIds
   //   → 后端同步把 supabase 三张表里那些 tray 的行清掉（避免过期行残留）
-  const prevTraysRef = useRef<Tray[] | null>(null);
   const pendingSaveRef = useRef<{ trays: Tray[]; body: () => string; timer: ReturnType<typeof setTimeout> } | null>(null);
   useEffect(() => {
     if (!traysReady) return;
@@ -414,14 +417,22 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     const deletedTrayIds = [...prevIds].filter((id) => !nextIds.has(id));
     // body 延迟到真正发送时再拼：changedByTray 要 diff 每个货盘的字段，跟着每次按键算太浪费
     //   changedByTray → 服务端以库里版本为底，只套用这些字段，不会被本机的旧副本整盘冲掉
-    const body = () =>
-      JSON.stringify({
-        trays,
+    // 增量上传：只发这次真正变动过的货盘（新增的算变动），服务端其余货盘保持库里版本，
+    //   supabase 也只 upsert 这几个。没有基线（首次保存）时整份上传，行为与以前一致。
+    const body = () => {
+      const changed = prevTrays ? changedByTray(prevTrays, trays) : null;
+      const outgoing = changed
+        ? trays.filter((t) => !prevIds.has(t.id) || Boolean(changed[t.id]))
+        : trays;
+      return JSON.stringify({
+        trays: outgoing,
+        partial: changed !== null,
         deletedTrayIds,
         // tombstones 一起提交：彻底删除的 id 要让服务端和其他客户端都知道，否则旧数据会把货盘带回来
         tombstones,
-        changedByTray: prevTrays ? changedByTray(prevTrays, trays) : undefined,
+        changedByTray: changed || undefined,
       });
+    };
     const timer = setTimeout(() => {
       pendingSaveRef.current = null;
       authenticatedFetch(API_BASE + '/trays', {
