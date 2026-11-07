@@ -123,6 +123,20 @@ export function pruneColorFg(
   return out;
 }
 
+// 落库前清洗：色值统一成 #rrggbb、键裁空白、丢掉认不出的色值。
+// 注意这里**不能**再按「颜色文案」过滤：勾选没变时 colorOverrideByLook 存的是空串
+// （等于「跟款号自动拼接」），字色却是要留的。以前拿文案当过滤条件，
+// 结果只设字色、不动勾选的那份配色全被丢掉，表现就是「设了一个颜色生效，其他都没生效」。
+export function cleanColorFg(fgByColor: Record<string, string> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [rawColor, rawHex] of Object.entries(fgByColor ?? {})) {
+    const color = String(rawColor || '').trim();
+    const hex = normalizeHexColor(rawHex);
+    if (color && hex) out[color] = hex;
+  }
+  return out;
+}
+
 // 颜色文案 → 分段（每段一个颜色和它的字色），页面和 Excel 导出共用
 export function colorSegments(
   text: string,

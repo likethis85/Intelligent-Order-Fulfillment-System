@@ -18,7 +18,7 @@ import { fetchSamplesByCodes, fetchSalesSummary, uploadImage, fetchRemainingInve
 import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
-import { buildColorOptions, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
+import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
 import { parseStockLine } from '@/lib/stockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
@@ -639,9 +639,15 @@ function LookColorDialog({
             </button>
             <button
               type="button"
-              onClick={() => setSelected(splitColorText(defaultText))}
+              onClick={() => {
+                // 还原默认 = 颜色和字色一起回到初始态：只回勾选的话，之前设的字色会留在
+                // 仍然勾着的颜色上，看起来就是「还原默认还原不掉字色」
+                setSelected(splitColorText(defaultText));
+                setFgColors({});
+                setFgEditing(null);
+              }}
               className="rounded-md border border-edge px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-card cursor-pointer"
-              title="回到按款号自动拼接的颜色"
+              title="回到按款号自动拼接的颜色，并清掉这个坑位的颜色字色"
             >
               还原默认
             </button>
@@ -6150,13 +6156,10 @@ export default function TraysPage({
         .map(([color, code]): [string, string] => [color, String(code || '').trim()])
         .filter(([, code]) => Boolean(code)),
     );
-    // 只留文案里还在的颜色，别让删掉的色号拖着一份旧配色
-    const keptColors = new Set(splitColorText(val));
-    const cleanFg = Object.fromEntries(
-      Object.entries(fgColors)
-        .map(([color, hex]): [string, string] => [color.trim(), normalizeHexColor(hex)])
-        .filter(([color, hex]) => Boolean(hex) && keptColors.has(color)),
-    );
+    // 字色已经在弹窗里按勾选裁过（pruneColorFg），这里只做规范化。
+    // 不能拿颜色文案当过滤条件：勾选没变时 val 是空串（= 自动拼接），会把字色全部丢掉，
+    // 表现就是「只设字色、不改勾选 → 一个都不生效」。
+    const cleanFg = cleanColorFg(fgColors);
     upd((t) => {
       const next = { ...(t.colorOverrideByLook || {}) };
       if (val) next[lookId] = val; else delete next[lookId];
