@@ -189,8 +189,10 @@ app.use('/fabric', (req, res, next) => {
 // 内存缓存 1h（同一 URL 不重复拉）
 const imageProxyCache = new Map(); // url -> { contentType, buffer, at }
 const IMAGE_PROXY_TTL_MS = 60 * 60 * 1000;
-const IMAGE_PROXY_TIMEOUT_MS = 8000;
-const ALLOWED_IMAGE_HOSTS = /(oss\.scm321\.com|img\.alicdn\.com|alicdn\.com|oss-cn-|taobaocdn|aliyun|cdn\.ali|dingtalk|qpic\.cn)/i;
+// 前端导出单张图等 12s，代理这边要更宽，否则代理先掐断（8s）前端连重试都救不回来
+const IMAGE_PROXY_TIMEOUT_MS = 15000;
+// ecombdstatic：抖音店铺的商品图（领猫同步过来就是它），不加就会被 403 挡掉、导出成空白
+const ALLOWED_IMAGE_HOSTS = /(oss\.scm321\.com|img\.alicdn\.com|alicdn\.com|oss-cn-|taobaocdn|aliyun|cdn\.ali|dingtalk|qpic\.cn|ecombdstatic\.com)/i;
 app.get('/api/image-proxy', async (req, res) => {
   try {
     const url = String(req.query.url || '').trim();

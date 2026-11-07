@@ -1795,23 +1795,33 @@ function fitExcelRowHeight(row: ExcelJS.Row, minHeight: number): void {
   row.height = Math.min(409, height);
 }
 
-// 款号 → 主图 URL：优先 look.userImgs?.[coverPid] / look.userImg（自传覆盖），再 cover pid 的 Product.img
-// Product.img 已是完整 URL（OSS/淘宝 CDN），不能拼接 /uploads；走 /api/image-proxy 绕开浏览器 CORS
+// 把图片地址变成「导出时真的拉得到」的 URL。
+// 关键：导出用 authenticatedFetch（credentials: 'include'），而 OSS / CDN 的 CORS 是
+// Access-Control-Allow-Origin: *，带 credentials 的跨域请求会被浏览器直接判为 CORS 失败——
+// 自传主图（marius.oss-cn-shanghai.aliyuncs.com）就这样成批空白，重试也没用。
+// 所以远程图一律走同源 /api/image-proxy，跨域问题从根上消失。
+function proxiedImageUrl(raw: string | null | undefined): string | null {
+  const norm = normalizeImageUrl(raw);
+  if (!norm) return null;
+  if (/^https?:\/\//i.test(norm)) {
+    return `${IMG_BASE}/api/image-proxy?url=${encodeURIComponent(norm)}`;
+  }
+  // 兜底：相对路径（合成款 / 旧数据）
+  return IMG_BASE + (norm.startsWith('/') ? norm : '/uploads/' + norm);
+}
+
+// 款号 → 主图 URL：优先 look.userImgs?.[coverPid] / look.userImg（自传覆盖），再同坑位任意有图的款号
 function pidImgUrl(look: { pids: string[]; cover?: string | null; userImg?: string | null; userImgs?: Record<string, string> }, byId: TrayById): string | null {
   const coverPid = getCoverPid(look);
   const uImg = (coverPid ? look.userImgs?.[coverPid] : null) ?? look.userImg;
-  const normUser = normalizeImageUrl(uImg);
-  if (normUser) return normUser;
-  const p = byId(coverPid);
+  const userUrl = proxiedImageUrl(uImg);
+  if (userUrl) return userUrl;
+  // 主款没图时退到同坑位其它款号的图（多款套装里主款常是裤子/配件，缺图很常见）。
+  // 以前只认 cover，主款没图整格就是空的，导出后一片空白。
+  const candidates = [coverPid, ...look.pids.filter((pid) => pid !== coverPid)];
+  const p = candidates.map((pid) => byId(pid)).find((x) => x?.img);
   if (!p?.img) return null;
-  const raw = String(p.img);
-  const normRaw = normalizeImageUrl(raw);
-  if (normRaw && normRaw !== raw) return normRaw;
-  if (/^https?:\/\//.test(raw)) {
-    return `${IMG_BASE}/api/image-proxy?url=${encodeURIComponent(raw)}`;
-  }
-  // 兜底：相对路径（合成款 / 旧数据）
-  return IMG_BASE + (raw.startsWith('/') ? raw : '/uploads/' + raw);
+  return proxiedImageUrl(String(p.img));
 }
 
 // 把远程图拉回来 → 缩到 200px 宽（保持比例）→ 返回 { buffer, ext, w, h }
@@ -1819,9 +1829,22 @@ function pidImgUrl(look: { pids: string[]; cover?: string | null; userImg?: stri
 // editAs: 'oneCell'：图锚定到单元格、随单元格移动/复制/筛选
 // 为什么不用 =IMAGE() 公式：WPS 的 IMAGE 函数只支持 http/https URL，不支持 data: URL（直接返回 #VALUE! / 空 cell）
 const IMG_MAX_WIDTH = 200;
+// 图片拉取：单次 12s 超时、失败再试一次。
+// 以前是 8s 一次、失败静默丢弃——导出时 54 张图有十几张超时，文件里就剩一片空白主图。
+const IMG_FETCH_TIMEOUT_MS = 12_000;
+const IMG_FETCH_ATTEMPTS = 2;
 async function fetchImg(url: string): Promise<{ buffer: ArrayBuffer; ext: 'jpeg' | 'png' | 'gif'; w: number; h: number } | null> {
+  for (let attempt = 1; attempt <= IMG_FETCH_ATTEMPTS; attempt++) {
+    const got = await fetchImgOnce(url);
+    if (got) return got;
+    if (attempt < IMG_FETCH_ATTEMPTS) await new Promise((r) => setTimeout(r, 500));
+  }
+  console.warn('[导出] 图片下载失败（已重试）:', url);
+  return null;
+}
+async function fetchImgOnce(url: string): Promise<{ buffer: ArrayBuffer; ext: 'jpeg' | 'png' | 'gif'; w: number; h: number } | null> {
   try {
-    const res = await authenticatedFetch(url, { signal: AbortSignal.timeout(8000) });
+    const res = await authenticatedFetch(url, { signal: AbortSignal.timeout(IMG_FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
     const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -2049,6 +2072,31 @@ function restockCellText(ps: Product[], t: Tray, lookShorts?: Record<string, str
   }
   const visibleRows = Array.from(byRaw.values()).map((group) => {
     if (group.length === 1) return group[0];
+    const shorts = group.map((r) => shortNames.get(r.pid) || '').filter(Boolean);
+    const allSameShort = shorts.length > 0 && shorts.every((s) => s === shorts[0]);
+    // 款号短名不同（如 卫衣 vs 卫裤 / 外套 vs 裤）但翻单文案相同：每个款号的翻单行都要导出，
+    // 不能像以前那样只留短名最长的那个款号——那会把另一个款号的翻单记录整段吞掉。
+    if (!allSameShort) {
+      const dedupedLines = new Set<string>();
+      const text = group
+        .map((r) => {
+          const short = shortNames.get(r.pid) || '';
+          return (r.raw || r.text || '')
+            .split('\n')
+            .map((line) => (line.trim() ? `${short} ${line}` : line))
+            .join('\n');
+        })
+        .join('\n')
+        .split('\n')
+        .filter((line) => {
+          if (!line.trim()) return true;
+          if (dedupedLines.has(line)) return false;
+          dedupedLines.add(line);
+          return true;
+        })
+        .join('\n');
+      return { ...group[0], text };
+    }
     const best = group.reduce((a, b) => (shortNames.get(b.pid) || '').length > (shortNames.get(a.pid) || '').length ? b : a);
     const bestShort = shortNames.get(best.pid);
     if (bestShort && best.raw) {
@@ -2182,29 +2230,10 @@ async function exportTrayLayoutExcel(
       { label: '累计销量', height: 35, get: (l) => { const total = l.pids.reduce((s, p) => s + ((salesByPid.cumulative || {})[p] || 0), 0); return total > 0 ? `${total} 件` : ''; } },
     );
   }
-  const subRows: FieldRow[] = [
-    { label: '主图', img: true, labelRed: true, height: 224, get: () => '' },
-    { label: '商品名称', labelRed: true, height: 70, get: (l) => nameCellRichText(l.pids.map(byId), t.colorOverrideByLook?.[l.id], sampleColorsByPid, t.colorFgByLook?.[l.id]) },
-    { label: '款号', labelRed: true, dataStyle: 'codeBlue', height: 40, get: (l) => codeCellText(l) },
-    { label: '尺码', labelRed: true, height: 32, get: (l) => {
-      const ps = l.pids.map(byId);
-      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
-      return l.pids.map((p) => {
-        const val = t.sizeRangeOverrides?.[p] ?? byId(p)?.sizeRange ?? '';
-        if (!val) return '';
-        const short = shortNames.get(p);
-        return short ? `${short}：${val}` : val;
-      }).filter(Boolean).join('\n');
-    } },
-    { label: '售价', labelRed: true, dataStyle: 'priceGreen', height: 45, get: (l) => priceCellText(l) },
-    { label: '库存情况(主仓)', labelRed: true, labelBlue: true, height: 70, get: (l) => {
-      const ps = l.pids.map(byId);
-      const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
-      // 导出的库存表和颜色行走同一口径：勾掉的颜色不导出它的库存
-      const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;
-      return ps.map((p) => stockCellText(p, shortNames.get(p.id), visibleColors)).join('\n');
-    } },
-  ];
+  // 搭配版块跟主推一样导出全部字段：界面上搭配版块同样显示 成本/倍率、翻单周期、面料情况，
+  // 之前只导 6 行（主图/商品名称/款号/尺码/售价/库存），导出文件比界面少三行数据。
+  // 标签统一改成红字（搭配款在界面里就是红标签）。
+  const subRows: FieldRow[] = mainRows.map((f) => ({ ...f, labelRed: true }));
 
   const isMainSection = (label: string) => {
     if (!isMazong) return true;
@@ -2315,6 +2344,12 @@ async function exportTrayLayoutExcel(
     for (const x of r) {
       if (x.data) fetched.push({ row: x.row, col: x.col, buffer: x.data.buffer, ext: x.data.ext, w: x.data.w, h: x.data.h });
     }
+  }
+
+  // 拉失败的图要让人看见：以前静默跳过，导出后只能发现「主图一片空白」，不知道是没图还是没拉到
+  const failedImgCount = imgCellsToFetch.length - fetched.length;
+  if (failedImgCount > 0) {
+    toast.warning(`${failedImgCount} 张主图下载失败已跳过（其余内容不受影响，可稍后重新导出）`);
   }
 
   // 1) 主图行：固定行高 168pt（约 224px），与 HTML 货盘 h-32 w-24（128×96 比例）一致
