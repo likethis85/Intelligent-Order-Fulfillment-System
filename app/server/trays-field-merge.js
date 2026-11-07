@@ -12,6 +12,7 @@
 const KEYED_FIELDS = new Set([
   'fabricOverrides',
   'fabricNotes',
+  'fabricHiddenLines',
   'costOverrides',
   'priceOverrides',
   'priceSuffixOverrides',

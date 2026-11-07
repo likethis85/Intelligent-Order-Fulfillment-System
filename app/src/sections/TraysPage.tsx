@@ -1618,6 +1618,25 @@ function cleanFabricText(text: string): string {
     .join('\n');
 }
 
+// 面料情况里手动隐藏的行（如「卡其灰0米面料仓」）：按整行文本精确匹配。
+// 上游库存变了这一行文字就跟着变（0米 → 50米），隐藏自然失效、该颜色重新出现——
+// 这正是想要的：隐藏的是「这一条 0 米的记录」，不是「这个颜色永远不显示」。
+function applyHiddenFabricLines(base: string, hidden: string[] | undefined): string {
+  if (!base || !hidden || hidden.length === 0) return base;
+  const gone = new Set(hidden.map((s) => s.trim()).filter(Boolean));
+  if (gone.size === 0) return base;
+  return base
+    .split('\n')
+    .filter((line) => !gone.has(line.trim()))
+    .join('\n');
+}
+
+// 是不是「0 米」那一行：卡其灰0米面料仓 → true，藏蓝178米面料仓 → false。
+// 前面必须不是数字，否则 178米 / 10米 里的 0 会被误判。
+function isZeroFabricLine(line: string): boolean {
+  return /(?:^|[^0-9])0(?:\.0+)?\s*米/.test(line);
+}
+
 const LOOKS_PER_BAND = 8;
 
 // 按鼠标坐标算坑位落点：拖拽期间页面会自动滚动，浏览器不保证给新露出来的元素派发
@@ -2074,6 +2093,8 @@ function fabricCellText(pid: string, p: Product, t: Tray): string {
     }
     base = currentLines.join('\n');
   }
+  // 界面上手动隐藏的行，导出时同样不出现（否则「界面干净、Excel 里又冒出来」）
+  base = applyHiddenFabricLines(base, t.fabricHiddenLines?.[pid]);
   const note = t.fabricNotes?.[pid] || '';
   let text = note ? `${base}\n※ ${note}` : base;
   text = cleanFabricText(text);
@@ -3255,6 +3276,12 @@ interface FieldRenderCtx {
   fabricOverride?: string;
   fabricOverrides?: Record<string, string>; // 整个 look 所有 pid 的面料 override（aggregate 用）
   fabricNotes?: Record<string, string>; // 整个 look 所有 pid 的面料注脚（追加在末尾，aggregate 用）
+  fabricHiddenLines?: Record<string, string[]>; // 整个 look 所有 pid 的手动隐藏面料行（aggregate 用）
+  onHideFabricLine?: (pid: string, line: string) => void;
+  onHideFabricLines?: (items: { pid: string; line: string }[]) => void; // 一次隐藏多条（「隐藏 0 米」）
+  onRestoreFabricLines?: (pid: string) => void;
+  // 一个坑位多个款号时必须一次写完：多次 upd 都基于同一份 tray 快照，后一次会把前一次盖掉
+  onClearFabricAll?: (pids: string[]) => void;
   restockOverrides?: Record<string, string>; // 整个 look 所有 pid 的翻单 override（aggregate 用）
   restockShortNames?: Record<string, string>; // 翻单行前缀手动覆盖（Look.restockShortNames 透传）
   noRestockItems?: NoRestockItem[]; // SKC 维度无面料不翻单标记（含颜色/面料信息）
@@ -4251,7 +4278,8 @@ const FIELDS: FieldRow[] = [
         }
         base = currentLines.join('\n');
       }
-      const text = cleanFabricText(base);
+      // 手动隐藏的面料行同样不再显示（与 aggregateRender / 导出同一口径）
+      const text = cleanFabricText(applyHiddenFabricLines(base, ctx.fabricHiddenLines?.[ctx.pid]));
       return (
         <div className={`${BLUE} w-full leading-4 whitespace-pre-line`}>{text || <span className="text-ink-faint">—</span>}</div>
       );
@@ -4261,6 +4289,7 @@ const FIELDS: FieldRow[] = [
       const pids = ps.map((p) => p.id);
       const fabricOverrides = ctx.fabricOverrides || {};
       const fabricNotes = ctx.fabricNotes || {};
+      const fabricHidden = ctx.fabricHiddenLines || {};
       const noRestockItems = ctx.noRestockItems || [];
       const rows = ps.map((p) => {
         const pid = p.id;
@@ -4301,10 +4330,13 @@ const FIELDS: FieldRow[] = [
           }
           base = currentLines.join('\n');
         }
+        // 手动隐藏的面料行（比如 0 米的颜色）不再显示，导出走 fabricCellText 同一口径
+        const hiddenCount = (fabricHidden[pid] || []).length;
+        base = applyHiddenFabricLines(base, fabricHidden[pid]);
         note = fabricNotes[pid] || '';
         const hasNote = note.trim().length > 0;
         const text = hasNote ? `${base}\n※ ${note}` : base;
-        return { pid, text, base, note, hasNote, hasNoRestock: hasNoRestock || base.includes('无面料') };
+        return { pid, text, base, note, hasNote, hiddenCount, hasNoRestock: hasNoRestock || base.includes('无面料') };
       });
       // 同一坑位内跨款号去重：若多款号共用相同面料，已展示过的面料行不再重复展示；
       // 同时同一坑位内同一颜色的「无面料不翻单」只展示一次，不重复展示
@@ -4336,8 +4368,16 @@ const FIELDS: FieldRow[] = [
           text: newText,
         };
       });
-      const visibleRows = dedupedRows.filter((r) => r.text);
+      // 整行都被隐藏、又没注脚时本来会整条消失，连「恢复」都没得点；所以有隐藏的行要留着
+      const visibleRows = dedupedRows.filter((r) => r.text || r.hiddenCount > 0);
       const hasAnyContent = visibleRows.length > 0;
+      // 当前还显示着的「0 米」行：一键隐藏按钮用（一次写完，不会像逐个 upd 那样互相覆盖）
+      const zeroLines = visibleRows.flatMap((r) =>
+        r.base
+          .split('\n')
+          .filter((line) => line.trim() && isZeroFabricLine(line))
+          .map((line) => ({ pid: r.pid, line })),
+      );
       return (
         <div
           className="group relative w-full min-h-[28px] flex flex-col items-center justify-center text-center cursor-pointer"
@@ -4345,7 +4385,7 @@ const FIELDS: FieldRow[] = [
           title={hasAnyContent ? `编辑面料（${pids.map((p) => p.toUpperCase()).join('、')}）` : `查询面料（${pids.map((p) => p.toUpperCase()).join('、')}）`}
         >
           <div className="w-full text-center space-y-0.5">
-            {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, note }) => (
+            {hasAnyContent ? visibleRows.map(({ pid, base, hasNote, note, hiddenCount }) => (
               <div key={pid} className="group/row w-full text-center">
                 {base && (
                   <div className="w-full text-center">
@@ -4354,9 +4394,22 @@ const FIELDS: FieldRow[] = [
                       return (
                         <div
                           key={li}
-                          className={`${isNoFabricLine ? RED : BLUE} w-full text-center text-[13px] leading-5 font-normal`}
+                          className={`group/line relative flex w-full items-center justify-center text-[13px] leading-5 font-normal ${isNoFabricLine ? RED : BLUE}`}
                         >
-                          {line}
+                          <span>{line}</span>
+                          {/* 手动隐藏单行（0 米的颜色最常见）：只在这一行悬停时出现在左侧，不挤压文字 */}
+                          {ctx.onHideFabricLine && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                ctx.onHideFabricLine?.(pid, line);
+                              }}
+                              className="absolute left-0 top-1/2 -translate-y-1/2 rounded px-1 text-[10px] font-normal text-ink-faint opacity-0 transition-opacity hover:bg-action-danger/10 hover:text-action-danger-fg group-hover/line:opacity-100 print:hidden"
+                              title={`隐藏这一行：「${line}」（款式/库存变化后会自动重新出现）`}
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -4407,20 +4460,51 @@ const FIELDS: FieldRow[] = [
                     </div>
                   )
                 )}
+                {/* 有隐藏行时留一个恢复入口：否则隐藏完就再也找不回来了 */}
+                {hiddenCount > 0 && ctx.onRestoreFabricLines && (
+                  <div className="mt-0.5 flex items-center justify-center print:hidden">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        ctx.onRestoreFabricLines?.(pid);
+                      }}
+                      className="rounded px-1.5 py-0.5 text-[10.5px] text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
+                      title={`把款号 ${pid.toUpperCase()} 手动隐藏的 ${hiddenCount} 行面料放回来`}
+                    >
+                      已隐藏 {hiddenCount} 条 · 恢复
+                    </button>
+                  </div>
+                )}
               </div>
             )) : (
               <div className={`${BLUE} w-full text-[11px] leading-5 whitespace-pre-line text-ink-faint min-h-[20px] text-center`} />
             )}
           </div>
           <div className="tray-cell-action absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 pr-1 print:hidden opacity-0 transition-opacity group-hover/cell:opacity-100 group-hover:opacity-100">
-            {hasAnyContent && ctx.onClearFabric && (
+            {zeroLines.length > 0 && ctx.onHideFabricLines && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  pids.forEach((p) => ctx.onClearFabric?.(p));
+                  ctx.onHideFabricLines?.(zeroLines);
+                }}
+                className="rounded-md px-1 py-0.5 text-[10px] font-semibold text-ink-faint hover:bg-surface-subtle hover:text-ink-primary transition-colors"
+                title={`隐藏 ${zeroLines.length} 条「0 米」面料记录（库存有货后自动出现）`}
+              >
+                <span className="inline-flex items-center gap-0.5">
+                  <EyeOff size={11} />
+                  0米
+                </span>
+              </button>
+            )}
+            {hasAnyContent && ctx.onClearFabricAll && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // 必须一次写完：pids.forEach + upd 每次都是同一份 tray 快照，后一次会把前一次盖掉
+                  ctx.onClearFabricAll?.(pids);
                 }}
                 className="rounded-md p-1.5 text-ink-faint hover:bg-action-danger/10 hover:text-action-danger-fg transition-colors"
-                title="隐藏面料信息"
+                title={`隐藏整个坑位的面料信息（${pids.map((p) => p.toUpperCase()).join('、')}）`}
               >
                 <X size={12} />
               </button>
@@ -7292,6 +7376,53 @@ export default function TraysPage({
                             if (Object.keys(next).length > 0) m.fabricNotes = next; else delete m.fabricNotes;
                             return m;
                           });
+                        // 面料情况里手动隐藏一行（库存 0 米的颜色最常见）；按整行文本记，库存变了自动失效
+                        const hideFabricLine = (pid: string, line: string) =>
+                          upd((t) => {
+                            const key = line.trim();
+                            if (!key) return t;
+                            const prevHidden = t.fabricHiddenLines?.[pid] || [];
+                            if (prevHidden.includes(key)) return t;
+                            return {
+                              ...t,
+                              fabricHiddenLines: { ...(t.fabricHiddenLines || {}), [pid]: [...prevHidden, key] },
+                            };
+                          });
+                        const restoreFabricLines = (pid: string) =>
+                          upd((t) => {
+                            const next = { ...(t.fabricHiddenLines || {}) };
+                            delete next[pid];
+                            const m = { ...t };
+                            if (Object.keys(next).length > 0) m.fabricHiddenLines = next; else delete m.fabricHiddenLines;
+                            return m;
+                          });
+                        // 「隐藏 0 米」：一次写入所有行。不能拆成多次 upd ——
+                        // upd 基于本次渲染的 tray 快照，连写两次时后一次会把前一次的结果盖掉。
+                        const hideFabricLines = (items: { pid: string; line: string }[]) =>
+                          upd((t) => {
+                            const next = { ...(t.fabricHiddenLines || {}) };
+                            let changed = false;
+                            for (const { pid, line } of items) {
+                              const key = line.trim();
+                              if (!key) continue;
+                              const cur = next[pid] || [];
+                              if (cur.includes(key)) continue;
+                              next[pid] = [...cur, key];
+                              changed = true;
+                            }
+                            return changed ? { ...t, fabricHiddenLines: next } : t;
+                          });
+                        // 隐藏整个坑位的面料信息：同样一次写完，避免多款号时只清掉最后一个
+                        const clearFabricAll = (ps: string[]) => {
+                          upd((t) => {
+                            const next = { ...(t.fabricOverrides || {}) };
+                            const lower = ps.map((p) => p.toLowerCase());
+                            for (const p of ps) next[p] = '';
+                            const items = (t.noRestockItems || []).filter((it) => !lower.includes(it.pid.toLowerCase()));
+                            return { ...t, fabricOverrides: next, noRestockItems: items };
+                          });
+                          toast.success('已隐藏面料信息');
+                        };
                         const saveCost = (pid: string, v: string) =>
                           upd((t) => {
                             if (v === '') {
@@ -7367,6 +7498,11 @@ export default function TraysPage({
                                     salesByPid,
                                     fabricOverrides: tray.fabricOverrides,
                                     fabricNotes: tray.fabricNotes,
+                                    fabricHiddenLines: tray.fabricHiddenLines,
+                                    onHideFabricLine: hideFabricLine,
+                                    onHideFabricLines: hideFabricLines,
+                                    onRestoreFabricLines: restoreFabricLines,
+                                    onClearFabricAll: clearFabricAll,
                                     restockOverrides: tray.restockOverrides,
                                     restockShortNames: { ...(tray.restockShortNames || {}), ...(l.restockShortNames || {}) },
                                     noRestockItems: tray.noRestockItems,
@@ -7455,6 +7591,11 @@ export default function TraysPage({
                                       pid,
                                       fabricOverride: tray.fabricOverrides?.[pid],
                                       fabricNotes: tray.fabricNotes,
+                                      fabricHiddenLines: tray.fabricHiddenLines,
+                                      onHideFabricLine: hideFabricLine,
+                                      onHideFabricLines: hideFabricLines,
+                                      onRestoreFabricLines: restoreFabricLines,
+                                      onClearFabricAll: clearFabricAll,
                                       noRestockItems: tray.noRestockItems,
                                       skcsByCode,
                                       sampleColorsByPid: sampleColorsByCode,

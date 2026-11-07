@@ -14,6 +14,7 @@ import type { Tray } from '../data/products';
 export const KEYED_FIELDS = [
   'fabricOverrides',
   'fabricNotes',
+  'fabricHiddenLines',
   'costOverrides',
   'priceOverrides',
   'priceSuffixOverrides',

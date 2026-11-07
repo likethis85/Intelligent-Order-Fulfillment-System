@@ -62,6 +62,7 @@ export function diffTray(prev: Tray, next: Tray): TrayOp[] {
 
   put('面料', fmtKeys(prev.fabricOverrides, next.fabricOverrides), fmtKeyChanges(prev.fabricOverrides, next.fabricOverrides));
   put('面料注脚', fmtKeys(prev.fabricNotes, next.fabricNotes), fmtKeyChanges(prev.fabricNotes, next.fabricNotes));
+  put('面料隐藏行', fmtKeys(prev.fabricHiddenLines, next.fabricHiddenLines), fmtKeyChanges(prev.fabricHiddenLines, next.fabricHiddenLines));
   put('成本', fmtKeys(prev.costOverrides, next.costOverrides), fmtKeyChanges(prev.costOverrides, next.costOverrides));
   put('马总成本', fmtKeys(prev.mcostOverrides, next.mcostOverrides), fmtKeyChanges(prev.mcostOverrides, next.mcostOverrides));
   put('售价', fmtKeys(prev.priceOverrides, next.priceOverrides), fmtKeyChanges(prev.priceOverrides, next.priceOverrides));

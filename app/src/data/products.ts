@@ -147,6 +147,7 @@ export interface Tray {
   trashedBy?: string; // 谁删除的（回收站里展示）
   fabricOverrides?: Record<string, string>; // 面料信息覆盖（pid → fabric 文字），per-tray 优先于 product.fabric；未设置时不展示 BI 默认面料
   fabricNotes?: Record<string, string>; // 面料注脚（pid → 备注文字），追加在 BI / fabricOverrides 文本末尾；为空则不显示
+  fabricHiddenLines?: Record<string, string[]>; // 面料情况里手动隐藏的行（pid → 行文本），例如库存 0 米的颜色；行文本变了会自动重新出现
   restockOverrides?: Record<string, string>; // 翻单周期覆盖（pid → restock 文字），per-tray 优先于 product.restock；从 sales.html 同步回来
   plannedRestockItems?: Array<{ pdt: string; skc: string; color?: string; pieces: number; days: number }>; // 计划翻单量明细（每批次一项），从 sales.html「确认翻单信息」同步回来；导出 Excel 「计划翻单量」列按此输出（对齐钉钉表结构）
   sampleRestockItems?: Array<{ pdt: string; skc: string; color?: string; pieces: number; days: number; _source: 'sample' }>; // 样衣阶段翻单（驼色等未转大货色），数据源 = 主仓 /api/samples/materials；与 plannedRestockItems 分桶存储，UI 加「样衣」角标
