@@ -299,9 +299,15 @@ export function getCoverPid(look: { cover?: string | null; pids: string[] }): st
   return look?.pids?.[0] || '';
 }
 
-// 售价注脚内联编辑：售价本身不动，售价后面追加一段文案（如 "券后" / "秒杀" / "套装价"）
+// 注脚内联编辑：值本身不动，值后面追加一段文案（售价注脚如 "券后" / "秒杀"，成本注脚如 "含税"）
 // 用法和 CodeSuffixEditor 一致：Enter / Cmd+Enter / blur 保存，Esc 还原
-function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+function SuffixNoteEditor({ value, onSave, label, hint, hoverGroup = 'group-hover/price:opacity-100' }: {
+  value: string;
+  onSave: (v: string) => void;
+  label: string;   // 「售价注脚」
+  hint: string;    // 空值时的提示文案
+  hoverGroup?: string; // 悬停哪个组才显形（跟着所在行/单元格）
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
@@ -335,12 +341,37 @@ function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: strin
       className={`select-none text-[10.5px] leading-4 cursor-pointer rounded px-1.5 py-0.5 transition-all ${
         value
           ? 'text-ink-secondary font-semibold bg-surface-card/70 hover:bg-surface-card border border-edge-subtle'
-          : 'opacity-0 group-hover:opacity-100 group-hover/cell:opacity-100 group-hover/price:opacity-100 text-ink-primary font-medium bg-surface-card/95 hover:bg-surface-card border border-dashed border-edge-strong shadow-2xs print:hidden'
+          : `opacity-0 group-hover:opacity-100 group-hover/cell:opacity-100 ${hoverGroup} text-ink-primary font-medium bg-surface-card/95 hover:bg-surface-card border border-dashed border-edge-strong shadow-2xs print:hidden`
       }`}
-      title={value ? `售价注脚：${value}（点击修改，清空回车可清除）` : '点击添加售价注脚（如"券后"、"秒杀"）'}
+      title={value ? `${label}：${value}（点击修改，清空回车可清除）` : hint}
     >
       {value || '+ 注脚'}
     </span>
+  );
+}
+
+function PriceSuffixEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  return (
+    <SuffixNoteEditor
+      value={value}
+      onSave={onSave}
+      label="售价注脚"
+      hint='点击添加售价注脚（如"券后"、"秒杀"）'
+      hoverGroup="group-hover/price:opacity-100"
+    />
+  );
+}
+
+// 成本/倍率注脚：行为和售价注脚一致，只是挂在成本行上
+function CostSuffixEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  return (
+    <SuffixNoteEditor
+      value={value}
+      onSave={onSave}
+      label="成本注脚"
+      hint='点击添加成本注脚（如"含税"、"按吊牌成本算"）'
+      hoverGroup="group-hover/cost:opacity-100"
+    />
   );
 }
 
@@ -1908,7 +1939,10 @@ function costRatioText(pid: string, t: Tray, byId: TrayById, short?: string): st
   const price = effectivePrice(t.priceOverrides?.[pid], p);
   const ratio = ratioOf(price, raw);
   if (!cost && !ratio) return '';
-  return `${prefix}${cost || '—'}/${ratio || '—'}`;
+  // 注脚跟着成本/倍率一起导出（和售价注脚同口径）
+  const suffix = t.costSuffixOverrides?.[pid];
+  const body = `${cost || '—'}/${ratio || '—'}`;
+  return `${prefix}${suffix ? `${body} ${suffix}` : body}`;
 }
 
 // 库存情况（主仓）文本：跟 FIELDS.库存情况（主仓）.render 同款
@@ -3238,6 +3272,8 @@ interface FieldRenderCtx {
   priceSuffixOverrides?: Record<string, string>; // 整个 look 所有 pid 的售价注脚 override（多款号用）
   priceSuffixOverride?: string;
   onSavePriceSuffix?: (pid: string, value: string) => void;
+  costSuffixOverrides?: Record<string, string>; // 整个 look 所有 pid 的成本/倍率注脚 override（多款号用）
+  onSaveCostSuffix?: (pid: string, value: string) => void;
   mpriceOverrides?: Record<string, string>; // 整个 look 所有 pid 的马总价 override（多款号用）
   codeSuffixOverrides?: Record<string, string>; // 整个 look 所有 pid 的款号注脚 override（多款号用）
   costOverrides?: Record<string, string>; // 整个 look 所有 pid 的成本 override（多款号用）
@@ -3852,7 +3888,7 @@ const FIELDS: FieldRow[] = [
         ? ratioOf(mpriceNum, mcostRaw)
         : '';
       return (
-        <div className="leading-5">
+        <div className="group/cost relative leading-5">
           <CostRatioRow
             text={text}
             isOverridden={isOverridden}
@@ -3862,6 +3898,12 @@ const FIELDS: FieldRow[] = [
             onSave={(v) => ctx.onSaveCost?.(ctx.pid, v)}
             onClear={() => ctx.onClearCost?.(ctx.pid)}
           />
+          <span className="absolute left-full top-1 whitespace-nowrap select-none z-20 ml-1.5">
+            <CostSuffixEditor
+              value={ctx.costSuffixOverrides?.[ctx.pid] ?? ''}
+              onSave={(v) => ctx.onSaveCostSuffix?.(ctx.pid, v)}
+            />
+          </span>
           {tpl === 'mazong' && (
             <div className="mt-0.5">
               <CostEditor
@@ -3894,7 +3936,7 @@ const FIELDS: FieldRow[] = [
             const priceNum = effectivePrice(ctx.priceOverrides?.[p.id], p);
             const ratio = priceNum > 0 ? ratioOf(priceNum, rawVal) : '';
             return (
-              <div key={p.id} className="leading-5">
+              <div key={p.id} className="group/cost relative leading-5">
                 <CostRatioRow
                   prefix={short ? (
                     <ShortNameEditor
@@ -3913,6 +3955,12 @@ const FIELDS: FieldRow[] = [
                   onSave={(v) => ctx.onSaveCost?.(p.id, v)}
                   onClear={() => ctx.onClearCost?.(p.id)}
                 />
+                <span className="absolute left-full top-0 whitespace-nowrap select-none z-20 ml-1.5">
+                  <CostSuffixEditor
+                    value={ctx.costSuffixOverrides?.[p.id] ?? ''}
+                    onSave={(v) => ctx.onSaveCostSuffix?.(p.id, v)}
+                  />
+                </span>
               </div>
             );
           })}
@@ -7219,6 +7267,18 @@ export default function TraysPage({
                             return { ...t, colorOverrideByLook: { ...(t.colorOverrideByLook || {}), [lookId]: v } };
                           });
                         const clearColor = (lookId: string) => saveColor(lookId, '');
+                        const saveCostSuffix = (pid: string, v: string) =>
+                          upd((t) => {
+                            // 空字符串 = 清除 override（和售价注脚同口径）
+                            if (v === '') {
+                              const next = { ...(t.costSuffixOverrides || {}) };
+                              delete next[pid];
+                              const m = { ...t };
+                              if (Object.keys(next).length > 0) m.costSuffixOverrides = next; else delete m.costSuffixOverrides;
+                              return m;
+                            }
+                            return { ...t, costSuffixOverrides: { ...(t.costSuffixOverrides || {}), [pid]: v } };
+                          });
                         const saveFabricNote = (pid: string, v: string) =>
                           upd((t) => ({
                             ...t,
@@ -7330,6 +7390,10 @@ export default function TraysPage({
                                     priceOverrides: tray.priceOverrides,
                                     priceSuffixOverrides: tray.priceSuffixOverrides,
                                     onSavePriceSuffix: savePriceSuffix,
+                                    // 成本/倍率 行是 aggregate 字段：表格里永远走 aggregateRender，
+                                    // 不在这里传下去的话注脚能显示但保存函数是 undefined，输入完等于没存
+                                    costSuffixOverrides: tray.costSuffixOverrides,
+                                    onSaveCostSuffix: saveCostSuffix,
                                     mpriceOverrides: tray.mpriceOverrides,
                                     codeSuffixOverrides: tray.codeSuffixOverrides,
                                     costOverrides: tray.costOverrides,
@@ -7410,6 +7474,8 @@ export default function TraysPage({
                                       priceSuffixOverride: tray.priceSuffixOverrides?.[pid],
                                       priceSuffixOverrides: tray.priceSuffixOverrides,
                                       onSavePriceSuffix: savePriceSuffix,
+                                      costSuffixOverrides: tray.costSuffixOverrides,
+                                      onSaveCostSuffix: saveCostSuffix,
                                       mpriceOverride: tray.mpriceOverrides?.[pid],
                                       codeSuffixOverride: tray.codeSuffixOverrides?.[pid],
                                       costOverride: tray.costOverrides?.[pid],

@@ -15,6 +15,7 @@ const KEYED_FIELDS = new Set([
   'costOverrides',
   'priceOverrides',
   'priceSuffixOverrides',
+  'costSuffixOverrides',
   'mpriceOverrides',
   'mcostOverrides',
   'restockOverrides',

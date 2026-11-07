@@ -17,6 +17,7 @@ export const KEYED_FIELDS = [
   'costOverrides',
   'priceOverrides',
   'priceSuffixOverrides',
+  'costSuffixOverrides',
   'mpriceOverrides',
   'mcostOverrides',
   'restockOverrides',
