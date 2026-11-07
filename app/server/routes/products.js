@@ -12,10 +12,10 @@ import fallback from '../data/products.json' with { type: 'json' };
 const router = Router();
 
 // 把领猫基础资料 + BI 业务字段合并到一条 Product（BI 权威）
-// 合并顺序：款式卡（款级权威：名称/小名/售价/价格定位/图片/面料/波段/产品分类/指标/款级库存）
+// 合并顺序：款式卡（款级权威：名称/小名/价格定位/图片/面料/波段/产品分类/指标/款级库存）
 //         → SKC 卡（颜色维度：现货/在途/占单/交期 + 兜底指标）
-//         → 领猫零售价（BI 两张卡都没价格时最后兜底）
-function enrichWithBi(product, biRow, productMasterRow) {
+// 价格不按这个顺序走：售价以领猫零售价为准，领猫没维护时才用 BI 兜底（见第 4 步）
+export function enrichWithBi(product, biRow, productMasterRow) {
   let matched = false;
   // 1) 款式卡覆盖（款级权威字段）
   let productMasterOv = null;
@@ -24,6 +24,8 @@ function enrichWithBi(product, biRow, productMasterRow) {
     productMasterOv = biProductOverrides(productMasterRow);
     if (productMasterOv) {
       for (const [k, v] of Object.entries(productMasterOv)) {
+        // 售价不在这里落：价格优先级是 领猫零售价 > BI 款式卡 > BI SKC 卡（第 4 步）
+        if (k === 'price' || k === 'priceNum') continue;
         if (v !== undefined && v !== null && v !== '') product[k] = v;
       }
     }
@@ -58,11 +60,22 @@ function enrichWithBi(product, biRow, productMasterRow) {
       product.orderBook = o;
     }
   }
-  // 4) 领猫零售价兜底：两张 BI 卡都没给价格时使用
-  if (!product.price && product.retailPrice > 0) {
-    product.price = String(product.retailPrice);
-    product.priceNum = product.retailPrice;
+  // 4) 价格优先级：领猫零售价 > BI 款式卡 > BI SKC 卡
+  // 零售价（retailPrice）才是实际售卖价，吊牌价（price）不参与；
+  // 业务上以领猫维护的零售价为准，领猫没维护时才用 BI 销售价兜底。
+  const retailPrice = Number(product.retailPrice) || 0;
+  if (retailPrice > 0) {
+    product.price = String(retailPrice);
+    product.priceNum = retailPrice;
+  } else {
+    const biPrice = productMasterOv?.priceNum || biOv?.priceNum || 0;
+    if (biPrice > 0) {
+      product.price = String(biPrice);
+      product.priceNum = biPrice;
+    }
   }
+  // 价格定位（低/中/高）只有 BI 维护：款式卡没给时用 SKC 卡兜底
+  if (!product.priceBand && biOv?.priceBand) product.priceBand = biOv.priceBand;
   // 5) 钉钉核价表销售价兜底：BI/领猫都没有维护销售价时补价
   applyHengjiSalesPriceFallback(product);
   // 5b) 钉钉核价表总成本兜底：领猫 SKC 成本 / BI bom商品成本 都没有时补（样衣阶段只走这条）

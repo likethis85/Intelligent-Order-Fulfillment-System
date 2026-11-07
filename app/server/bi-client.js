@@ -498,6 +498,18 @@ async function saveProductMasterToDisk({ byPdtCode, totalRows, sourceAt, at }) {
 
 // 把 BI 行映射回我们的 Product 字段（BI 权威覆盖）
 // row 是按 pdtCode 聚合的 SKC 组：{ pdtCode, skcs: [{color, skc, stockMain, inTransit, totalStock, raw}], other }
+// 观远 BI 的列名会漂移：同一个指标先后叫「销售价 / 款销售价」「产品名称 / 产品名称(到款式)」。
+// 只认一个名字的话，卡片一改列名就会静默取空（2026-11 款式卡把销售价、价格定位改成了
+// 款销售价 / 款价格定位，价格和价格定位就这样整列丢了一轮）。按候选顺序取第一个非空值。
+function pickCol(row, ...names) {
+  if (!row) return undefined;
+  for (const name of names) {
+    const v = row[name];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return undefined;
+}
+
 export function biOverrides(row) {
   if (!row || !row.skcs || row.skcs.length === 0) return null;
   const first = row.skcs[0].raw || {};
@@ -513,7 +525,7 @@ export function biOverrides(row) {
   };
 
   const out = {};
-  const price = num(first['销售价']);
+  const price = num(pickCol(first, '销售价', '款销售价'));
   if (price !== undefined) {
     out.price = String(price);
     out.priceNum = price;
@@ -572,7 +584,7 @@ export function biOverrides(row) {
   if (netSales !== undefined) out.netSales = netSales;
   const newBuyer = pct(first['新买家占比(款)']);
   if (newBuyer !== undefined) out.newBuyer = newBuyer;
-  const priceBand = str(first['价格定位']);
+  const priceBand = str(pickCol(first, '价格定位', '款价格定位'));
   if (priceBand) out.priceBand = priceBand;
   const forecastNetSales = num(first['预计总净销量']);
   if (forecastNetSales !== undefined) out.forecastNetSales = forecastNetSales;
@@ -594,7 +606,7 @@ export function biOverrides(row) {
   if (tagReturn15d) out.tagReturn15d = tagReturn15d;
   const tagSales30d = str(first['30天有无动销判定']);
   if (tagSales30d) out.tagSales30d = tagSales30d;
-  const tagSoldOut = str(first['售罄率打标']);
+  const tagSoldOut = str(pickCol(first, '售罄率打标', '款售罄率打标'));
   if (tagSoldOut) out.tagSoldOut = tagSoldOut;
   const tagGreenLight = str(first['是否绿灯款']);
   if (tagGreenLight) out.tagGreenLight = tagGreenLight;
@@ -641,14 +653,14 @@ export function biProductOverrides(productRow) {
   const out = {};
   const sub = str(r['小名']);
   if (sub) out.sub = sub;
-  const name = str(r['产品名称']);
+  const name = str(pickCol(r, '产品名称', '产品名称(到款式)'));
   if (name) out.name = name;
-  const price = num(r['销售价']);
+  const price = num(pickCol(r, '销售价', '款销售价'));
   if (price !== undefined) {
     out.price = String(price);
     out.priceNum = price;
   }
-  const priceBand = str(r['价格定位']);
+  const priceBand = str(pickCol(r, '价格定位', '款价格定位'));
   if (priceBand) out.priceBand = priceBand;
   const fabric = str(r['面料']);
   // BI 的「面料」字段里有不少「面料_其他」占位值，对货盘无意义，直接过滤
@@ -694,7 +706,7 @@ export function biProductOverrides(productRow) {
   if (tagReturn15d) out.tagReturn15d = tagReturn15d;
   const tagSales30d = str(r['30天有无动销判定']);
   if (tagSales30d) out.tagSales30d = tagSales30d;
-  const tagSoldOut = str(r['售罄率打标']);
+  const tagSoldOut = str(pickCol(r, '售罄率打标', '款售罄率打标'));
   if (tagSoldOut) out.tagSoldOut = tagSoldOut;
   const tagGreenLight = str(r['是否绿灯款']);
   if (tagGreenLight) out.tagGreenLight = tagGreenLight;
