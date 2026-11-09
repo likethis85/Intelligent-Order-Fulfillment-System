@@ -19,6 +19,31 @@ function headColor(line: string): string {
   return head;
 }
 
+// 货盘「库存情况」的用词：整款只有现货、没有在途/交期/占单时，数量本身就能看懂，
+// 省掉「现货」两字；一旦同款还出现其它信息，保留标签才不会把 37 和 121 混成一组数字。
+// 判定对象是「整个款」（单元格）而不是某个颜色行：一个款里只要有任一颜色带在途，
+// 该款所有颜色的现货都带标签。页面和 Excel 共用这个函数。
+export function stockCellPartsList(
+  rows: { stock: number; inTransit: number; eta: string | null; orderBook: number }[],
+  { orderBookMinDisplay = 0 }: { orderBookMinDisplay?: number } = {},
+): string[][] {
+  const visibleOrderBook = (v: number) => v > 0 && v >= orderBookMinDisplay;
+  const hasOther = rows.some((v) => v.inTransit > 0 || Boolean(v.eta) || visibleOrderBook(v.orderBook));
+  return rows.map((v) => {
+    const parts: string[] = [];
+    if (v.stock > 0) parts.push(hasOther ? `现货${v.stock}` : `${v.stock}`);
+    if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
+    if (v.eta) parts.push(`${v.eta}交`);
+    if (visibleOrderBook(v.orderBook)) parts.push(`占单${v.orderBook}`);
+    return parts;
+  });
+}
+
+// 没有按色拆分的 BI 独有款（只有款级 stockMain/inTransit）走同一个口径
+export function stockFallbackParts(stockMain: number, inTransit: number): string[] {
+  return stockCellPartsList([{ stock: stockMain, inTransit, eta: null, orderBook: 0 }])[0];
+}
+
 export function parseStockLine(line: string, productColors: string[] = []): StockEntry {
   const sorted = [...productColors].sort((a, b) => b.length - a.length);
   // 领猫的颜色列表里没有这个色（比如后来补加的色号）时，退回用 BI 行头部的颜色名，

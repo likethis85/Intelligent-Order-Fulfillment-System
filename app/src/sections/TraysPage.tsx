@@ -19,7 +19,7 @@ import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
 import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
-import { parseStockLine } from '@/lib/stockLines';
+import { parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -1971,10 +1971,8 @@ function stockCellText(p: Product, short?: string, visibleColors?: string[]): st
   const lines = p.stock ?? [];
   if (lines.length === 0) {
     if (!p.biOnly) return short ? `${short}：—` : '—';
-    // 现货 0 不写「现货0」
-    const parts: string[] = [];
-    if ((p.stockMain ?? 0) > 0) parts.push(`现货${p.stockMain}`);
-    if ((p.inTransit ?? 0) > 0) parts.push(`在途${p.inTransit}`);
+    // 现货 0 不写「现货0」；只有现货时也不写「现货」两字
+    const parts = stockFallbackParts(p.stockMain ?? 0, p.inTransit ?? 0);
     const body = parts.join(' · ') || '—';
     return short ? `${short}：${body}` : body;
   }
@@ -1990,14 +1988,10 @@ function stockCellText(p: Product, short?: string, visibleColors?: string[]): st
     if (e.eta && !cur.eta) cur.eta = e.eta;
     byColor.set(k, cur);
   }
-  return [...byColor.entries()].map(([color, v]) => {
-    const parts: string[] = [];
-    if (v.stock > 0) parts.push(`现货${v.stock}`);
-    if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
-    if (v.eta) parts.push(`${v.eta}交`);
-    if (v.orderBook >= ORDER_BOOK_MIN_DISPLAY) parts.push(`占单${v.orderBook}`);
-    return `${prefix}${color}：${parts.join(' ') || '—'}`;
-  }).join('\n') || (short ? `${short}：—` : '—');
+  const entries = [...byColor.entries()];
+  const partsList = stockCellPartsList(entries.map(([, v]) => v), { orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY });
+  return entries.map(([color], i) => `${prefix}${color}：${partsList[i].join(' ') || '—'}`)
+    .join('\n') || (short ? `${short}：—` : '—');
 }
 
 // 商品名称 单元格：复刻 FIELDS.商品名称.aggregateRender 的 3 行结构
@@ -3470,9 +3464,8 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
       );
     }
     // BI 独有款（biOnly=true）：用 BI/款式卡的 stockMain 展示；现货 0 不写「现货0」
-    const parts: string[] = [];
-    if ((p.stockMain ?? 0) > 0) parts.push(`现货${p.stockMain}`);
-    if ((p.inTransit ?? 0) > 0) parts.push(`在途${p.inTransit}`);
+    // 只有现货时用纯数字，和有在途的款共用 stockFallbackParts 口径
+    const parts = stockFallbackParts(p.stockMain ?? 0, p.inTransit ?? 0);
     const body = parts.join(' · ') || '—';
     return (
       <div className="w-full text-center text-ink-primary text-[11px] leading-5 flex items-center justify-center gap-0.5">
@@ -3493,16 +3486,11 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
     if (e.eta && !cur.eta) cur.eta = e.eta;
     byColor.set(key, cur);
   }
-  const lines = [...byColor.entries()].map(([color, v]) => {
-    // 现货为 0 时不写「现货0」（用户口径：0 现货等于没这句），有在途/交期/占单照样显示
-    const parts: string[] = [];
-    if (v.stock > 0) parts.push(`现货${v.stock}`);
-    if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
-    if (v.eta) parts.push(`${v.eta}交`);
-    if (v.orderBook >= ORDER_BOOK_MIN_DISPLAY) parts.push(`占单${v.orderBook}`);
-    const restText = `${color}：${parts.join(' ') || '—'}`;
-    return { color, restText };
-  });
+  // 现货为 0 时不写「现货0」；整款只有现货时省掉「现货」两字，
+  // 有在途/交期/占单时整个款都保留标签（同一格里数字多，不标会分不清）
+  const entries = [...byColor.entries()];
+  const partsList = stockCellPartsList(entries.map(([, v]) => v), { orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY });
+  const lines = entries.map(([color], i) => ({ color, restText: `${color}：${partsList[i].join(' ') || '—'}` }));
   return (
     <div className="w-full text-center text-ink-primary leading-5 space-y-0.5">
       {lines.map((l) => (

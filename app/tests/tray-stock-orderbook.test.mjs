@@ -8,14 +8,18 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pageCode = fs.readFileSync(path.resolve(__dirname, '../src/sections/TraysPage.tsx'), 'utf8');
+const { stockCellPartsList } = await import('../src/lib/stockLines.ts');
 
 test('库存：占单低于 15 不显示', () => {
   assert.ok(pageCode.includes('const ORDER_BOOK_MIN_DISPLAY = 15;'), '阈值要有单一常量');
-  // 页面单元格 + Excel 导出两处都必须用同一个阈值
-  const pushes = pageCode.match(/if \(v\.orderBook [^)]*\) parts\.push\(`占单\$\{v\.orderBook\}`\);/g) || [];
-  assert.equal(pushes.length, 2, '占单有两处渲染（货盘单元格、Excel/打印文本）');
-  for (const p of pushes) {
-    assert.ok(p.includes('v.orderBook >= ORDER_BOOK_MIN_DISPLAY'), `占单显示必须按阈值过滤：${p}`);
-  }
-  assert.ok(!pageCode.includes('if (v.orderBook > 0) parts.push(`占单${v.orderBook}`);'), '不能再无条件显示占单');
+  // 页面单元格 + Excel 导出两处都把阈值传给同一个渲染函数，避免两处口径分叉
+  const uses = pageCode.match(/stockCellPartsList\(entries\.map\(\(\[, v\]\) => v\), \{ orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY \}\)/g) || [];
+  assert.equal(uses.length, 2, '占单有两处渲染（货盘单元格、Excel/打印文本）');
+  const row = (v) => stockCellPartsList([{ eta: null, stock: 0, inTransit: 0, ...v }], { orderBookMinDisplay: 15 })[0];
+  assert.deepEqual(
+    row({ stock: 47, orderBook: 1 }),
+    ['47'],
+    '小占单既不该显示，也不该让这行平白多出「现货」两字',
+  );
+  assert.deepEqual(row({ stock: 11, inTransit: 60, orderBook: 10 }), ['现货11', '在途60']);
 });
