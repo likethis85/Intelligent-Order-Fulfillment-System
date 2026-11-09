@@ -1121,7 +1121,10 @@
           return true;
         } catch (err) { lastErr = err; }
       }
-      savedDataCache = null;
+      // 写不进磁盘也要留在内存里：紧接着的自动保存按 loadSavedData() 取值，
+      // 缓存一清，刚恢复出来的工厂现货/可订货/订货周期就全变成「没填过」，
+      // 再整批提交一次就把服务器上的原值覆盖成 0 了。
+      savedDataCache = data;
       console.warn('[面料查询] 本地存储空间不足，补充数据这次只同步到服务器，不再写本地缓存：', lastErr && lastErr.message);
       return false;
     }
@@ -1179,11 +1182,13 @@
 
     // 查询后从 Supabase 恢复补充信息（在途/交期/可订货/订货周期）
     // 刷新、换浏览器或清空 localStorage 后仍能显示已保存的补充信息
+    // 返回值 = 是否真的从服务器恢复到了补充信息。调用方据此决定要不要整批保存：
+    // 恢复失败时本地是空的，整批提交会把服务器上的工厂现货/可订货/订货周期覆盖成 0。
     async function syncSupplementsFromServer() {
       try {
         const res = await authFetch('/api/fabric-data');
         const result = await res.json();
-        if (!result.success || !result.data) return;
+        if (!result.success || !result.data) return false;
 
         // 用 (款号,SKC,物料,仓库) 建立映射
         const map = new Map();
@@ -1230,8 +1235,10 @@
           saveFabricData(saved, currentRowKeys());
           renderResults(queryResults);
         }
+        return true;
       } catch (err) {
         console.error('从Supabase恢复补充信息失败:', err);
+        return false;
       }
     }
 
@@ -1842,10 +1849,13 @@
           renderResults(queryResults);
           // 检查BOM无面料情况并显示提示
           checkBomWarning();
-          await syncSupplementsFromServer();  // 先从数据库恢复已保存的补充信息，再保存，避免覆盖
+          const restored = await syncSupplementsFromServer();  // 先从数据库恢复已保存的补充信息，再保存，避免覆盖
           loadHistory();
-          // 自动保存到 Supabase
-          autoSaveToSupabase();
+          // 自动保存到 Supabase。
+          // 没恢复成功就不能保存：本地这些行是空的，整批提交会把服务器上的
+          // 工厂现货/可订货/订货周期写成 0（还会联动到同面料的其他行）。
+          if (restored) autoSaveToSupabase();
+          else console.warn('[面料查询] 服务器补充信息没恢复成功，本次跳过自动保存，避免把已有数据覆盖成 0');
         } else {
           showErrorState('查询失败', result.error || '未能成功获取面料数据，请检查网络或重试。');
         }
@@ -2063,6 +2073,16 @@
         };
         // 保存到 item._extra 供后续使用
         item._extra = { ...extra };
+        // 这一行的工厂现货/可订货/订货周期到底知不知道：不知道的行保存时要跳过这三个字段，
+        // 不能当成 0 提交，否则会把服务器上的原值清掉。
+        // 注意不能只看「这一行有没有数据」——seedAutoPurchasing 会给有采购数据的行建一条
+        // 只带在途/交期的记录，那种行对这三个字段仍然是一无所知。
+        item._extraKnown = Boolean(
+          rawExtra &&
+          (rawExtra.factorySpotQty !== undefined ||
+            rawExtra.orderableQty !== undefined ||
+            rawExtra.leadTimeDays !== undefined),
+        );
         // 规范化交期日期为 YYYY-MM-DD，供 date input（非法/undefined/格式不符置空，避免 Chrome out of range 报错）
         const rawDispDate = (extra.deliveryDate || '').toString().trim();
         const dispDate = (!rawDispDate || rawDispDate === 'undefined') ? '' :
@@ -2242,6 +2262,7 @@
         if (fabricDetailKey(other) !== ok) return;
         if (!other._extra) other._extra = {};
         other._extra[field] = value;
+        other._extraKnown = true; // 手动填过就有了已知值，保存时正常提交
         // 在途/交期联动到兄弟行时，兄弟行同样记为本会话手动改过，重新查询不覆盖
         if (field === 'inTransitQty' || field === 'deliveryDate') {
           editedPurchasingCells.add(buildRowKey(other) + ':' + field);
@@ -2260,6 +2281,7 @@
       const item = queryResults.find(r => buildRowKey(r) === key);
       if (item) {
         if (!item._extra) item._extra = {};
+        item._extraKnown = true; // 用户手动改过 = 这一行的补充信息是已知的
         // 日期字段不能是 undefined/null，转空字符串避免 <input type=date> 报错
         item._extra[field] = (field === 'deliveryDate' && !value) ? '' : value;
         // 在途/交期：记为本会话手动改过，重新查询时不再用采购接口自动值覆盖
@@ -2406,6 +2428,8 @@
       // 清空每个 item 的补充字段
       queryResults.forEach(item => {
         if (!item._extra) item._extra = {};
+        // 这是用户明确要清零：必须标成已知，否则保存时会当成「不知道」跳过、清不掉
+        item._extraKnown = true;
         item._extra.inTransitQty = '';
         item._extra.deliveryDate = '';
         item._extra.factorySpotQty = '';
@@ -2442,6 +2466,8 @@
       // 2. 清空当前查询结果的补充字段并重新渲染
       queryResults.forEach(item => {
         if (!item._extra) item._extra = {};
+        // 这是用户明确要清零：必须标成已知，否则保存时会当成「不知道」跳过、清不掉
+        item._extraKnown = true;
         item._extra.inTransitQty = '';
         item._extra.deliveryDate = '';
         item._extra.factorySpotQty = '';
@@ -2938,6 +2964,8 @@
 
       return validItems.map(item => {
         const extra = item._extra || getRowExtra(item);
+        // 这行的工厂现货/可订货/订货周期是否「已知」：本地或服务器里本来就有值，或用户手动改过
+        const known = Boolean(item._extraKnown);
 
         // 从 mtSpecName 提取物料颜色
         const rawColor = item.colorName || '';
@@ -2986,9 +3014,12 @@
           skuCode: item.skuCode || '',
           inTransitQty: extra.inTransitQty || 0,
           deliveryDate: extra.deliveryDate || null,
-          factorySpotQty: extra.factorySpotQty || 0,
-          orderableQty: extra.orderableQty || 0,
-          leadTimeDays: extra.leadTimeDays || 0,
+          // 不知道就留 undefined（JSON 里这个键整个消失），服务端据此保留库里原值。
+          // 以前一律 `|| 0`：本地没存到、服务器又没恢复成功时，整批保存会把
+          // 工厂现货/可订货/订货周期集体写成 0，还会联动到同面料的其他行。
+          factorySpotQty: known ? (Number(extra.factorySpotQty) || 0) : undefined,
+          orderableQty: known ? (Number(extra.orderableQty) || 0) : undefined,
+          leadTimeDays: known ? (Number(extra.leadTimeDays) || 0) : undefined,
           mtPrice: item.mtPrice || 0,
           mtCategory: item.mtCategory || null,
           fabricInfo: fabricInfo

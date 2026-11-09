@@ -163,6 +163,14 @@ router.post('/fabric-data', async (req, res) => {
         submitted_by: userId,
       };
 
+      // 补充信息（工厂现货 / 可订货 / 订货周期）客户端没带 = 它手里没有这份数据
+      // （本地缓存没存下、或服务器恢复失败）。upsert 不带这一列时数据库保留原值，
+      // 不能当成 0 写回去——以前会整批把已有的库存信息清成 0。
+      // 想清零的用户会显式传 0，那时 item.* 是 0（不是 undefined），照常写入。
+      if (item.factorySpotQty === undefined) delete record.factory_spot_qty;
+      if (item.orderableQty === undefined) delete record.orderable_qty;
+      if (item.leadTimeDays === undefined) delete record.lead_time_days;
+
       // 若已有计划，继承之
       const planKey = `${record.pdt_code}_${record.sku_code || ''}`;
       const existingPlan = planMap.get(planKey);
