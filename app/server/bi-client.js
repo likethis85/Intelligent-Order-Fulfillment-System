@@ -7,7 +7,8 @@
 // 缓存策略（Stale-While-Revalidate）：
 //   - 读请求永不等待回源：内存命中直接返回；没有内存就读磁盘（过期也照用）；磁盘也没有就先返回空并后台拉
 //   - 回源只走后台车道（guancli background lane），10 分钟超时 + 失败重试 + 冷却，不挤占用户请求
-//   - 数据年龄 > 12h 才算「不可信」（getBiCacheStatus().usable=false，货盘切聚水潭实时库存兜底）
+//   - 自动回源默认一天一次（BI_REFRESH_TTL_MS）；数据年龄 > 48h 才算「不可信」
+//     （getBiCacheStatus().usable=false，货盘切聚水潭实时库存兜底）
 
 import { previewGuancliCard } from './guancli.js';
 import { fileURLToPath } from 'node:url';
@@ -28,9 +29,13 @@ const PRODUCT_CACHE_FILE = join(CACHE_DIR, 'bi_product_card.csv');
 const SKC_CARD_ID = 'df3a2f4fdcfda4e09801fcb4';
 const PRODUCT_CARD_ID = 'a6169c0395f884ed6a3d64f2';
 
-const DISK_TTL_MS = 12 * 60 * 60 * 1000; // 12h：超过即视为「不可信」，前端货盘切聚水潭实时库存兜底
-// 后台回源周期：数据超过这个年龄就发起后台重拉（不阻塞任何 HTTP 请求）
-const REFRESH_TTL_MS = Number(process.env.BI_REFRESH_TTL_MS) || 30 * 60 * 1000;
+// 48h：超过即视为「不可信」，前端货盘切聚水潭实时库存兜底。
+// 必须明显长于一天一次的自动回源周期，否则每天下午数据「年龄」刚过 24h 就会
+// 无谓地把整个货盘切成聚水潭口径；48h 也留出一次刷新失败（重试+冷却）的余量。
+const DISK_TTL_MS = 48 * 60 * 60 * 1000;
+// 后台回源周期：数据超过这个年龄就发起后台重拉（不阻塞任何 HTTP 请求）。
+// 默认一天一次（业务要求：BI 全量拉一次约 5 分钟，没必要更频繁）；「同步库存/同步商品」按钮可随时强制。
+const REFRESH_TTL_MS = Number(process.env.BI_REFRESH_TTL_MS) || 24 * 60 * 60 * 1000;
 // 内存命中窗口：期间直接返回内存缓存，避免反复解析 50MB+ 的磁盘 JSON
 const MEM_TTL_MS = Number(process.env.BI_MEM_TTL_MS) || REFRESH_TTL_MS;
 // 全量 SKC 卡实测 5 分钟级（2026-10-30 实测 296s / 15180 行 / 12MB），
