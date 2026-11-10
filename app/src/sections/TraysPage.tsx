@@ -6437,13 +6437,17 @@ export default function TraysPage({
   if (!editing) {
     return (
       <div className="responsive-page trays-page px-10 py-8">
-        <div className="page-heading flex items-end justify-between border-b border-edge pb-6">
-          <div>
-            <div className="text-[12px] font-light tracking-[0.3em] text-ink-faint">01 /</div>
-            <h1 className="mt-2 text-[28px] font-bold leading-none">货盘</h1>
-            <p className="mt-3 text-[13px] text-ink-muted">直播货盘（马总 / 店播 / IP）· 达人货盘 · 渠道货盘</p>
+        <div className="page-heading flex flex-wrap items-end justify-between gap-4 border-b border-edge pb-6">
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-2.5">
+              <span className="text-[11px] font-light tracking-[0.25em] text-ink-faint">01 /</span>
+              <h1 className="text-[28px] font-bold leading-none tracking-tight">货盘</h1>
+            </div>
+            <p className="mt-2.5 text-[13px] leading-5 text-ink-muted">
+              按直播场次管理，共 {sortedTrays.length} 个货盘：马总、店播 / IP、达人与渠道。
+            </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => setShowTrash(true)}
               className="flex items-center gap-1.5 rounded-md border border-edge-strong px-3 py-2 text-[12.5px] text-ink-secondary transition-colors hover:border-edge hover:text-ink-primary"
