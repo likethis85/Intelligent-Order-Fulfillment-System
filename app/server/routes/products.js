@@ -354,27 +354,33 @@ router.get('/bi-status', (_req, res) => {
   }
 });
 
-// 聚水潭实时库存（货盘主源）：按款号取全仓库存；没返回的款号前端保留 BI 兜底值
-// 返回 { byCode: { [pidLower]: { stock: string[], stockMain, inTransit, orderBook, colors, source } } }
+// 聚水潭实时库存（货盘主源）：按款号取全仓库存
+// 返回 { byCode, failed, failedCodes, missingCodes, dataAt, updatedAt }
+//   byCode 每条带 updatedAt（真正取数时刻）和 stale（失败后沿用的旧缓存）
+//   missingCodes 里的款号本次 ERP 没给 → 前端删掉旧聚水潭值、回到 BI 兜底
 // 口径是「全仓」，与 BI 的「主仓」不同，前端会标注
 router.get('/stock/by-ids', async (req, res) => {
   const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!ids.length) return res.json({ ok: true, byCode: {}, updatedAt: new Date().toISOString() });
+  if (!ids.length) return res.json({ ok: true, byCode: {}, failed: false, updatedAt: new Date().toISOString() });
   if (!isJushuitanConfigured()) {
-    return res.json({ ok: true, byCode: {}, source: 'none', reason: 'jushuitan_not_configured' });
+    return res.json({ ok: true, byCode: {}, source: 'none', failed: false, reason: 'jushuitan_not_configured' });
   }
   try {
-    const byCode = await getStockByCodes(ids);
+    const { byCode, failed, failedCodes, missingCodes, at } = await getStockByCodes(ids);
     res.json({
       ok: true,
       byCode,
       source: 'jushuitan',
       count: Object.keys(byCode).length,
+      failed,
+      failedCodes,
+      missingCodes,
+      dataAt: new Date(at).toISOString(),
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
     console.warn('[products/stock] 聚水潭库存兜底失败:', err.message);
-    res.json({ ok: false, byCode: {}, error: err.message });
+    res.json({ ok: false, byCode: {}, failed: true, error: err.message });
   }
 });
 

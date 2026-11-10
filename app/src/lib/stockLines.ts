@@ -45,23 +45,48 @@ export function stockFallbackParts(stockMain: number, inTransit: number): string
 }
 
 // 货盘库存取数优先级：聚水潭实时库存（全仓）优先，BI SKC 卡（主仓）兜底。
-// 聚水潭没返回这个款、或返回的库存行是空的，就原样保留 BI 值。
-export type JstStock = { stock: string[]; stockMain: number; inTransit: number };
+// 聚水潭没返回这个款（undefined/null）才保留 BI；只要返回了（哪怕库存为 0 / 空行），
+// 就以聚水潭为准——否则 ERP 已经清零、页面还挂着 BI 的旧库存更危险。
+export type JstStock = {
+  stock: string[];
+  stockMain: number;
+  inTransit: number;
+  // 真正从 ERP 取到数据的时刻（ISO）；失败后沿用的旧缓存会标 stale
+  updatedAt?: string;
+  stale?: boolean;
+};
 
 export function applyJushuitanPriority<T extends {
   stock: string[];
   stockMain: number;
   inTransit: number;
   stockSource?: 'jushuitan';
+  stockUpdatedAt?: string;
+  stockStale?: boolean;
 }>(product: T, jst: JstStock | undefined | null): T {
-  if (!jst || !jst.stock?.length) return product;
+  if (!jst) return product;
   return {
     ...product,
-    stock: jst.stock,
-    stockMain: jst.stockMain,
-    inTransit: jst.inTransit,
+    stock: jst.stock ?? [],
+    stockMain: jst.stockMain ?? 0,
+    inTransit: jst.inTransit ?? 0,
     stockSource: 'jushuitan',
+    stockUpdatedAt: jst.updatedAt,
+    stockStale: Boolean(jst.stale),
   };
+}
+
+// 库存更新时间：当天只显示 HH:mm，跨天带上 MM-DD，避免把前一天的数看成今天的
+export function formatStockUpdatedAt(iso?: string, now = new Date()): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameDay = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+  return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
 }
 
 export function parseStockLine(line: string, productColors: string[] = []): StockEntry {

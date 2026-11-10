@@ -1,5 +1,9 @@
 // 聚水潭实时库存（货盘库存主源）
-// 用途：货盘「库存情况」优先用聚水潭 ERP 的实时库存；聚水潭没返回的款号，前端保留观远 BI SKC 卡的值兜底。
+// 用途：货盘「库存情况」优先用聚水潭 ERP 的实时库存；聚水潭查不到的款号，前端回到观远 BI SKC 卡的值兜底。
+//
+// 数据新鲜度：每条库存带 updatedAt（真正从 ERP 取到的时刻）和 stale 标记。
+//   - 本次调用成功、但 ERP 没这个款 → 不返回该键（前端删掉旧的聚水潭值，回 BI 兜底）；
+//   - 本次调用失败 → 返回上一次缓存的值，并标 stale=true + 旧的 updatedAt，前端据此提示可能过期。
 //
 // 口径与 BI 不同（前端会标注「聚水潭·全仓」）：
 //   现货 = 各仓现存 qty 合计        （BI 是「主仓实际库存」）
@@ -96,6 +100,23 @@ export function buildStockEntry(invEntry, itemEntry) {
   };
 }
 
+// ERP 查到了这个款、但各仓现存/在途/占单都是 0：返回一条空库存。
+// 这是「有权威的 0」，必须覆盖 BI 的旧值；和「ERP 根本没这个款」（null）区分开。
+function zeroStockEntry() {
+  return { stock: [], stockMain: 0, inTransit: 0, orderBook: 0, colors: [], source: 'jushuitan' };
+}
+
+export function toStockResult(invEntry, itemEntry) {
+  if (!invEntry) return null;
+  return buildStockEntry(invEntry, itemEntry) || zeroStockEntry();
+}
+
+// 给一条库存盖上数据时刻 + 是否来自失败后的旧缓存
+export function withStockMeta(data, atMs, stale = false) {
+  if (!data) return null;
+  return { ...data, updatedAt: new Date(atMs).toISOString(), stale: Boolean(stale) };
+}
+
 async function loadItemsCached(pids) {
   const now = Date.now();
   const need = [];
@@ -137,7 +158,7 @@ async function fetchChunk(pids) {
       const lower = raw.toLowerCase();
       const invEntry = inv.byPid[lower] || inv.byPid[raw] || null;
       const itemEntry = items.byPid[lower] || items.byPid[raw] || null;
-      result.set(lower, buildStockEntry(invEntry, itemEntry));
+      result.set(lower, toStockResult(invEntry, itemEntry));
     }
     return result;
   })().finally(() => inFlight.delete(key));
@@ -146,14 +167,19 @@ async function fetchChunk(pids) {
   return task;
 }
 
-// 批量取库存（货盘备用源入口）
-// 返回 { [pidLower]: { stock, stockMain, inTransit, orderBook, colors, source } }
-// 查不到的款号不返回键（前端据此保持「—」）
+// 批量取库存（货盘主源入口）
+// 返回 { byCode: { [pidLower]: { stock, stockMain, inTransit, orderBook, colors, source, updatedAt, stale } },
+//        failed, failedCodes, missingCodes, at }
+//   missingCodes：本次 ERP 正常返回、但没这个款 → 不放进 byCode，前端据此删旧值、回 BI 兜底
+//   failedCodes：本批请求失败/超出预算 → 有旧缓存时放进 byCode 并标 stale=true
 export async function getStockByCodes(pids = [], { budgetMs = DEFAULT_BUDGET_MS } = {}) {
-  if (!isJushuitanConfigured()) return {};
+  const empty = { byCode: {}, failed: false, failedCodes: [], missingCodes: [], at: Date.now() };
+  if (!isJushuitanConfigured()) return empty;
 
   const uniq = [...new Set(pids.map(normPid).filter(Boolean))];
   const out = {};
+  const failedCodes = [];
+  const missingCodes = [];
   const now = Date.now();
   const stale = [];
 
@@ -161,39 +187,49 @@ export async function getStockByCodes(pids = [], { budgetMs = DEFAULT_BUDGET_MS 
     const key = raw.toLowerCase();
     const hit = stockCache.get(key);
     if (hit && now - hit.at < hit.ttl) {
-      if (hit.data) out[key] = hit.data;
+      if (hit.data) out[key] = withStockMeta(hit.data, hit.at, false);
     } else {
       // 过期条目先留着：本次拉取失败时可以继续用旧值兜底
-      stale.push({ raw, key, prev: hit?.data || null });
+      stale.push({ raw, key, prev: hit?.data || null, prevAt: hit?.at || 0 });
     }
   }
-  if (stale.length === 0) return out;
+  if (stale.length === 0) {
+    return { ...empty, byCode: out, at: now };
+  }
 
   const deadline = Date.now() + budgetMs;
   for (let i = 0; i < stale.length; i += CHUNK_SIZE) {
     if (Date.now() > deadline) {
-      console.warn(`[jushuitan-stock] 超出 ${budgetMs}ms 预算，剩余 ${stale.length - i} 个款号本次跳过`);
+      const rest = stale.slice(i);
+      console.warn(`[jushuitan-stock] 超出 ${budgetMs}ms 预算，剩余 ${rest.length} 个款号本次跳过`);
+      for (const { raw, key, prev, prevAt } of rest) {
+        failedCodes.push(raw);
+        if (prev) out[key] = withStockMeta(prev, prevAt, true);
+      }
       break;
     }
     const chunk = stale.slice(i, i + CHUNK_SIZE);
     try {
       const entries = await fetchChunk(chunk.map((c) => c.raw));
-      for (const { key, prev } of chunk) {
+      const fetchedAt = Date.now();
+      for (const { raw, key } of chunk) {
         const data = entries.get(key) ?? null;
-        stockCache.set(key, { at: Date.now(), ttl: data ? STOCK_TTL_MS : NEGATIVE_TTL_MS, data });
-        if (data) out[key] = data;
-        else if (prev) out[key] = prev;
+        stockCache.set(key, { at: fetchedAt, ttl: data ? STOCK_TTL_MS : NEGATIVE_TTL_MS, data });
+        if (data) out[key] = withStockMeta(data, fetchedAt, false);
+        // 成功拉到但没这个款：旧值作废，交给前端回 BI 兜底
+        else missingCodes.push(raw);
       }
     } catch (err) {
       console.warn(`[jushuitan-stock] 款号 [${chunk.slice(0, 3).map((c) => c.raw).join(',')}...] 库存拉取失败:`, err.message);
-      // 失败不写负缓存，保留上一次的数据给前端用
-      for (const { key, prev } of chunk) {
-        if (prev) out[key] = prev;
+      // 失败不写缓存，回到上一次的数据并标 stale，让前端提示可能过期
+      for (const { raw, key, prev, prevAt } of chunk) {
+        failedCodes.push(raw);
+        if (prev) out[key] = withStockMeta(prev, prevAt, true);
       }
     }
   }
 
-  return out;
+  return { byCode: out, failed: failedCodes.length > 0, failedCodes, missingCodes, at: Date.now() };
 }
 
 // 测试/运维用：清空缓存

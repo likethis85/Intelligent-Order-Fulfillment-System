@@ -21,6 +21,8 @@ export interface Product {
   stockMain: number;
   inTransit: number;
   stockSource?: 'jushuitan'; // 货盘库存主源：聚水潭实时库存（全仓口径）；取不到时保留 BI 值
+  stockUpdatedAt?: string;   // 聚水潭库存真正取到的时间（ISO）
+  stockStale?: boolean;      // 本次刷新失败，显示的是上一次的聚水潭缓存
   restock?: string;
   fabric?: string;
   plannedQty: number; // 计划翻单放量（BI）

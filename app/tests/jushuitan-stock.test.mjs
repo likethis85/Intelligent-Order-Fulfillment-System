@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildStockEntry } from '../server/jushuitan-stock.js';
+import { buildStockEntry, toStockResult, withStockMeta } from '../server/jushuitan-stock.js';
 
 const item = (skus) => ({
   pid: 'ME15FF039',
@@ -79,4 +79,26 @@ test('jushuitan-stock: 负数/脏数据不会污染结果', () => {
   const inv = { skus: { E1: { qty: -5, purchaseQty: 'abc', orderLock: null, pickLock: undefined } } };
   const e = buildStockEntry(inv, item([{ skuId: 'E1', color: '黑' }]));
   assert.equal(e, null);
+});
+
+test('toStockResult: ERP 没这个款返回 null（回 BI 兜底），有款但全 0 返回空库存（覆盖 BI）', () => {
+  assert.equal(toStockResult(null, item([])), null);
+  const zero = { totalQty: 0, purchaseQty: 0, orderLock: 0, pickLock: 0, skus: {} };
+  const e = toStockResult(zero, item([]));
+  assert.ok(e, 'ERP 明确返回 0 库存时不能再落回 BI');
+  assert.deepEqual(e.stock, []);
+  assert.equal(e.stockMain, 0);
+  assert.equal(e.inTransit, 0);
+  assert.equal(e.source, 'jushuitan');
+});
+
+test('withStockMeta: 带取数时刻；失败沿用的旧值标 stale 且保留旧时刻', () => {
+  const data = { stock: ['黑：现货3'], stockMain: 3, inTransit: 0 };
+  const fresh = withStockMeta(data, Date.UTC(2026, 10, 10, 2, 30));
+  assert.equal(fresh.updatedAt, '2026-11-10T02:30:00.000Z');
+  assert.equal(fresh.stale, false);
+  const stale = withStockMeta(data, Date.UTC(2026, 10, 10, 1, 0), true);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.updatedAt, '2026-11-10T01:00:00.000Z');
+  assert.equal(withStockMeta(null, Date.now()), null);
 });

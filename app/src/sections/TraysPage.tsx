@@ -19,7 +19,7 @@ import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
 import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
-import { applyJushuitanPriority, parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
+import { applyJushuitanPriority, formatStockUpdatedAt, parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -3454,22 +3454,32 @@ function computeRestockShortNames(ps: Product[], overrides?: Record<string, stri
 function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode, visibleColors?: string[]): ReactNode {
   const prefix = short ? `${short} ` : '';
   const stockLines = p.stock ?? [];
+  const jstUpdatedAt = p.stockSource === 'jushuitan' ? formatStockUpdatedAt(p.stockUpdatedAt) : '';
+  // 聚水潭数据的口径 + 取数时刻；刷新失败时明确标出数据可能已过期
+  const jstFooter = p.stockSource === 'jushuitan' ? (
+    <div className={`text-[9px] leading-3 ${p.stockStale ? 'text-amber-600' : 'text-ink-faint'}`}>
+      {`聚水潭·全仓${jstUpdatedAt ? ` · ${jstUpdatedAt}` : ''}${p.stockStale ? ' · 刷新失败，可能已过期' : ''}`}
+    </div>
+  ) : null;
   if (stockLines.length === 0) {
-    // 领猫款（biOnly=false/undefined）：领猫里没库存数据 → 显示 —
-    if (!p.biOnly) {
+    // 领猫款（biOnly=false/undefined）且没有聚水潭数据：显示 —
+    if (!p.biOnly && p.stockSource !== 'jushuitan') {
       return (
         <div className="w-full text-center text-[10.5px] text-ink-faint leading-5 flex items-center justify-center gap-0.5">
           {shortNode ? <>{shortNode}<span>：—</span></> : (short ? `${short}：—` : '—')}
         </div>
       );
     }
-    // BI 独有款（biOnly=true）：用 BI/款式卡的 stockMain 展示；现货 0 不写「现货0」
+    // BI 独有款（biOnly=true）或聚水潭明确返回 0：用 stockMain 展示；现货 0 不写「现货0」
     // 只有现货时用纯数字，和有在途的款共用 stockFallbackParts 口径
     const parts = stockFallbackParts(p.stockMain ?? 0, p.inTransit ?? 0);
     const body = parts.join(' · ') || '—';
     return (
-      <div className="w-full text-center text-ink-primary text-[11px] leading-5 flex items-center justify-center gap-0.5">
-        {shortNode ? <>{shortNode}<span>：{body}</span></> : (short ? `${short}：${body}` : body)}
+      <div className="w-full text-center text-ink-primary leading-5">
+        <div className="text-[11px] flex items-center justify-center gap-0.5">
+          {shortNode ? <>{shortNode}<span>：{body}</span></> : (short ? `${short}：${body}` : body)}
+        </div>
+        {jstFooter}
       </div>
     );
   }
@@ -3505,9 +3515,7 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
           )}
         </div>
       ))}
-      {p.stockSource === 'jushuitan' && (
-        <div className="text-[9px] leading-3 text-ink-faint">聚水潭·全仓</div>
-      )}
+      {jstFooter}
     </div>
   );
 }
@@ -5786,7 +5794,9 @@ export default function TraysPage({
     return () => { cancelled = true; };
   }, [dataVersion]);
   // ── 货盘库存：聚水潭 ERP 实时库存优先，BI SKC 卡兜底 ──
-  // 当前货盘的全部款号都查一次（服务端按款缓存 5 分钟）；聚水潭没返回的款号保留 BI 值。
+  // 当前货盘的全部款号都查一次（服务端按款缓存 5 分钟）。
+  // 本次响应里没有的款号 = ERP 已查不到 → 删掉旧聚水潭值，回 BI 兜底，不能一直挂着旧库存。
+  // 请求失败/部分款失败时服务端会返回带 stale 的旧缓存，单元格标注更新时间和「刷新失败，可能已过期」。
   // 口径差异：聚水潭是全仓（现货=各仓现存，占单=订单锁库+拣货锁库），单元格会标注「聚水潭·全仓」
   const [jstStockByCode, setJstStockByCode] = useState<Record<string, {
     stock: string[];
@@ -5794,19 +5804,68 @@ export default function TraysPage({
     inTransit: number;
     orderBook: number;
     source?: string;
+    updatedAt?: string;
+    stale?: boolean;
   }>>({});
+  const jstWarnAtRef = useRef(0);
 
   useEffect(() => {
     if (activeTrayPids.length === 0) return;
     let cancelled = false;
-    authenticatedFetch(`${API_BASE}/products/stock/by-ids?ids=${encodeURIComponent(activeTrayPids.join(','))}`)
-      .then((r) => (r.ok ? r.json() : { byCode: {} }))
-      .then((j) => {
+    const ids = activeTrayPids;
+    const markStale = () => {
+      setJstStockByCode((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const pid of ids) {
+          const key = pid.toLowerCase();
+          if (next[key] && !next[key].stale) {
+            next[key] = { ...next[key], stale: true };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    };
+    const warnRefreshFailed = (message: string) => {
+      // 同一个失败别在切换货盘时反复弹，一分钟内只提示一次
+      if (Date.now() - jstWarnAtRef.current < 60_000) return;
+      jstWarnAtRef.current = Date.now();
+      toast.warning(message);
+    };
+    authenticatedFetch(`${API_BASE}/products/stock/by-ids?ids=${encodeURIComponent(ids.join(','))}`)
+      .then(async (r) => {
+        const j = r.ok ? await r.json().catch(() => null) : null;
         if (cancelled) return;
-        const byCode = j?.byCode || {};
-        if (Object.keys(byCode).length > 0) setJstStockByCode((prev) => ({ ...prev, ...byCode }));
+        if (!j || j.ok === false) {
+          markStale();
+          warnRefreshFailed('聚水潭库存刷新失败，当前显示上次数据或 BI 兜底；采购/销售前请核对实时库存');
+          return;
+        }
+        const byCode = j.byCode || {};
+        setJstStockByCode((prev) => {
+          const next = { ...prev };
+          for (const pid of ids) {
+            const key = pid.toLowerCase();
+            if (byCode[key]) {
+              next[key] = byCode[key];
+            } else if (j.failed) {
+              // 这一批请求失败：保留旧值但标记过期，等下次刷新
+              if (next[key]) next[key] = { ...next[key], stale: true };
+            } else {
+              // 成功请求里没有这个款：ERP 已查不到，旧值作废
+              delete next[key];
+            }
+          }
+          return next;
+        });
+        if (j.failed) warnRefreshFailed('聚水潭部分款号刷新失败，相关库存可能已过期');
       })
-      .catch(() => { /* 聚水潭不可用：保留 BI 值 */ });
+      .catch(() => {
+        if (cancelled) return;
+        markStale();
+        warnRefreshFailed('聚水潭库存刷新失败，当前显示上次数据或 BI 兜底；采购/销售前请核对实时库存');
+      });
     return () => { cancelled = true; };
   }, [activeTrayPids, dataVersion]);
 
@@ -5814,7 +5873,7 @@ export default function TraysPage({
     return (id: string) => {
       const p = fullById(id);
       let next = p;
-      // 聚水潭优先：拿到实时库存就覆盖 BI；聚水潭没这个款（或无库存）时保留 BI 兜底值
+      // 聚水潭优先：返回了该款就覆盖 BI（库存为 0 也覆盖）；没这个款时才保留 BI 兜底值
       next = applyJushuitanPriority(next, jstStockByCode[id.toLowerCase()]);
       const ov = tray?.sizeRangeOverrides?.[id];
       if (ov !== undefined) return { ...next, sizeRange: ov };
