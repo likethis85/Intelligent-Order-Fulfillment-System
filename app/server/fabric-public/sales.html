@@ -2329,31 +2329,50 @@
       console.log('[generateText] 勾选款号:', touchedPdts);
       // 组装本次勾选 SKC 的最新翻单值（从 selectedFabrics 内存读，避免数据库保存竞态）
       // 治本：只读 sales_batches，不再单独 push 主行（主行 = batches[0]，已同步）
+      //
+      // 一个 SKC 可能有多条面料行（不同仓库 / 不同物料），编辑区按 SKC 只显示一行、只编辑主面料。
+      // 必须按 款号→SKC 分组后只取主面料那一行；逐行收集会把兄弟面料行里的历史旧批次也写进钉钉，
+      // 出现「同一 SKC 既有 252 又有 57」这种多余数据（ME14DF069 就踩过）。
       const syncItems = [];
       const allSkcs = []; // 本次款下所有 SKC（含无翻单的，用于后端判定是否删行）
       const seenSyncItemKeys = new Set();
+      const hasPlan = (fab) => Number(fab.sales_pieces) > 0 || Number(fab.sales_delivery_days) > 0 ||
+        (Array.isArray(fab.sales_batches) && fab.sales_batches.some(b => (Number(b.pieces) || 0) > 0 || (Number(b.days) || 0) > 0));
+      const syncGroups = {}; // pdt -> skc -> [fabric, ...]
       Object.values(selectedFabrics).forEach(fab => {
         if (!fab) return;
         const skc = fab.sku_code || fab.skuCode || '';
         const pdt = fab.pdt_code || fab.pdtCode || '';
         if (!skc || !pdt) { console.log('[sync] 跳过记录(缺skc/pdt):', JSON.stringify({id:(fab.id||'').slice(0,8), skc, pdt, sp:fab.sales_pieces, dd:fab.sales_delivery_days})); return; }
-        const color = fab.pdt_color_name || fab.colorName || '';
-        if (!allSkcs.includes(skc)) allSkcs.push(skc);
-        // 统一从 sales_batches 数组取所有批次；旧数据若 batches 为空但主行有值，自动补一个
-        let batches = Array.isArray(fab.sales_batches) ? fab.sales_batches.slice() : [];
-        if (batches.length === 0 && (Number(fab.sales_pieces) > 0 || Number(fab.sales_delivery_days) > 0)) {
-          batches = [{ pieces: Number(fab.sales_pieces) || 0, days: Number(fab.sales_delivery_days) || 0 }];
-        }
-        batches.forEach(b => {
-          const p = Number(b.pieces) || 0;
-          const d = Number(b.days) || 0;
-          if (p > 0 || d > 0) {
-            const key = `${pdt}|${skc}|${p}|${d}`;
-            if (!seenSyncItemKeys.has(key)) {
-              seenSyncItemKeys.add(key);
-              syncItems.push({ pdt, skc, color, pieces: p, days: d, _source: fab._source || 'craft' });
-            }
+        if (!syncGroups[pdt]) syncGroups[pdt] = {};
+        if (!syncGroups[pdt][skc]) syncGroups[pdt][skc] = [];
+        syncGroups[pdt][skc].push(fab);
+      });
+      Object.keys(syncGroups).sort().forEach(pdt => {
+        Object.keys(syncGroups[pdt]).sort().forEach(skc => {
+          const group = syncGroups[pdt][skc];
+          if (!allSkcs.includes(skc)) allSkcs.push(skc);
+          // 与编辑区/文案完全同口径：主面料行才是这个 SKC 的翻单计划
+          const main = (getSkuInfoSegments(group.map(fabric => ({ itemId: '', fabric }))).main || {}).fabric || group[0];
+          // 主面料没填、同 SKC 其它行有值（旧数据）时，仍然以有值的行为准，避免丢计划
+          const source = hasPlan(main) ? main : (group.find(hasPlan) || main);
+          const color = source.pdt_color_name || source.colorName || '';
+          // 统一从 sales_batches 数组取所有批次；旧数据若 batches 为空但主行有值，自动补一个
+          let batches = Array.isArray(source.sales_batches) ? source.sales_batches.slice() : [];
+          if (batches.length === 0 && (Number(source.sales_pieces) > 0 || Number(source.sales_delivery_days) > 0)) {
+            batches = [{ pieces: Number(source.sales_pieces) || 0, days: Number(source.sales_delivery_days) || 0 }];
           }
+          batches.forEach(b => {
+            const p = Number(b.pieces) || 0;
+            const d = Number(b.days) || 0;
+            if (p > 0 || d > 0) {
+              const key = `${pdt}|${skc}|${p}|${d}`;
+              if (!seenSyncItemKeys.has(key)) {
+                seenSyncItemKeys.add(key);
+                syncItems.push({ pdt, skc, color, pieces: p, days: d, _source: source._source || 'craft' });
+              }
+            }
+          });
         });
       });
       console.log('[generateText] syncItems:', syncItems.length, 'allSkcs:', allSkcs);
