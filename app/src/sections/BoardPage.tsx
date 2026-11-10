@@ -19,7 +19,7 @@ interface Filters {
   temps: string[];     // 适穿温度带
   roles: RoleTag[];    // 商品角色
   years: number[];     // 上新年份
-  minStock: number;    // 现货 ≥
+  minStock: number;    // 预估剩余库存 ≥
   noTransit: boolean;  // 仅无在途
   minConv: number;     // 转化率 ≥ %
   maxReturn: number;   // 退货率 ≤ %
@@ -67,7 +67,7 @@ function aiReplyFallback(q: string): ChatMsg {
   if (/拉新|新客/.test(q))
     return {
       from: 'ai',
-      text: '拉新导向建议：拉新率 ≥40%，价格带低/中，现货 ≥100 保证承接。纤纤裤（拉新 52%）这类款会是主力。要应用吗？',
+      text: '拉新导向建议：拉新率 ≥40%，价格带低/中，预估剩余库存 ≥100 保证承接。纤纤裤（拉新 52%）这类款会是主力。要应用吗？',
       patch: { minNewBuyer: 40, bands: ['低', '中'], minStock: 100 },
     };
   if (/利润|毛利|赚钱/.test(q))
@@ -116,6 +116,17 @@ function InvCell({ label, v, color = 'text-ink-secondary' }: { label: string; v:
     <div className="flex flex-col">
       <span className="text-[10px] text-ink-muted">{label}</span>
       <span className={`text-[12px] font-semibold ${color}`}>{(v || 0).toLocaleString()}</span>
+    </div>
+  );
+}
+
+// 筛选维度行。必须定义在组件外：放在 BoardPage 内部会每次渲染生成新的组件类型，
+// React 会把整行卸载重建，输入框每敲一个字就丢焦点（只能输入一次）。
+function Dim({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="board-dimension flex items-start gap-3 border-b border-edge-muted py-3">
+      <span className="w-24 shrink-0 pt-1 text-[11px] font-medium text-ink-muted">{label}</span>
+      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
     </div>
   );
 }
@@ -305,13 +316,6 @@ export default function BoardPage({
     }
   };
 
-  const Dim = ({ label, children }: { label: string; children: ReactNode }) => (
-    <div className="board-dimension flex items-start gap-3 border-b border-edge-muted py-3">
-      <span className="w-24 shrink-0 pt-1 text-[11px] font-medium text-ink-muted">{label}</span>
-      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
-    </div>
-  );
-
   return (
     <div className="responsive-page board-page px-10 py-8">
       <div className="page-heading flex items-end justify-between border-b border-edge pb-6">
@@ -407,7 +411,7 @@ export default function BoardPage({
           </Dim>
           <Dim label="库存条件">
             <label className="flex items-center gap-1 text-[11.5px] text-ink-secondary">
-              现货 ≥
+              预估剩余库存 ≥
               <input type="number" value={f.minStock} onChange={(e) => setF((x) => ({ ...x, minStock: Number(e.target.value) }))} className="w-16 rounded border border-edge-strong px-1.5 py-0.5 text-center text-[11.5px] outline-none focus:border-edge" />
             </label>
             <Chip on={f.noTransit} label="仅无在途" onClick={() => setF((x) => ({ ...x, noTransit: !x.noTransit }))} />

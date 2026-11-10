@@ -31,6 +31,14 @@ test('默认筛选全部为空，等于每个维度都选中「全部」', () =>
   assert.ok(code.includes('cats: [], waves: [], bands: [], temps: [], roles: [], years: []'), 'DEFAULT_FILTERS 的数组维度都为空');
 });
 
+test('库存条件用「预估剩余库存」，输入框可连续输入（Dim 必须在组件外）', () => {
+  assert.ok(code.includes('预估剩余库存 ≥'), '库存条件文案');
+  assert.ok(!code.includes('现货 ≥'), '不再显示旧的「现货 ≥」');
+  // Dim 若定义在 BoardPage 内部，每次渲染都是新组件类型 → 输入框重挂载丢焦点
+  assert.ok(/^function Dim\(/m.test(code), 'Dim 定义在模块级');
+  assert.ok(!code.includes('const Dim = '), '不能在组件内定义 Dim');
+});
+
 test('BI 维度值里若带「全部」占位要去重，避免重复渲染', () => {
   const filters = code.match(/const catList = .*;\n.*const bandList = .*;/s);
   assert.ok(filters, '找到维度列表定义');
