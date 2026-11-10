@@ -19,7 +19,7 @@ import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
 import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
-import { parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
+import { applyJushuitanPriority, parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -5785,21 +5785,9 @@ export default function TraysPage({
       .catch(() => { if (!cancelled) setHengjiStatus({ ok: false, error: 'check_failed' }); });
     return () => { cancelled = true; };
   }, [dataVersion]);
-  // ── 库存兜底：观远 BI SKC 卡不可用（拉取失败/数据过期）时，用聚水潭 ERP 实时库存顶上 ──
-  // BI 健康：只给「BI 没收录这款」（新款/样衣）的款号补一次
-  // BI 不可用：覆盖当前激活货盘的全部款号，避免整列库存变「—」
+  // ── 货盘库存：聚水潭 ERP 实时库存优先，BI SKC 卡兜底 ──
+  // 当前货盘的全部款号都查一次（服务端按款缓存 5 分钟）；聚水潭没返回的款号保留 BI 值。
   // 口径差异：聚水潭是全仓（现货=各仓现存，占单=订单锁库+拣货锁库），单元格会标注「聚水潭·全仓」
-  const [biSkcUsable, setBiSkcUsable] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    authenticatedFetch(`${API_BASE}/products/bi-status`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled && j?.skc) setBiSkcUsable(Boolean(j.skc.usable)); })
-      .catch(() => { /* 探测失败按「BI 可用」处理，避免误触发大批量 ERP 查询 */ });
-    return () => { cancelled = true; };
-    // PRODUCTS 变化说明商品刚重新拉过（后端 BI 缓存也刚装载），需要复核一次 BI 可用性
-  }, [dataVersion, PRODUCTS]);
-
   const [jstStockByCode, setJstStockByCode] = useState<Record<string, {
     stock: string[];
     stockMain: number;
@@ -5807,55 +5795,33 @@ export default function TraysPage({
     orderBook: number;
     source?: string;
   }>>({});
-  const fullByIdRef = useRef(fullById);
-  useEffect(() => { fullByIdRef.current = fullById; }, [fullById]);
 
   useEffect(() => {
     if (activeTrayPids.length === 0) return;
-    const need: string[] = [];
-    for (const pid of activeTrayPids) {
-      if (!biSkcUsable) { need.push(pid); continue; }
-      const p = fullByIdRef.current(pid);
-      const hasStock = (p.stock?.length ?? 0) > 0 || (p.stockMain ?? 0) > 0 || (p.inTransit ?? 0) > 0;
-      if (!hasStock && p.biMatched === false) need.push(pid);
-    }
-    if (need.length === 0) return;
     let cancelled = false;
-    authenticatedFetch(`${API_BASE}/products/stock/by-ids?ids=${encodeURIComponent(need.join(','))}`)
+    authenticatedFetch(`${API_BASE}/products/stock/by-ids?ids=${encodeURIComponent(activeTrayPids.join(','))}`)
       .then((r) => (r.ok ? r.json() : { byCode: {} }))
       .then((j) => {
         if (cancelled) return;
         const byCode = j?.byCode || {};
         if (Object.keys(byCode).length > 0) setJstStockByCode((prev) => ({ ...prev, ...byCode }));
       })
-      .catch(() => { /* 聚水潭也不可用：保持原样（BI 值或「—」） */ });
+      .catch(() => { /* 聚水潭不可用：保留 BI 值 */ });
     return () => { cancelled = true; };
-  }, [activeTrayPids, dataVersion, biSkcUsable]);
+  }, [activeTrayPids, dataVersion]);
 
   const fullByIdWithSize = useMemo(() => {
     return (id: string) => {
       const p = fullById(id);
       let next = p;
-      // 聚水潭库存兜底：BI 不可用时覆盖，BI 可用时只补 BI 没给的款
-      const jst = jstStockByCode[id.toLowerCase()];
-      if (jst && jst.stock?.length) {
-        const hasStock = (p.stock?.length ?? 0) > 0 || (p.stockMain ?? 0) > 0 || (p.inTransit ?? 0) > 0;
-        if (!biSkcUsable || !hasStock) {
-          next = {
-            ...next,
-            stock: jst.stock,
-            stockMain: jst.stockMain,
-            inTransit: jst.inTransit,
-            stockSource: 'jushuitan',
-          };
-        }
-      }
+      // 聚水潭优先：拿到实时库存就覆盖 BI；聚水潭没这个款（或无库存）时保留 BI 兜底值
+      next = applyJushuitanPriority(next, jstStockByCode[id.toLowerCase()]);
       const ov = tray?.sizeRangeOverrides?.[id];
       if (ov !== undefined) return { ...next, sizeRange: ov };
       const size = sizeByCode[id];
       return size ? { ...next, sizeRange: size } : next;
     };
-  }, [fullById, sizeByCode, tray?.sizeRangeOverrides, jstStockByCode, biSkcUsable]);
+  }, [fullById, sizeByCode, tray?.sizeRangeOverrides, jstStockByCode]);
 
   // 销量（直播当天 + 累计总销量）：只在「已播完」的货盘（tray.date < 今天）才请求；未开播的不显示也不请求
   // 数据源：BI ETL e106807e71f8045669969e95「宽表关联后数据源」

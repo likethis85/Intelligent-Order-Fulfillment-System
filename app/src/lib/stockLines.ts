@@ -44,6 +44,26 @@ export function stockFallbackParts(stockMain: number, inTransit: number): string
   return stockCellPartsList([{ stock: stockMain, inTransit, eta: null, orderBook: 0 }])[0];
 }
 
+// 货盘库存取数优先级：聚水潭实时库存（全仓）优先，BI SKC 卡（主仓）兜底。
+// 聚水潭没返回这个款、或返回的库存行是空的，就原样保留 BI 值。
+export type JstStock = { stock: string[]; stockMain: number; inTransit: number };
+
+export function applyJushuitanPriority<T extends {
+  stock: string[];
+  stockMain: number;
+  inTransit: number;
+  stockSource?: 'jushuitan';
+}>(product: T, jst: JstStock | undefined | null): T {
+  if (!jst || !jst.stock?.length) return product;
+  return {
+    ...product,
+    stock: jst.stock,
+    stockMain: jst.stockMain,
+    inTransit: jst.inTransit,
+    stockSource: 'jushuitan',
+  };
+}
+
 export function parseStockLine(line: string, productColors: string[] = []): StockEntry {
   const sorted = [...productColors].sort((a, b) => b.length - a.length);
   // 领猫的颜色列表里没有这个色（比如后来补加的色号）时，退回用 BI 行头部的颜色名，

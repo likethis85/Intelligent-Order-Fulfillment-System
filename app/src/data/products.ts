@@ -20,7 +20,7 @@ export interface Product {
   stock: string[];
   stockMain: number;
   inTransit: number;
-  stockSource?: 'jushuitan'; // 库存兜底来源：BI 不可用/没收录时由聚水潭实时库存填充（口径为全仓）
+  stockSource?: 'jushuitan'; // 货盘库存主源：聚水潭实时库存（全仓口径）；取不到时保留 BI 值
   restock?: string;
   fabric?: string;
   plannedQty: number; // 计划翻单放量（BI）

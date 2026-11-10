@@ -76,7 +76,8 @@ test('没有按色拆分的款级库存也按同一口径', () => {
 });
 
 test('页面与 Excel 导出共用同一个措辞函数', () => {
-  assert.ok(pageCode.includes("import { parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';"));
+  assert.ok(pageCode.includes("from '@/lib/stockLines'"), '库存文案函数来自 stockLines');
+  assert.ok(pageCode.includes('stockCellPartsList') && pageCode.includes('stockFallbackParts'));
   const uses = pageCode.match(/stockCellPartsList\(entries\.map\(\(\[, v\]\) => v\), \{ orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY \}\)/g) || [];
   assert.equal(uses.length, 2, '货盘单元格 + Excel/打印文本');
   const fallbackUses = pageCode.match(/stockFallbackParts\(p\.stockMain \?\? 0, p\.inTransit \?\? 0\)/g) || [];

@@ -354,7 +354,7 @@ router.get('/bi-status', (_req, res) => {
   }
 });
 
-// 聚水潭实时库存备用源：BI 不可用/过期时按款号补库存
+// 聚水潭实时库存（货盘主源）：按款号取全仓库存；没返回的款号前端保留 BI 兜底值
 // 返回 { byCode: { [pidLower]: { stock: string[], stockMain, inTransit, orderBook, colors, source } } }
 // 口径是「全仓」，与 BI 的「主仓」不同，前端会标注
 router.get('/stock/by-ids', async (req, res) => {

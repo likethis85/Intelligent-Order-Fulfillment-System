@@ -9,7 +9,7 @@
 //   - 回源只走后台车道（guancli background lane），10 分钟超时 + 失败重试 + 冷却，不挤占用户请求
 //   - 每天 10:00 由定时任务主动刷新一次（server/bi-schedule.js）；访问触发的 SWR 只作兜底
 //     （数据超过 BI_REFRESH_TTL_MS=24h 才补拉）；数据年龄 > 48h 才算「不可信」
-//     （getBiCacheStatus().usable=false，货盘切聚水潭实时库存兜底）
+//     （getBiCacheStatus().usable=false；货盘库存以聚水潭实时库存为主，BI 只作兜底）
 
 import { previewGuancliCard } from './guancli.js';
 import { fileURLToPath } from 'node:url';
