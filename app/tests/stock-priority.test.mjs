@@ -76,6 +76,7 @@ test('页面：当前货盘所有款号都查聚水潭，缺失款删除旧值�
   assert.ok(pageCode.includes('applyJushuitanPriority(next, jstStockByCode[id.toLowerCase()])'));
   // 成功响应里没有的款号必须删掉，否则会一直显示上一次的聚水潭库存
   assert.ok(pageCode.includes('delete next[key]'), '缺失款号要清掉旧聚水潭值');
-  assert.ok(pageCode.includes('失败，可能已过期'), '过期数据要在单元格上提示');
-  assert.ok(pageCode.includes('刷新失败'), '刷新失败要提示用户');
+  assert.ok(pageCode.includes('聚水潭库存更新于'), '取数时间显示在页面顶部');
+  assert.ok(pageCode.includes('数据可能已过期'), '刷新失败要在顶部提示');
+  assert.ok(!pageCode.includes('聚水潭·全仓${jstUpdatedAt'), '库存单元格里不再拼取数时间');
 });

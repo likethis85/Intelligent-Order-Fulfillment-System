@@ -3454,32 +3454,22 @@ function computeRestockShortNames(ps: Product[], overrides?: Record<string, stri
 function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode, visibleColors?: string[]): ReactNode {
   const prefix = short ? `${short} ` : '';
   const stockLines = p.stock ?? [];
-  const jstUpdatedAt = p.stockSource === 'jushuitan' ? formatStockUpdatedAt(p.stockUpdatedAt) : '';
-  // 聚水潭数据的口径 + 取数时刻；刷新失败时明确标出数据可能已过期
-  const jstFooter = p.stockSource === 'jushuitan' ? (
-    <div className={`text-[9px] leading-3 ${p.stockStale ? 'text-amber-600' : 'text-ink-faint'}`}>
-      {`聚水潭·全仓${jstUpdatedAt ? ` · ${jstUpdatedAt}` : ''}${p.stockStale ? ' · 刷新失败，可能已过期' : ''}`}
-    </div>
-  ) : null;
   if (stockLines.length === 0) {
-    // 领猫款（biOnly=false/undefined）且没有聚水潭数据：显示 —
-    if (!p.biOnly && p.stockSource !== 'jushuitan') {
+    // 领猫款（biOnly=false/undefined）：领猫里没库存数据 → 显示 —
+    if (!p.biOnly) {
       return (
         <div className="w-full text-center text-[10.5px] text-ink-faint leading-5 flex items-center justify-center gap-0.5">
           {shortNode ? <>{shortNode}<span>：—</span></> : (short ? `${short}：—` : '—')}
         </div>
       );
     }
-    // BI 独有款（biOnly=true）或聚水潭明确返回 0：用 stockMain 展示；现货 0 不写「现货0」
+    // BI 独有款（biOnly=true）：用 BI/款式卡的 stockMain 展示；现货 0 不写「现货0」
     // 只有现货时用纯数字，和有在途的款共用 stockFallbackParts 口径
     const parts = stockFallbackParts(p.stockMain ?? 0, p.inTransit ?? 0);
     const body = parts.join(' · ') || '—';
     return (
-      <div className="w-full text-center text-ink-primary leading-5">
-        <div className="text-[11px] flex items-center justify-center gap-0.5">
-          {shortNode ? <>{shortNode}<span>：{body}</span></> : (short ? `${short}：${body}` : body)}
-        </div>
-        {jstFooter}
+      <div className="w-full text-center text-ink-primary text-[11px] leading-5 flex items-center justify-center gap-0.5">
+        {shortNode ? <>{shortNode}<span>：{body}</span></> : (short ? `${short}：${body}` : body)}
       </div>
     );
   }
@@ -3515,7 +3505,9 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
           )}
         </div>
       ))}
-      {jstFooter}
+      {p.stockSource === 'jushuitan' && (
+        <div className="text-[9px] leading-3 text-ink-faint">聚水潭·全仓</div>
+      )}
     </div>
   );
 }
@@ -5807,6 +5799,12 @@ export default function TraysPage({
     updatedAt?: string;
     stale?: boolean;
   }>>({});
+  // 聚水潭取数状态：取数时间显示在页面顶部，不塞进库存单元格
+  const [jstStockStatus, setJstStockStatus] = useState<{
+    loaded: boolean;
+    updatedAt?: string;
+    failed?: boolean;
+  }>({ loaded: false });
   const jstWarnAtRef = useRef(0);
 
   useEffect(() => {
@@ -5839,6 +5837,7 @@ export default function TraysPage({
         if (cancelled) return;
         if (!j || j.ok === false) {
           markStale();
+          setJstStockStatus((prev) => ({ ...prev, loaded: true, failed: true }));
           warnRefreshFailed('聚水潭库存刷新失败，当前显示上次数据或 BI 兜底；采购/销售前请核对实时库存');
           return;
         }
@@ -5859,11 +5858,22 @@ export default function TraysPage({
           }
           return next;
         });
+        // 顶部展示本次取到的最新数据时刻（缓存命中的条目也会带 updatedAt）
+        const times = Object.values(byCode)
+          .map((e) => (e as { updatedAt?: string }).updatedAt)
+          .filter((v): v is string => Boolean(v))
+          .sort();
+        setJstStockStatus((prev) => ({
+          loaded: true,
+          updatedAt: times.length ? times[times.length - 1] : prev.updatedAt,
+          failed: Boolean(j.failed),
+        }));
         if (j.failed) warnRefreshFailed('聚水潭部分款号刷新失败，相关库存可能已过期');
       })
       .catch(() => {
         if (cancelled) return;
         markStale();
+        setJstStockStatus((prev) => ({ ...prev, loaded: true, failed: true }));
         warnRefreshFailed('聚水潭库存刷新失败，当前显示上次数据或 BI 兜底；采购/销售前请核对实时库存');
       });
     return () => { cancelled = true; };
@@ -6856,6 +6866,15 @@ export default function TraysPage({
                 ? '达人模板：对外精简版，仅展示款号 / 名称 / 颜色 / 售价 / 现货。'
                 : '普通模板：标准呈现。点击图片列可在右侧选款。'}
           </p>
+          {/* 聚水潭取数时间放在页面顶部；刷新失败时明确提示数据可能已过期 */}
+          {jstStockStatus.loaded && (jstStockStatus.updatedAt || jstStockStatus.failed) && (
+            <div className={`mt-2 flex items-center gap-1.5 text-[11px] ${jstStockStatus.failed ? 'text-amber-600' : 'text-ink-faint'}`}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${jstStockStatus.failed ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+              {jstStockStatus.failed
+                ? `聚水潭库存刷新失败，数据可能已过期${jstStockStatus.updatedAt ? `（上次取数 ${formatStockUpdatedAt(jstStockStatus.updatedAt)}）` : ''}`
+                : `聚水潭库存更新于 ${formatStockUpdatedAt(jstStockStatus.updatedAt)}`}
+            </div>
+          )}
         </div>
         <div className="tray-actions flex items-center gap-2 print:hidden">
           <button
