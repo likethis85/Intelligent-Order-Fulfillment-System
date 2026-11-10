@@ -7,7 +7,8 @@
 // 缓存策略（Stale-While-Revalidate）：
 //   - 读请求永不等待回源：内存命中直接返回；没有内存就读磁盘（过期也照用）；磁盘也没有就先返回空并后台拉
 //   - 回源只走后台车道（guancli background lane），10 分钟超时 + 失败重试 + 冷却，不挤占用户请求
-//   - 自动回源默认一天一次（BI_REFRESH_TTL_MS）；数据年龄 > 48h 才算「不可信」
+//   - 每天 10:00 由定时任务主动刷新一次（server/bi-schedule.js）；访问触发的 SWR 只作兜底
+//     （数据超过 BI_REFRESH_TTL_MS=24h 才补拉）；数据年龄 > 48h 才算「不可信」
 //     （getBiCacheStatus().usable=false，货盘切聚水潭实时库存兜底）
 
 import { previewGuancliCard } from './guancli.js';

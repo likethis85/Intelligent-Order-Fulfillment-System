@@ -18,6 +18,7 @@ import { isJushuitanConfigured } from './jushuitan-client.js';
 import jushuitanRouter from './routes/jushuitan.js';
 import { hasCredentials, clearProductsCache, clearSamplesCache } from './vscm-client.js';
 import { clearBiCache, clearBiSkcCache, refreshBiSkc, refreshBiProductMaster, getStockSyncStatus, setBiRefreshListener } from './bi-client.js';
+import { startBiDailyRefresh } from './bi-schedule.js';
 import { clearProfileCache } from './profile-client.js';
 import { clearSizeCache } from './size-client.js';
 import { clearCostCache } from './cost-client.js';
@@ -528,7 +529,7 @@ server.on('close', () => {
 // BI 缓存刷新成功后的联动：清掉依赖 BI 的衍生缓存（尺码/成本 ETL），并广播让前端重新拉数据。
 // 刷新可能来自后台 SWR，也可能来自「同步库存」按钮，统一在这里收口，避免重复广播。
 // 注意：只有手动同步才清尺码/成本（它们有 7 天缓存且来自数据集而不是 SKC 卡），
-// 否则每 30 分钟一次的后台刷新会把它们反复打回冷启动，反而增加 BI 压力。
+// 否则每天的定时刷新会把它们反复打回冷启动，反而增加 BI 压力。
 setBiRefreshListener(({ card, trigger, count, elapsed }) => {
   if (card !== 'skc') return;
   if (trigger === 'manual') {
@@ -550,6 +551,8 @@ server.listen(PORT, () => {
   const oss = isOssConfigured() ? '✓ 已配' : '✗ 未配';
   console.log(`[server] Listening on http://127.0.0.1:${PORT}`);
   console.log(`[server] 领猫凭证：${vscm} | 聚水潭 ERP：${jst} | 阿里云 OSS：${oss}`);
+  // 每天固定时间主动刷新观远 BI（默认 10:00，服务器本地时区）
+  startBiDailyRefresh();
   syncLocalUploadsToOss(UPLOAD_DIR)
     .then(() => cleanOrphanedUploads())
     .catch(() => {});
