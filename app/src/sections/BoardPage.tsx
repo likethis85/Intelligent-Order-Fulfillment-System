@@ -34,6 +34,21 @@ const DEFAULT_FILTERS: Filters = {
   perLookN: 3,
 };
 
+// 选角色（单选）时联动「库存条件 / 季节 / 指标阈值」：
+// 把角色判定里的阈值直接落成界面可改的筛选值，用户看到的就是这套口径。
+//   主推：可用 ≥150、应季（秋/冬）、签收 ≥45%（= 总退货率 ≤55%）
+//   经典：红榜+150 或 签收≥45%+近14天≥30 → 不限可用数；退货率上限按签收 45% 折算
+//   现金回收：可用 >100，退货率不设上限（本身就在收高退货款）
+//   利润：可用 ≥150、应季（秋/冬）
+//   库存：可用 ≥150
+const ROLE_PRESETS: Record<BoardRole, Partial<Filters>> = {
+  主推: { minStock: 150, seasons: ['秋', '冬'], maxReturn: 55 },
+  经典: { minStock: 0, seasons: [], maxReturn: 55 },
+  现金回收: { minStock: 100, seasons: [], maxReturn: 100 },
+  利润: { minStock: 150, seasons: ['秋', '冬'], maxReturn: DEFAULT_FILTERS.maxReturn },
+  库存: { minStock: 150, seasons: [], maxReturn: DEFAULT_FILTERS.maxReturn },
+};
+
 const DIM = {
   cats: ['大衣', '针织', 'T恤', '裤装', '套装', '鞋靴', '衬衫', '外套', '西装', '背心', '夹克', '羽绒'],
   waves: ['9月1波段', '9月2波段', '10月1波段', '常青款'],
@@ -387,6 +402,22 @@ export default function BoardPage({
     return out;
   }, [pageCount, safePage]);
 
+  // 角色单选：选中后把该角色的判定阈值落到库存条件 / 季节 / 指标阈值上（可再手动改）
+  const applyRole = (role: BoardRole | null) => {
+    setRoleTab(role ?? '全部');
+    setF((x) => ({
+      ...x,
+      roles: role ? [role] : [],
+      // 先回到默认值，再套角色预置，避免上一个角色的条件残留
+      minStock: DEFAULT_FILTERS.minStock,
+      minConv: DEFAULT_FILTERS.minConv,
+      maxReturn: DEFAULT_FILTERS.maxReturn,
+      minNewBuyer: DEFAULT_FILTERS.minNewBuyer,
+      seasons: [...DEFAULT_FILTERS.seasons],
+      ...(role ? ROLE_PRESETS[role] : {}),
+    }));
+  };
+
   // 后端 AI 仍按旧角色词（引流）出建议，这里映射到看板的五类角色
   const normalizePatch = (patch?: Partial<Filters>): Partial<Filters> | undefined => {
     if (!patch) return undefined;
@@ -481,7 +512,16 @@ export default function BoardPage({
             <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto shrink-0 text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
           </div>
           <Dim label="商品角色">
-            <DimChips options={roleList} selected={f.roles} onChange={(roles) => setF((x) => ({ ...x, roles }))} labelOf={(r) => `${r}款`} />
+            {/* 角色单选：每款只归属一个角色，选「全部」清空 */}
+            <Chip on={f.roles.length === 0} label="全部" onClick={() => applyRole(null)} />
+            {roleList.map((r) => (
+              <Chip
+                key={r}
+                on={f.roles[0] === r}
+                label={`${r}款`}
+                onClick={() => applyRole(f.roles[0] === r ? null : r)}
+              />
+            ))}
           </Dim>
           {yearList.length > 0 && (
             <Dim label="上新年份">
@@ -576,7 +616,7 @@ export default function BoardPage({
         {(['全部', ...roleList] as const).map((r) => (
           <button
             key={r}
-            onClick={() => setRoleTab(r)}
+            onClick={() => applyRole(r === '全部' ? null : r)}
             className={`relative pb-3 text-[13px] transition-colors ${roleTab === r ? 'font-semibold' : 'text-ink-muted hover:text-ink-primary'}`}
           >
             {r === '全部' ? `全部候选（${groups.length} 个套系）` : `${r}款（${groups.filter((g) => g.role === r).length}）`}

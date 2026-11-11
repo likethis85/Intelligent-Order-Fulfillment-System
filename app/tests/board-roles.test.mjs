@@ -50,7 +50,7 @@ test('套系 key = 小名（无小名退回款号），组内指标相加', () =
 });
 
 test('快捷方案已移除，商品角色排在最上面', () => {
-  assert.ok(!page.includes('PRESETS'), '不再有快捷方案');
+  assert.ok(!page.includes('const PRESETS'), '不再有快捷方案');
   assert.ok(!page.includes('快捷方案'), '不再渲染快捷方案行');
   const roleAt = page.indexOf('<Dim label="商品角色">');
   const catAt = page.indexOf('<Dim label="品类">');

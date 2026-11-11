@@ -43,6 +43,22 @@ test('季节筛选按「季节(到款式)」匹配，组合值（秋冬）也能
   assert.ok(code.includes("const seasonList = (() =>"), '季节选项从商品数据里取');
 });
 
+test('商品角色只能单选，并联动库存条件/季节/指标阈值', () => {
+  assert.ok(code.includes("onClick={() => applyRole(f.roles[0] === r ? null : r)}"), '再次点击取消，点另一个替换');
+  const presets = code.match(/const ROLE_PRESETS:[\s\S]*?\n\};/);
+  assert.ok(presets, '角色预置条件存在');
+  const body = presets[0];
+  assert.ok(body.includes("主推: { minStock: 150, seasons: ['秋', '冬'], maxReturn: 55 }"), '主推：可用≥150 + 秋冬 + 签收≥45%');
+  assert.ok(body.includes('现金回收: { minStock: 100'), '现金回收：可用 >100，退货率不设上限');
+  assert.ok(body.includes('利润: { minStock: 150'), '利润：可用 ≥150 + 秋冬');
+  assert.ok(body.includes('库存: { minStock: 150'), '库存：可用 ≥150');
+  // 联动时要先把三类条件复位，避免上一个角色的值残留
+  assert.ok(code.includes('minStock: DEFAULT_FILTERS.minStock'), '库存条件先复位');
+  assert.ok(code.includes('seasons: [...DEFAULT_FILTERS.seasons]'), '季节先复位');
+  assert.ok(code.includes('maxReturn: DEFAULT_FILTERS.maxReturn'), '指标阈值先复位');
+  assert.ok(code.includes("onClick={() => applyRole(r === '全部' ? null : r)}"), '角色 Tab 也走同一套联动');
+});
+
 test('适穿温度带与场景规则维度已移除', () => {
   assert.ok(!code.includes('<Dim label="适穿温度带">'), '不再渲染温度带筛选');
   assert.ok(!code.includes('<Dim label="场景规则">'), '不再渲染场景规则筛选');
