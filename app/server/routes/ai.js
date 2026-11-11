@@ -31,6 +31,7 @@ const SYSTEM_PROMPT = `你是货盘选款策略助手。基于用户的直播目
 - roles: ('主推'|'经典'|'现金回收'|'利润'|'库存')[]  角色（每款只归属一个，按此优先级判定）
 - minStock: number 最低预估剩余可用数
 - minConv: number  最低转化率 %
+- minSignRate: number 最低签收率 %（= 1 − 总退货率）
 - maxReturn: number 最高退货率 %
 - minNewBuyer: number 最低拉新率 %
 - noTransit: boolean 只要无在途的款

@@ -23,6 +23,7 @@ interface Filters {
   minStock: number;    // 预估剩余库存 ≥
   noTransit: boolean;  // 仅无在途
   minConv: number;     // 转化率 ≥ %
+  minSignRate: number; // 签收率 ≥ %（= 1 − SUM(退货数量)/SUM(销售数量)）
   maxReturn: number;   // 退货率 ≤ %
   minNewBuyer: number; // 拉新率 ≥ %
   perLookN: number;    // 每品类每角色取 X 个坑位
@@ -30,23 +31,23 @@ interface Filters {
 
 const DEFAULT_FILTERS: Filters = {
   cats: [], waves: [], bands: [], seasons: [], roles: [], years: [],
-  minStock: 0, noTransit: false, minConv: 0, maxReturn: 80, minNewBuyer: 0,
+  minStock: 0, noTransit: false, minConv: 0, minSignRate: 0, maxReturn: 80, minNewBuyer: 0,
   perLookN: 3,
 };
 
 // 选角色（单选）时联动「库存条件 / 季节 / 指标阈值」：
 // 把角色判定里的阈值直接落成界面可改的筛选值，用户看到的就是这套口径。
-//   主推：可用 ≥150、应季（秋/冬）、签收 ≥45%（= 总退货率 ≤55%）
-//   经典：红榜+150 或 签收≥45%+近14天≥30 → 不限可用数；退货率上限按签收 45% 折算
+//   主推：可用 ≥150、应季（秋/冬）、签收率 ≥45%
+//   经典：红榜+150 或 签收率≥45%+近14天≥30 → 不限可用数
 //   现金回收：可用 >100，退货率不设上限（本身就在收高退货款）
 //   利润：可用 ≥150、应季（秋/冬）
 //   库存：可用 ≥150
 const ROLE_PRESETS: Record<BoardRole, Partial<Filters>> = {
-  主推: { minStock: 150, seasons: ['秋', '冬'], maxReturn: 55 },
-  经典: { minStock: 0, seasons: [], maxReturn: 55 },
-  现金回收: { minStock: 100, seasons: [], maxReturn: 100 },
-  利润: { minStock: 150, seasons: ['秋', '冬'], maxReturn: DEFAULT_FILTERS.maxReturn },
-  库存: { minStock: 150, seasons: [], maxReturn: DEFAULT_FILTERS.maxReturn },
+  主推: { minStock: 150, seasons: ['秋', '冬'], minSignRate: 45 },
+  经典: { minStock: 0, seasons: [], minSignRate: 45 },
+  现金回收: { minStock: 100, seasons: [], minSignRate: 0 },
+  利润: { minStock: 150, seasons: ['秋', '冬'] },
+  库存: { minStock: 150, seasons: [] },
 };
 
 const DIM = {
@@ -341,6 +342,9 @@ export default function BoardPage({
           availableOf(p, estimateOf(p)) >= f.minStock &&
           (!f.noTransit || p.inTransit === 0) &&
           p.conversion * 100 >= f.minConv &&
+          // 签收率 = 1 − 总退货率（SUM 退货数量 / SUM 销售数量）；没有退货数据的款不算达标
+          (f.minSignRate <= 0 ||
+            (p.returnRate != null && p.returnRate > 0 && (1 - p.returnRate) * 100 >= f.minSignRate)) &&
           // 无退货率数据的款不卡阈值（避免 NaN 比较误杀）
           (p.returnRate == null || p.returnRate * 100 <= f.maxReturn) &&
           p.newBuyer * 100 >= f.minNewBuyer,
@@ -411,6 +415,7 @@ export default function BoardPage({
       // 先回到默认值，再套角色预置，避免上一个角色的条件残留
       minStock: DEFAULT_FILTERS.minStock,
       minConv: DEFAULT_FILTERS.minConv,
+      minSignRate: DEFAULT_FILTERS.minSignRate,
       maxReturn: DEFAULT_FILTERS.maxReturn,
       minNewBuyer: DEFAULT_FILTERS.minNewBuyer,
       seasons: [...DEFAULT_FILTERS.seasons],
@@ -553,7 +558,7 @@ export default function BoardPage({
             <Chip on={f.noTransit} label="仅无在途" onClick={() => setF((x) => ({ ...x, noTransit: !x.noTransit }))} />
           </Dim>
           <Dim label="指标阈值">
-            {[['转化率≥%', 'minConv', f.minConv], ['退货率≤%', 'maxReturn', f.maxReturn], ['拉新率≥%', 'minNewBuyer', f.minNewBuyer]].map(([label, key, val]) => (
+            {[['转化率≥%', 'minConv', f.minConv], ['签收率≥%', 'minSignRate', f.minSignRate], ['退货率≤%', 'maxReturn', f.maxReturn], ['拉新率≥%', 'minNewBuyer', f.minNewBuyer]].map(([label, key, val]) => (
               <label key={key as string} className="flex items-center gap-1 text-[11.5px] text-ink-secondary">
                 {label as string}
                 <input

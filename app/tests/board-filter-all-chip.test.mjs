@@ -48,7 +48,7 @@ test('商品角色只能单选，并联动库存条件/季节/指标阈值', () 
   const presets = code.match(/const ROLE_PRESETS:[\s\S]*?\n\};/);
   assert.ok(presets, '角色预置条件存在');
   const body = presets[0];
-  assert.ok(body.includes("主推: { minStock: 150, seasons: ['秋', '冬'], maxReturn: 55 }"), '主推：可用≥150 + 秋冬 + 签收≥45%');
+  assert.ok(body.includes("主推: { minStock: 150, seasons: ['秋', '冬'], minSignRate: 45 }"), '主推：可用≥150 + 秋冬 + 签收≥45%');
   assert.ok(body.includes('现金回收: { minStock: 100'), '现金回收：可用 >100，退货率不设上限');
   assert.ok(body.includes('利润: { minStock: 150'), '利润：可用 ≥150 + 秋冬');
   assert.ok(body.includes('库存: { minStock: 150'), '库存：可用 ≥150');
@@ -56,7 +56,16 @@ test('商品角色只能单选，并联动库存条件/季节/指标阈值', () 
   assert.ok(code.includes('minStock: DEFAULT_FILTERS.minStock'), '库存条件先复位');
   assert.ok(code.includes('seasons: [...DEFAULT_FILTERS.seasons]'), '季节先复位');
   assert.ok(code.includes('maxReturn: DEFAULT_FILTERS.maxReturn'), '指标阈值先复位');
+  assert.ok(code.includes('minSignRate: DEFAULT_FILTERS.minSignRate'), '签收率也先复位');
   assert.ok(code.includes("onClick={() => applyRole(r === '全部' ? null : r)}"), '角色 Tab 也走同一套联动');
+});
+
+test('指标阈值里有签收率，位于转化率和退货率之间', () => {
+  const conv = code.indexOf("['转化率≥%', 'minConv'");
+  const sign = code.indexOf("['签收率≥%', 'minSignRate'");
+  const ret = code.indexOf("['退货率≤%', 'maxReturn'");
+  assert.ok(conv > 0 && sign > conv && ret > sign, '顺序：转化率 → 签收率 → 退货率');
+  assert.ok(code.includes('(1 - p.returnRate) * 100 >= f.minSignRate'), '签收率 = 1 − 总退货率（SUM 退货数量/SUM 销售数量）');
 });
 
 test('适穿温度带与场景规则维度已移除', () => {
