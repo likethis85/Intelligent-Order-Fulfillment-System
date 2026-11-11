@@ -47,6 +47,16 @@ test('库存条件用「预估剩余库存」，输入框可连续输入（Dim �
   assert.ok(!code.includes('const Dim = '), '不能在组件内定义 Dim');
 });
 
+test('波段按月份从早到晚排序，季度波段不展示，占位值排最后', () => {
+  assert.ok(/function waveSortKey\(/.test(code), '排序键定义在模块级');
+  assert.ok(code.includes("filter((v) => v !== '全部' && !v.includes('季度'))"), '季度波段不进波段选项');
+  const specials = code.match(/const WAVE_SPECIAL_ORDER = \[(.*?)\];/s);
+  assert.ok(specials, '占位值有固定顺序');
+  const order = specials[1].split(',').map((s) => s.trim().replace(/'/g, ''));
+  assert.deepEqual(order, ['专属款', '其他', '未采购', '未上架'], '占位值顺序：专属款 → 其他 → 未采购 → 未上架');
+  assert.ok(code.includes('return an !== bn ? an - bn : at.localeCompare(bt);'), '数字月份主排序，字母次排序');
+});
+
 test('BI 维度值里若带「全部」占位要去重，避免重复渲染', () => {
   const filters = code.match(/const catList = .*;\n.*const bandList = .*;/s);
   assert.ok(filters, '找到维度列表定义');

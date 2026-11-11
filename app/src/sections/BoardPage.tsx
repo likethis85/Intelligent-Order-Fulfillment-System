@@ -120,6 +120,17 @@ function InvCell({ label, v, color = 'text-ink-secondary' }: { label: string; v:
   );
 }
 
+// 波段排序键：按月号的数字排（1A < 1B < 2A < 2B …），A/B/C/D 同月内按字母；
+// 非月份型波段（专属款/其他/未采购/未上架）固定排最后，顺序按下面的数组。
+const WAVE_SPECIAL_ORDER = ['专属款', '其他', '未采购', '未上架'];
+function waveSortKey(v: string): [number, string] {
+  const special = WAVE_SPECIAL_ORDER.indexOf(v);
+  if (special >= 0) return [1000 + special, ''];
+  const m = v.match(/^(\d{1,2})(.*)$/);
+  if (m) return [Number(m[1]), m[2]];
+  return [999, v];
+}
+
 // 筛选维度行。必须定义在组件外：放在 BoardPage 内部会每次渲染生成新的组件类型，
 // React 会把整行卸载重建，输入框每敲一个字就丢焦点（只能输入一次）。
 function Dim({ label, children }: { label: string; children: ReactNode }) {
@@ -206,7 +217,16 @@ export default function BoardPage({
   }, []);
   // BI 返回的维度值里偶尔带「全部」占位，去掉后由 DimChips 统一渲染自己的「全部」
   const catList = (dims.categories.length ? dims.categories : DIM.cats).filter((v) => v !== '全部');
-  const waveList = (dims.waves.length ? dims.waves : DIM.waves).filter((v) => v !== '全部');
+  // 波段选项：按月份从早到晚（1A、1B、2A、2B…），季度波段不展示，占位值固定排最后
+  const waveList = (() => {
+    const raw = (dims.waves.length ? dims.waves : DIM.waves)
+      .filter((v) => v !== '全部' && !v.includes('季度'));
+    return [...new Set(raw)].sort((a, b) => {
+      const [an, at] = waveSortKey(a);
+      const [bn, bt] = waveSortKey(b);
+      return an !== bn ? an - bn : at.localeCompare(bt);
+    });
+  })();
   const tempList = (dims.tempBands.length ? dims.tempBands : DIM.temps).filter((v) => v !== '全部');
   const bandList = (dims.priceBands.length ? dims.priceBands : DIM.bands).filter((v) => v !== '全部');
   // 上新年份：优先 /meta/filters，其次剩余库存卡；都拿不到时用商品自身的上新日期兜底，
