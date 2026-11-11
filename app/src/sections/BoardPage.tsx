@@ -7,16 +7,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { TRAY_TYPES, totalQty, goodsValue, type Product, type RoleTag, type Tray, type TrayType } from '@/data/products';
+import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
-import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears } from '@/data/api';
+import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
+import { availableOf, BOARD_ROLES, buildSuiteGroups, roleRank, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
 interface Filters {
   cats: string[];      // 品类
   waves: string[];     // 波段
   bands: string[];     // 价格带
-  roles: RoleTag[];    // 商品角色
+  roles: BoardRole[];  // 商品角色（每款只归属一个角色，按优先级判定）
   years: number[];     // 上新年份
   minStock: number;    // 预估剩余库存 ≥
   noTransit: boolean;  // 仅无在途
@@ -36,15 +37,7 @@ const DIM = {
   cats: ['大衣', '针织', 'T恤', '裤装', '套装', '鞋靴', '衬衫', '外套', '西装', '背心', '夹克', '羽绒'],
   waves: ['9月1波段', '9月2波段', '10月1波段', '常青款'],
   bands: ['低', '中', '高'] as const,
-  roles: ['引流', '利润', '库存'] as RoleTag[],
 };
-
-const PRESETS: { label: string; patch: Partial<Filters> }[] = [
-  { label: '冬季日常场', patch: { ...DEFAULT_FILTERS, cats: ['大衣', '针织', '套装', '裤装', 'T恤', '外套'] } },
-  { label: '清仓场', patch: { ...DEFAULT_FILTERS, roles: ['库存'], noTransit: true, minStock: 200 } },
-  { label: '新品首发场', patch: { ...DEFAULT_FILTERS, waves: ['9月2波段', '常青款'] } },
-  { label: '大促场', patch: { ...DEFAULT_FILTERS, roles: ['引流'], minConv: 5 } },
-];
 
 interface ChatMsg {
   from: 'me' | 'ai';
@@ -183,11 +176,11 @@ export default function BoardPage({
   activeTrayId: string;
   onSwitchTray: (id: string) => void;
   onCreateTray: (name: string, type: TrayType, date: string) => Tray;
-  onAdd: (pid: string, sectionId: string) => void;
+  onAdd: (pids: string[], sectionId: string) => void;
 }) {
   // 默认所有维度都是「全部」：不预设品类，进页面先看到全量候选池
   const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });
-  const [roleTab, setRoleTab] = useState<'全部' | RoleTag>('全部');
+  const [roleTab, setRoleTab] = useState<'全部' | BoardRole>('全部');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<TrayType>('马总直播货盘');
@@ -209,7 +202,7 @@ export default function BoardPage({
   useEffect(() => {
     fetchFilters()
       .then((r) => setDims(r))
-      .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: [], priceBands: [...DIM.bands], roles: DIM.roles, launchYears: [] }));
+      .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: [], priceBands: [...DIM.bands], roles: [...BOARD_ROLES], launchYears: [] }));
   }, []);
   // BI 返回的维度值里偶尔带「全部」占位，去掉后由 DimChips 统一渲染自己的「全部」
   const catList = (dims.categories.length ? dims.categories : DIM.cats).filter((v) => v !== '全部');
@@ -236,7 +229,7 @@ export default function BoardPage({
     }
     return [...years].sort((a, b) => b - a);
   })();
-  const roleList = DIM.roles;
+  const roleList = BOARD_ROLES;
 
   // 剩余库存推荐（按款号索引，未覆盖的款不显示该段）
   const [remainingMap, setRemainingMap] = useState<Map<string, RemainingGroup>>(new Map());
@@ -245,6 +238,46 @@ export default function BoardPage({
       .then((r) => setRemainingMap(new Map(r.items.map((it) => [it.styleCode.toLowerCase(), it]))))
       .catch(() => setRemainingMap(new Map()));
   }, []);
+
+  // 近 14 天销量（经典款判定用）：接口只读缓存，缺的款号后端后台预热；
+  // 前端分批请求（每批 400 个款号，避免 URL 过长），有待预热时 30s 后自动补一次。
+  const [sales14Map, setSales14Map] = useState<Map<string, number>>(new Map());
+  const [sales14Pending, setSales14Pending] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let tries = 0;
+    const ids = PRODUCTS.map((p) => p.id).filter(Boolean);
+    if (ids.length === 0) return;
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 400) chunks.push(ids.slice(i, i + 400));
+    const load = async () => {
+      const map = new Map<string, number>();
+      let pending = 0;
+      for (const chunk of chunks) {
+        try {
+          const r = await fetchSales14d(chunk);
+          for (const [k, v] of Object.entries(r.byPid || {})) map.set(k.toLowerCase(), Number(v) || 0);
+          pending += r.pending || 0;
+        } catch {
+          // 取不到就按 0 计：经典款那一支会因此更严格，不会误放
+        }
+      }
+      if (!alive) return;
+      setSales14Map(map);
+      setSales14Pending(pending);
+      // 后端预热有延迟：还有缺的就再补一次（最多 3 次）
+      if (pending > 0 && tries < 3) {
+        tries++;
+        timer = setTimeout(load, 30_000);
+      }
+    };
+    load();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [PRODUCTS]);
 
   const tray = trays.find((t) => t.id === activeTrayId) ?? trays[0];
   const traySections = tray.sections.filter((s) => s.visible);
@@ -260,6 +293,9 @@ export default function BoardPage({
     [trays],
   );
 
+  // 预估剩余可用数：剩余库存卡片按 SKC 颜色行汇总的 estimate；缺失时退回主仓库存
+  const estimateOf = (p: Product) => remainingMap.get(p.id.toLowerCase())?.totals.estimate;
+
   const pool = useMemo(
     () =>
       PRODUCTS.filter(
@@ -267,7 +303,6 @@ export default function BoardPage({
           (f.cats.length === 0 || f.cats.includes(p.category)) &&
           (f.waves.length === 0 || f.waves.includes(p.wave)) &&
           (f.bands.length === 0 || f.bands.includes(p.priceBand)) &&
-          (f.roles.length === 0 || p.roles.some((r) => f.roles.includes(r))) &&
           (f.years.length === 0 || (() => {
             // 领猫侧没有 launchDate，回退到剩余库存 BI 卡片的「款上新时间」
             const ld = String(p.launchDate || '') || String(remainingMap.get(p.id.toLowerCase())?.launchDate || '');
@@ -275,7 +310,7 @@ export default function BoardPage({
             const y = m ? Number(m[1]) : 0;
             return f.years.includes(y);
           })()) &&
-          p.stockMain >= f.minStock &&
+          availableOf(p, estimateOf(p)) >= f.minStock &&
           (!f.noTransit || p.inTransit === 0) &&
           p.conversion * 100 >= f.minConv &&
           // 无退货率数据的款不卡阈值（避免 NaN 比较误杀）
@@ -285,11 +320,23 @@ export default function BoardPage({
     [f, PRODUCTS, remainingMap],
   );
 
+  // 一个坑位 = 一个套系：先按小名（无小名用款号）聚合，再在组上判定角色。
+  // 角色筛选也在组一级生效，避免同一套系的不同件被拆到不同角色里各挂一次。
+  const groups = useMemo(() => {
+    const list = buildSuiteGroups(pool, estimateOf, (p) => sales14Map.get(p.id.toLowerCase()) || 0);
+    return list.filter((g) => f.roles.length === 0 || (g.role !== '其他' && f.roles.includes(g.role)));
+  }, [pool, remainingMap, sales14Map, f.roles]);
+
   const visible = useMemo(() => {
-    const list = roleTab === '全部' ? [...pool] : pool.filter((p) => p.roles.includes(roleTab));
-    const rank = (p: Product) => (p.ai === 'top' ? 0 : p.ai === 'extra' ? 2 : p.ai === 'avoid' ? 3 : 1);
-    return list.sort((a, b) => rank(a) - rank(b) || b.conversion - a.conversion);
-  }, [pool, roleTab]);
+    const list = roleTab === '全部' ? [...groups] : groups.filter((g) => g.role === roleTab);
+    const aiRank = (g: SuiteGroup) => {
+      const p = g.members[0];
+      return p.ai === 'top' ? 0 : p.ai === 'extra' ? 2 : p.ai === 'avoid' ? 3 : 1;
+    };
+    return list.sort(
+      (a, b) => roleRank(a.role) - roleRank(b.role) || aiRank(a) - aiRank(b) || b.members[0].conversion - a.members[0].conversion,
+    );
+  }, [groups, roleTab]);
 
   const inTray = (pid: string) => tray.sections.some((s) => s.looks.some((l) => l.pids.includes(pid)));
 
@@ -327,6 +374,17 @@ export default function BoardPage({
     return out;
   }, [pageCount, safePage]);
 
+  // 后端 AI 仍按旧角色词（引流）出建议，这里映射到看板的五类角色
+  const normalizePatch = (patch?: Partial<Filters>): Partial<Filters> | undefined => {
+    if (!patch) return undefined;
+    if (!patch.roles) return patch;
+    const alias: Record<string, BoardRole> = {
+      引流: '主推', 主推: '主推', 经典: '经典', 现金回收: '现金回收', 利润: '利润', 库存: '库存',
+    };
+    const roles = [...new Set(patch.roles.map((r) => alias[String(r)]).filter(Boolean))] as BoardRole[];
+    return { ...patch, roles };
+  };
+
   const send = async () => {
     const q = input.trim();
     if (!q) return;
@@ -334,7 +392,7 @@ export default function BoardPage({
     setInput('');
     try {
       const r = await postAiStrategy(q, f, pool.slice(0, 30));
-      setChat((c) => [...c.slice(0, -1), { from: 'ai', text: r.text, patch: (r.patch as Partial<Filters>) || undefined }]);
+      setChat((c) => [...c.slice(0, -1), { from: 'ai', text: r.text, patch: normalizePatch(r.patch as Partial<Filters> | undefined) }]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'AI 暂时不可用';
       setChat((c) => [...c.slice(0, -1), { from: 'ai', text: `AI 失败：${msg}（已回退到关键词兜底）` }, aiReplyFallback(q)]);
@@ -403,12 +461,15 @@ export default function BoardPage({
         {/* 策略筛选面板 */}
         <div className="border border-edge bg-surface-card px-5 py-2">
           <div className="flex items-center gap-2 border-b border-edge-muted py-3">
-            <span className="w-24 shrink-0 text-[11px] font-medium text-ink-muted">快捷方案</span>
-            {PRESETS.map((p) => (
-              <Chip key={p.label} on={false} label={p.label} onClick={() => { setF((x) => ({ ...x, ...p.patch })); toast.success(`已应用「${p.label}」策略`); }} />
-            ))}
-            <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
+            <span className="text-[11px] leading-5 text-ink-muted">
+              套系口径：一个坑位 = 一个套系（按小名合并，无小名用款号）
+              {sales14Pending > 0 && <span className="ml-2 text-ink-faint">近14天销量补齐中（{sales14Pending} 款）</span>}
+            </span>
+            <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto shrink-0 text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
           </div>
+          <Dim label="商品角色">
+            <DimChips options={roleList} selected={f.roles} onChange={(roles) => setF((x) => ({ ...x, roles }))} labelOf={(r) => `${r}款`} />
+          </Dim>
           <Dim label="品类">
             <DimChips options={catList} selected={f.cats} onChange={(cats) => setF((x) => ({ ...x, cats }))} />
           </Dim>
@@ -428,12 +489,9 @@ export default function BoardPage({
               labelOf={(b) => (b === '空' ? '未分类' : `${b}价位`)}
             />
           </Dim>
-          <Dim label="商品角色">
-            <DimChips options={roleList} selected={f.roles} onChange={(roles) => setF((x) => ({ ...x, roles }))} labelOf={(r) => `${r}款`} />
-          </Dim>
           <Dim label="库存条件">
             <label className="flex items-center gap-1 text-[11.5px] text-ink-secondary">
-              预估剩余库存 ≥
+              预估剩余可用 ≥
               <input type="number" value={f.minStock} onChange={(e) => setF((x) => ({ ...x, minStock: Number(e.target.value) }))} className="w-16 rounded border border-edge-strong px-1.5 py-0.5 text-center text-[11.5px] outline-none focus:border-edge" />
             </label>
             <Chip on={f.noTransit} label="仅无在途" onClick={() => setF((x) => ({ ...x, noTransit: !x.noTransit }))} />
@@ -505,12 +563,12 @@ export default function BoardPage({
             onClick={() => setRoleTab(r)}
             className={`relative pb-3 text-[13px] transition-colors ${roleTab === r ? 'font-semibold' : 'text-ink-muted hover:text-ink-primary'}`}
           >
-            {r === '全部' ? `全部候选（${pool.length}）` : `${r}款（${pool.filter((p) => p.roles.includes(r)).length}）`}
+            {r === '全部' ? `全部候选（${groups.length} 个套系）` : `${r}款（${groups.filter((g) => g.role === r).length}）`}
             {roleTab === r && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-action-primary" />}
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2 pb-2 text-[11.5px] text-ink-muted">
-          <span>共 {visible.length} 款</span>
+          <span>共 {visible.length} 个坑位</span>
           <span className="text-ink-faint">·</span>
           <span>每页</span>
           {PAGE_SIZES.map((n) => (
@@ -528,9 +586,10 @@ export default function BoardPage({
       </div>
 
       <div ref={resultsRef} className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 pb-10 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-        {pageItems.map((p) => {
+        {pageItems.map((g) => {
+          const p = g.members[0];
           const avoid = p.ai === 'avoid';
-          const added = inTray(p.id);
+          const added = g.members.some((m) => inTray(m.id));
           const remain = remainingMap.get(p.id.toLowerCase());
           // 属性行：比原来多带季节/版型/材质/尺码
           const metaLine = [p.category, p.wave, p.tempBand, p.season, p.fit, p.material, p.sizeRange]
@@ -545,15 +604,16 @@ export default function BoardPage({
             p.tagReturnPostShip === '高' ? '退货率偏高' : '',
             p.stockTurnover || '',
           ].filter(Boolean);
-          const qty = totalQty(p);
-          const gv = goodsValue(p);
+          // 套系内指标相加：计划翻单 / 已下单 / 货值
+          const qty = g.members.reduce((s, m) => s + totalQty(m), 0);
+          const gv = g.members.reduce((s, m) => s + goodsValue(m), 0);
           // 采购交期：负数 = 已超期
           const etaMs = remain?.purchaseEtaDate
             ? new Date(`${remain.purchaseEtaDate}T00:00:00+08:00`).getTime()
             : Number.NaN;
           const etaDays = Number.isFinite(etaMs) ? Math.round((etaMs - Date.now()) / 86_400_000) : null;
           return (
-            <div key={p.id} className={avoid ? 'opacity-45 grayscale' : ''}>
+            <div key={g.key} className={avoid ? 'opacity-45 grayscale' : ''}>
               <div className="relative overflow-hidden bg-surface-muted">
                 {p.img ? (
                   <img src={p.img} alt={p.name} className="aspect-square w-full object-contain" loading="lazy" />
@@ -572,21 +632,33 @@ export default function BoardPage({
                 )}
               </div>
               <div className="mt-3 flex items-start justify-between gap-2">
-                <div className="min-w-0 truncate text-[14px] font-semibold leading-tight">{p.name}</div>
+                <div className="min-w-0 truncate text-[14px] font-semibold leading-tight">{g.members.length > 1 ? g.name : p.name}</div>
                 <div className="shrink-0 text-[14px] font-bold text-stage-connect-fg">¥{p.price}</div>
               </div>
               <div className="mt-1 text-[11.5px] text-ink-muted">
-                {p.id.toUpperCase()} · {p.colors.join(' / ')}
+                {g.members.length > 1 ? `${g.members.length} 件套系` : p.id.toUpperCase()} · {p.colors.join(' / ')}
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                {p.roles.map((r) => (
-                  <span key={r} className="rounded-sm border border-edge-strong px-1.5 py-0.5 text-[10px] text-ink-secondary">{r}款</span>
-                ))}
+                {g.role !== '其他' && (
+                  <span className="rounded-sm border border-edge-strong px-1.5 py-0.5 text-[10px] text-ink-secondary">{g.role}款</span>
+                )}
                 <AiBadge p={p} />
               </div>
               <div className="mt-1.5 text-[11.5px] leading-5 text-ink-muted">
-                现货 {p.stockMain} · 在途 {p.inTransit} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
+                预估可用 {Math.round(g.available)} · 在途 {g.members.reduce((s, m) => s + (m.inTransit || 0), 0)} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
               </div>
+              {g.members.length > 1 && (
+                <div className="mt-1.5 space-y-0.5 border-t border-edge-muted pt-1.5">
+                  {g.members.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between text-[10.5px] leading-4">
+                      <span className="min-w-0 truncate text-ink-secondary">
+                        {m.id.toUpperCase()} {m.name}
+                      </span>
+                      <span className="ml-2 shrink-0 font-medium">{Math.round(availableOf(m, estimateOf(m))).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {metaLine && <div className="mt-0.5 text-[11px] text-ink-faint">{metaLine}</div>}
               {flags.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
@@ -620,8 +692,10 @@ export default function BoardPage({
               {remain && (
                 <div className="mt-3 border-t border-edge-muted pt-3">
                   <div className="flex items-baseline justify-between">
-                    <div className="text-[10.5px] font-medium tracking-widest text-ink-muted">预估剩余库存</div>
-                    <div className="text-[18px] font-bold text-stage-return-fg">{Math.round(remain.totals.estimate).toLocaleString()}</div>
+                    <div className="text-[10.5px] font-medium tracking-widest text-ink-muted">
+                      预估剩余可用{g.members.length > 1 ? '（套系合计）' : ''}
+                    </div>
+                    <div className="text-[18px] font-bold text-stage-return-fg">{Math.round(g.available).toLocaleString()}</div>
                   </div>
                   <div className="mt-2 grid grid-cols-4 gap-x-2 gap-y-1.5 text-[10.5px]">
                     <InvCell label="总库存" v={remain.totals.totalStock} />
@@ -705,8 +779,9 @@ export default function BoardPage({
                       <DropdownMenuItem
                         key={s.id}
                         onClick={() => {
-                          onAdd(p.id, s.id);
-                          toast.success(`「${p.name}」已作为新坑位放入 ${s.label}`);
+                          // 一个坑位 = 一个套系：套系内所有件作为一个坑位一起放入
+                          onAdd(g.members.map((m) => m.id), s.id);
+                          toast.success(`「${g.name}」${g.members.length > 1 ? `（${g.members.length} 件套系）` : ''}已作为新坑位放入 ${s.label}`);
                         }}
                       >
                         {s.label} 版块（新坑位）

@@ -21,7 +21,7 @@ export const DEFAULT_STRATEGY_RULES = {
     '清仓': { roles: ['库存'], noTransit: true, minStock: 200, minConv: 5, maxReturn: 30 },
     '拉新': { minNewBuyer: 30, bands: ['低', '中'] },
     '利润': { roles: ['利润'], bands: ['高'], maxReturn: 30 },
-    '主推': { roles: ['引流'], minConv: 6 },
+    '主推': { roles: ['主推'], minConv: 6 },
   },
   // 天气选款的湿度 / 风速阈值（与 weather 项目一致：≥75% 视为高湿，≥6 级视为大风）
   weatherThresholds: {

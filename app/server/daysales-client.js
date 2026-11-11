@@ -29,6 +29,7 @@ const __dirname = dirname(__filename);
 const CACHE_DIR = join(__dirname, '.cache');
 const DAILY_CACHE_FILE = join(CACHE_DIR, 'bi_daysales.json');
 const CUMU_CACHE_FILE = join(CACHE_DIR, 'bi_cumusales.json');
+const SALES14D_CACHE_FILE = join(CACHE_DIR, 'bi_sales14d.json');
 
 const DS_ID = 'e106807e71f8045669969e95'; // 宽表关联后数据源
 
@@ -36,6 +37,7 @@ const DS_ID = 'e106807e71f8045669969e95'; // 宽表关联后数据源
 const TTL_DAILY_RECENT_MS = 30 * 60 * 1000;       // 近 2 天日期: 30 分钟
 const TTL_DAILY_HISTORY_MS = 12 * 60 * 60 * 1000; // 历史日期: 12 小时
 const TTL_CUMU_MS = 2 * 60 * 60 * 1000;           // 累计销量: 2 小时
+const TTL_SALES14D_MS = 6 * 60 * 60 * 1000;       // 近 14 天销量: 6 小时（窗口末日变化即失效）
 
 // 预热参数
 const CHUNK_SIZE = 20;            // 每批 IN 的款号数（实测 45 会触发 BI 30s 网关超时）
@@ -49,8 +51,10 @@ const MAX_ATTEMPTS = 4;
 // 内存缓存: 启动或首次按需从磁盘装载
 // daily: { [lowerPid]: { [date]: { q: number, at: timestamp } } }
 // cumu:  { [lowerPid]: { q: number, at: timestamp } }
+// sales14d: { [lowerPid]: { q: number, at: timestamp, end: 'YYYY-MM-DD' } }
 let memDaily = null;
 let memCumu = null;
+let memSales14 = null;
 let diskLoadPromise = null;
 
 // 判断目标日期是否为近 2 天 (Date.now() - t < 2d)
@@ -62,7 +66,7 @@ function isRecent2Days(dateStr) {
 
 // 磁盘装载
 async function ensureCacheLoaded() {
-  if (memDaily !== null && memCumu !== null) return;
+  if (memDaily !== null && memCumu !== null && memSales14 !== null) return;
   if (diskLoadPromise) return diskLoadPromise;
   diskLoadPromise = (async () => {
     try {
@@ -86,6 +90,17 @@ async function ensureCacheLoaded() {
     } catch {
       memCumu = {};
     }
+
+    try {
+      if (existsSync(SALES14D_CACHE_FILE)) {
+        const text = await readFile(SALES14D_CACHE_FILE, 'utf8');
+        memSales14 = JSON.parse(text) || {};
+      } else {
+        memSales14 = {};
+      }
+    } catch {
+      memSales14 = {};
+    }
   })();
   await diskLoadPromise;
 }
@@ -101,6 +116,17 @@ function scheduleDailySave() {
     await saveDiskCache(DAILY_CACHE_FILE, memDaily);
   }, 1000);
   dailySaveTimer.unref?.();
+}
+
+let sales14SaveTimer = null;
+
+function scheduleSales14Save() {
+  if (sales14SaveTimer) return;
+  sales14SaveTimer = setTimeout(async () => {
+    sales14SaveTimer = null;
+    await saveDiskCache(SALES14D_CACHE_FILE, memSales14);
+  }, 1000);
+  sales14SaveTimer.unref?.();
 }
 
 function scheduleCumuSave() {
@@ -154,6 +180,33 @@ function setCumuToCache(lowerPid, qty) {
   if (!memCumu) memCumu = {};
   memCumu[lowerPid] = { q: qty, at: Date.now() };
   scheduleCumuSave();
+}
+
+// ── 近 14 天销量（含今天，按北京时间自然日）──
+// 缓存条目带窗口末日 end：跨天以后旧值直接失效，避免把昨天的「近 14 天」当今天用。
+export function last14Window(now = new Date()) {
+  const fmt = (d) => {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+  };
+  // 整体平移到 UTC+8 再按 UTC 取日期，避免服务器时区/夏令时影响
+  const end = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const start = new Date(end.getTime() - 13 * 24 * 60 * 60 * 1000);
+  return { start: fmt(start), end: fmt(end) };
+}
+
+function getSales14FromCache(lowerPid, windowEnd) {
+  const entry = memSales14?.[lowerPid];
+  if (!entry || typeof entry.q !== 'number' || !entry.at) return null;
+  if (entry.end !== windowEnd) return null;
+  if (Date.now() - entry.at >= TTL_SALES14D_MS) return null;
+  return entry.q;
+}
+
+function setSales14ToCache(lowerPid, qty, windowEnd) {
+  if (!memSales14) memSales14 = {};
+  memSales14[lowerPid] = { q: qty, at: Date.now(), end: windowEnd };
+  scheduleSales14Save();
 }
 
 // CSV 行解析
@@ -244,6 +297,8 @@ async function runJob(job) {
   try {
     if (job.kind === 'daily') {
       await fetchDailyChunk(job.date, job.pids);
+    } else if (job.kind === 'sales14d') {
+      await fetchSales14dChunk(job.start, job.end, job.pids);
     } else {
       await fetchCumuOne(job.pid);
     }
@@ -282,6 +337,28 @@ async function fetchDailyChunk(date, pids) {
   const sums = sumRowsByCode(rows, 1);
   for (const code of pids) {
     setDailyToCache(code.toLowerCase(), date, sums.get(code) || 0);
+  }
+}
+
+// 一批款号的近 14 天销量：IN + 日期区间一次取齐（与当日销量同样的批量车道）
+async function fetchSales14dChunk(start, end, pids) {
+  const rows = await runQuery([
+    'ds', 'preview', DS_ID,
+    '--columns', '款式编码,销售量,支付日期',
+    '--filter', `款式编码 IN ${pids.join(',')}`,
+    '--combine-type', 'AND',
+    '--filter', `支付日期 GE ${start}`,
+    '--limit', '50000',
+    '-f', 'csv',
+  ]);
+  // 上界在本地裁：日期窗口末日之后的行（含未来支付日期占位）不计入近 14 天
+  const inWindow = rows.filter((r) => {
+    const d = String(r[2] || '').trim().slice(0, 10);
+    return !d || (d >= start && d <= end);
+  });
+  const sums = sumRowsByCode(inWindow, 1);
+  for (const code of pids) {
+    setSales14ToCache(code.toLowerCase(), sums.get(code) || 0, end);
   }
 }
 
@@ -366,6 +443,36 @@ export async function getCumulativeSales(pids) {
   return { byPid: toByPid(entries), pending: new Set(missing).size };
 }
 
+/**
+ * 批量查询近 14 天销量（含今天）：只读缓存，缺失的入队预热
+ * @returns {Promise<{ byPid: Record<string, number>, pending: number, window: { start: string, end: string } }>}
+ */
+export async function getSales14d(pids) {
+  const window = last14Window();
+  if (!Array.isArray(pids) || pids.length === 0) return { byPid: {}, pending: 0, window };
+  await ensureCacheLoaded();
+
+  const entries = [];
+  const missing = [];
+  for (const raw of pids) {
+    const upper = String(raw).toUpperCase().trim();
+    if (!upper) continue;
+    const cached = getSales14FromCache(upper.toLowerCase(), window.end);
+    if (cached === null) {
+      missing.push(upper);
+      entries.push([upper, 0]);
+    } else {
+      entries.push([upper, cached]);
+    }
+  }
+
+  for (const chunk of chunkPids(missing, CHUNK_SIZE)) {
+    enqueue({ kind: 'sales14d', key: `s14|${window.end}|${chunk.join(',')}`, start: window.start, end: window.end, pids: chunk });
+  }
+
+  return { byPid: toByPid(entries), pending: new Set(missing).size, window };
+}
+
 // 运维用：当前预热队列状态
 export function getSalesWarmStats() {
   return { running, queued: jobs.length, pendingKeys: pendingKeys.size };
@@ -375,12 +482,14 @@ export function getSalesWarmStats() {
 export async function clearSalesCache({ hard = false } = {}) {
   memDaily = {};
   memCumu = {};
+  memSales14 = {};
   jobs.length = 0;
   pendingKeys.clear();
   if (hard) {
     try {
       if (existsSync(DAILY_CACHE_FILE)) await unlink(DAILY_CACHE_FILE).catch(() => {});
       if (existsSync(CUMU_CACHE_FILE)) await unlink(CUMU_CACHE_FILE).catch(() => {});
+      if (existsSync(SALES14D_CACHE_FILE)) await unlink(SALES14D_CACHE_FILE).catch(() => {});
     } catch (err) {
       console.warn('[sales-cache] 清除磁盘文件失败:', err.message);
     }

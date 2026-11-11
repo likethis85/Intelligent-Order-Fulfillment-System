@@ -384,6 +384,16 @@ export function fetchRemainingInventory(params: { tag?: string; search?: string;
   // 冷启动（磁盘缓存过期）要按年份分区重拉 58895 行，约 2 分钟；给 240s
   return jsonFetch(`/remaining-inventory${qs ? `?${qs}` : ''}`, undefined, 240_000);
 }
+// 近 14 天销量（含今天）：后端只读缓存、缺失款号后台预热，前端可稍后重试补齐
+export function fetchSales14d(pids: string[]): Promise<{
+  byPid: Record<string, number>;
+  pending: number;
+  window?: { start: string; end: string };
+}> {
+  const q = new URLSearchParams({ pids: pids.join(',') });
+  return jsonFetch(`/sales/last14?${q.toString()}`);
+}
+
 export function fetchLaunchYears(): Promise<{ years: number[] }> {
   return jsonFetch('/remaining-inventory/launch-years');
 }

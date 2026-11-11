@@ -1,7 +1,7 @@
 // 销量 REST API：直播当天销量 + 累计总销量（同一数据源 e106807e，但走两个查询）
 // 注意：前端只在 tray.date < 今天 时才调用（tray_past_only）
 import { Router } from 'express';
-import { getDailySales, getCumulativeSales } from '../daysales-client.js';
+import { getDailySales, getCumulativeSales, getSales14d } from '../daysales-client.js';
 
 const router = Router();
 
@@ -47,6 +47,19 @@ router.get('/daily', async (req, res) => {
     res.json({ date, byPid, pending, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.warn('[sales/daily]', err.message);
+    res.status(503).json({ error: 'fetch_failed', message: err.message, byPid: {} });
+  }
+});
+
+// GET /api/sales/last14?pids=...  近 14 天销量（含今天），选款看板角色判定用
+router.get('/last14', async (req, res) => {
+  const pids = pidList(req.query.pids);
+  if (pids.length === 0) return res.json({ byPid: {}, pending: 0 });
+  try {
+    const { byPid, pending, window } = await getSales14d(pids);
+    res.json({ byPid, pending, window, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.warn('[sales/last14]', err.message);
     res.status(503).json({ error: 'fetch_failed', message: err.message, byPid: {} });
   }
 });

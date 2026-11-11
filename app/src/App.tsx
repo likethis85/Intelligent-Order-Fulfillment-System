@@ -646,11 +646,14 @@ export default function App({ user, onLogout, logoutPending }: { user: AuthUser;
     return t;
   };
 
-  const addToTray = (pid: string, sectionId: string) => {
+  // pids 可以是多个：一个坑位 = 一个套系，套系内多件作为一个 Look 一起放入
+  const addToTray = (pids: string | string[], sectionId: string) => {
+    const list = (Array.isArray(pids) ? pids : [pids]).filter(Boolean);
+    if (list.length === 0) return;
     updateTray(activeTrayId, (t) => ({
       ...t,
       sections: t.sections.map((s) =>
-        s.id === sectionId ? { ...s, looks: [...s.looks, { id: nid('L'), pids: [pid], cover: pid }] } : s,
+        s.id === sectionId ? { ...s, looks: [...s.looks, { id: nid('L'), pids: list, cover: list[0] }] } : s,
       ),
     }));
   };
