@@ -16,7 +16,6 @@ interface Filters {
   cats: string[];      // 品类
   waves: string[];     // 波段
   bands: string[];     // 价格带
-  temps: string[];     // 适穿温度带
   roles: RoleTag[];    // 商品角色
   years: number[];     // 上新年份
   minStock: number;    // 预估剩余库存 ≥
@@ -24,30 +23,27 @@ interface Filters {
   minConv: number;     // 转化率 ≥ %
   maxReturn: number;   // 退货率 ≤ %
   minNewBuyer: number; // 拉新率 ≥ %
-  scenes: string[];    // 场景规则
   perLookN: number;    // 每品类每角色取 X 个坑位
 }
 
 const DEFAULT_FILTERS: Filters = {
-  cats: [], waves: [], bands: [], temps: [], roles: [], years: [],
+  cats: [], waves: [], bands: [], roles: [], years: [],
   minStock: 0, noTransit: false, minConv: 0, maxReturn: 80, minNewBuyer: 0,
-  scenes: [], perLookN: 3,
+  perLookN: 3,
 };
 
 const DIM = {
   cats: ['大衣', '针织', 'T恤', '裤装', '套装', '鞋靴', '衬衫', '外套', '西装', '背心', '夹克', '羽绒'],
   waves: ['9月1波段', '9月2波段', '10月1波段', '常青款'],
   bands: ['低', '中', '高'] as const,
-  temps: ['<5°C', '0~12°C', '5~15°C', '10~20°C', '15~25°C', '18~28°C', '全季'],
   roles: ['引流', '利润', '库存'] as RoleTag[],
-  scenes: ['降温提权', '高湿→速干候选', '大促引流占比上调'],
 };
 
 const PRESETS: { label: string; patch: Partial<Filters> }[] = [
-  { label: '冬季日常场', patch: { ...DEFAULT_FILTERS, cats: ['大衣', '针织', '套装', '裤装', 'T恤', '外套'], temps: ['0~12°C', '5~15°C', '10~20°C'], scenes: ['降温提权'] } },
+  { label: '冬季日常场', patch: { ...DEFAULT_FILTERS, cats: ['大衣', '针织', '套装', '裤装', 'T恤', '外套'] } },
   { label: '清仓场', patch: { ...DEFAULT_FILTERS, roles: ['库存'], noTransit: true, minStock: 200 } },
   { label: '新品首发场', patch: { ...DEFAULT_FILTERS, waves: ['9月2波段', '常青款'] } },
-  { label: '大促场', patch: { ...DEFAULT_FILTERS, scenes: ['大促引流占比上调'] } },
+  { label: '大促场', patch: { ...DEFAULT_FILTERS, roles: ['引流'], minConv: 5 } },
 ];
 
 interface ChatMsg {
@@ -80,12 +76,12 @@ function aiReplyFallback(q: string): ChatMsg {
   if (catHit)
     return {
       from: 'ai',
-      text: `已理解：本场聚焦「${catHit}」。建议叠加温度带匹配和退货率 ≤80% 的底线。要应用吗？`,
+      text: `已理解：本场聚焦「${catHit}」。建议叠加退货率 ≤80% 的底线。要应用吗？`,
       patch: { cats: [catHit], maxReturn: 80 },
     };
   return {
     from: 'ai',
-    text: '我可以按这些维度帮你定策略：品类 / 波段 / 价格带 / 温度带 / 角色（引流·利润·库存）/ 库存条件 / 转化率·退货率·拉新率阈值 / 场景规则。试试说"清一波库存"或"这场主打拉新"。',
+    text: '我可以按这些维度帮你定策略：品类 / 上新年份 / 波段 / 价格带 / 角色（引流·利润·库存）/ 库存条件 / 转化率·退货率·拉新率阈值。试试说"清一波库存"或"这场主打拉新"。',
   };
 }
 
@@ -189,7 +185,7 @@ export default function BoardPage({
   onCreateTray: (name: string, type: TrayType, date: string) => Tray;
   onAdd: (pid: string, sectionId: string) => void;
 }) {
-  // 默认所有维度都是「全部」：不预设品类/场景，进页面先看到全量候选池
+  // 默认所有维度都是「全部」：不预设品类，进页面先看到全量候选池
   const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });
   const [roleTab, setRoleTab] = useState<'全部' | RoleTag>('全部');
   const [creating, setCreating] = useState(false);
@@ -213,7 +209,7 @@ export default function BoardPage({
   useEffect(() => {
     fetchFilters()
       .then((r) => setDims(r))
-      .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: DIM.temps, priceBands: [...DIM.bands], roles: DIM.roles, launchYears: [] }));
+      .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: [], priceBands: [...DIM.bands], roles: DIM.roles, launchYears: [] }));
   }, []);
   // BI 返回的维度值里偶尔带「全部」占位，去掉后由 DimChips 统一渲染自己的「全部」
   const catList = (dims.categories.length ? dims.categories : DIM.cats).filter((v) => v !== '全部');
@@ -227,7 +223,6 @@ export default function BoardPage({
       return an !== bn ? an - bn : at.localeCompare(bt);
     });
   })();
-  const tempList = (dims.tempBands.length ? dims.tempBands : DIM.temps).filter((v) => v !== '全部');
   const bandList = (dims.priceBands.length ? dims.priceBands : DIM.bands).filter((v) => v !== '全部');
   // 上新年份：优先 /meta/filters，其次剩余库存卡；都拿不到时用商品自身的上新日期兜底，
   // 保证这一维度始终能出现（否则接口失败时整个「上新年份」行会被隐藏）
@@ -272,7 +267,6 @@ export default function BoardPage({
           (f.cats.length === 0 || f.cats.includes(p.category)) &&
           (f.waves.length === 0 || f.waves.includes(p.wave)) &&
           (f.bands.length === 0 || f.bands.includes(p.priceBand)) &&
-          (f.temps.length === 0 || f.temps.includes(p.tempBand)) &&
           (f.roles.length === 0 || p.roles.some((r) => f.roles.includes(r))) &&
           (f.years.length === 0 || (() => {
             // 领猫侧没有 launchDate，回退到剩余库存 BI 卡片的「款上新时间」
@@ -434,9 +428,6 @@ export default function BoardPage({
               labelOf={(b) => (b === '空' ? '未分类' : `${b}价位`)}
             />
           </Dim>
-          <Dim label="适穿温度带">
-            <DimChips options={tempList} selected={f.temps} onChange={(temps) => setF((x) => ({ ...x, temps }))} />
-          </Dim>
           <Dim label="商品角色">
             <DimChips options={roleList} selected={f.roles} onChange={(roles) => setF((x) => ({ ...x, roles }))} labelOf={(r) => `${r}款`} />
           </Dim>
@@ -459,9 +450,6 @@ export default function BoardPage({
                 />
               </label>
             ))}
-          </Dim>
-          <Dim label="场景规则">
-            <DimChips options={DIM.scenes} selected={f.scenes} onChange={(scenes) => setF((x) => ({ ...x, scenes }))} />
           </Dim>
           <Dim label="坑位数量">
             <label className="flex items-center gap-1 text-[11.5px] text-ink-secondary">
