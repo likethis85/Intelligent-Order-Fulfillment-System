@@ -26,13 +26,11 @@ interface Filters {
   minSignRate: number; // 签收率 ≥ %（= 1 − SUM(退货数量)/SUM(销售数量)）
   maxReturn: number;   // 退货率 ≤ %
   minNewBuyer: number; // 拉新率 ≥ %
-  perLookN: number;    // 每品类每角色取 X 个坑位
 }
 
 const DEFAULT_FILTERS: Filters = {
   cats: [], waves: [], bands: [], seasons: [], roles: [], years: [],
   minStock: 0, noTransit: false, minConv: 0, minSignRate: 0, maxReturn: 80, minNewBuyer: 0,
-  perLookN: 3,
 };
 
 // 选角色（单选）时联动「库存条件 / 季节 / 指标阈值」：
@@ -574,13 +572,6 @@ export default function BoardPage({
                 />
               </label>
             ))}
-          </Dim>
-          <Dim label="坑位数量">
-            <label className="flex items-center gap-1 text-[11.5px] text-ink-secondary">
-              每品类每角色取
-              <input type="number" min={1} max={9} value={f.perLookN} onChange={(e) => setF((x) => ({ ...x, perLookN: Number(e.target.value) }))} className="w-14 rounded border border-edge-strong px-1.5 py-0.5 text-center text-[11.5px] outline-none focus:border-edge" />
-              个坑位（每坑位多款号）
-            </label>
           </Dim>
         </div>
 

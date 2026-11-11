@@ -68,6 +68,11 @@ test('指标阈值里有签收率，位于转化率和退货率之间', () => {
   assert.ok(code.includes('(1 - p.returnRate) * 100 >= f.minSignRate'), '签收率 = 1 − 总退货率（SUM 退货数量/SUM 销售数量）');
 });
 
+test('坑位数量维度已移除', () => {
+  assert.ok(!code.includes('<Dim label="坑位数量">'), '不再渲染坑位数量');
+  assert.ok(!code.includes('perLookN'), 'Filters 里不再保留 perLookN');
+});
+
 test('适穿温度带与场景规则维度已移除', () => {
   assert.ok(!code.includes('<Dim label="适穿温度带">'), '不再渲染温度带筛选');
   assert.ok(!code.includes('<Dim label="场景规则">'), '不再渲染场景规则筛选');
