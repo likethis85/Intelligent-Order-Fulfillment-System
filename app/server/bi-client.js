@@ -588,6 +588,12 @@ export function biOverrides(row) {
   // 指标字段（取首条 SKC 的款级数据）
   const netSales = num(first['净销量']);
   if (netSales !== undefined) out.netSales = netSales;
+  // 退货数量 / 销售数量：签收率口径要 SUM(退货数量)/SUM(销售数量)（卡里没有这两个字段时留空，
+  // 前端用 总退货率 + 净销量 反推同样口径的权重）
+  const returnQty = num(first['退货数量']);
+  if (returnQty !== undefined) out.returnQty = returnQty;
+  const salesQty = num(first['销售数量']);
+  if (salesQty !== undefined) out.salesQty = salesQty;
   const newBuyer = pct(first['新买家占比(款)']);
   if (newBuyer !== undefined) out.newBuyer = newBuyer;
   const priceBand = str(pickCol(first, '价格定位', '款价格定位'));
@@ -683,6 +689,11 @@ export function biProductOverrides(productRow) {
   // 款级指标（款式卡也有，比 SKC 卡更权威）
   const netSales = num(r['净销量']);
   if (netSales !== undefined) out.netSales = netSales;
+  // 退货数量 / 销售数量（签收率 = 1 − SUM(退货数量)/SUM(销售数量)）
+  const returnQty = num(r['退货数量']);
+  if (returnQty !== undefined) out.returnQty = returnQty;
+  const salesQty = num(r['销售数量']);
+  if (salesQty !== undefined) out.salesQty = salesQty;
   const newBuyer = pct(r['新买家占比(款)']);
   if (newBuyer !== undefined) out.newBuyer = newBuyer;
   const forecastNetSales = num(r['预计总净销量']);
@@ -780,6 +791,8 @@ export function biOnlyProduct(row, productMasterRow) {
     inTransit: merged.inTransit ?? 0,
     stock: merged.stock ?? [],
     netSales: merged.netSales ?? 0,
+    returnQty: merged.returnQty ?? null,
+    salesQty: merged.salesQty ?? null,
     conversion: merged.conversion ?? 0,
     returnRate: merged.returnRate ?? 0,
     newBuyer: merged.newBuyer ?? 0,
@@ -860,6 +873,8 @@ export function biOnlyProductFromMaster(productMasterRow) {
     inTransit: 0,
     stock: [],
     netSales: ov.netSales ?? 0,
+    returnQty: ov.returnQty ?? null,
+    salesQty: ov.salesQty ?? null,
     conversion: ov.conversion ?? 0,
     returnRate: ov.returnRate ?? 0,
     newBuyer: ov.newBuyer ?? 0,

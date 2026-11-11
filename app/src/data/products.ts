@@ -43,6 +43,10 @@ export interface Product {
   returnRate: number;
   newBuyer: number; // 新买家占比（款）
   netSales: number;
+  // 退货数量 / 销售数量（BI 款级）：签收率 = 1 − SUM(退货数量)/SUM(销售数量)。
+  // 卡里没有这两个字段时为 null，前端用 总退货率 + 净销量 反推同一口径
+  returnQty?: number | null;
+  salesQty?: number | null;
   ai: AiFlag;
   aiReason?: string;
   wave: string;

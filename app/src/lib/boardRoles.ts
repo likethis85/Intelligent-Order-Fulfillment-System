@@ -77,20 +77,41 @@ export function availableOf(p: Product, estimate?: number): number {
   return Number(p.stockMain) || 0;
 }
 
-// 组内总退货率：按净销量加权；没有销量权重时取有数据成员的平均值
+// 组内总退货率 = SUM(退货数量) / SUM(销售数量)（套系内各件先加数量，再相除，不能先按款算率再平均）
+// 数量来源：
+//   ① 商品卡里有「退货数量」「销售数量」就直接加这两个数；
+//   ② 没有（当前卡没带这两列）就用 总退货率 反推：销售数量 = 净销量 / (1 − 总退货率)，
+//      退货数量 = 销售数量 × 总退货率 —— 在 总退货率 = 退货/销售、净销量 = 销售 − 退货 的定义下，
+//      Σ退货 / Σ销售 与直接加数量完全一致，权重是「销售数量」而不是「净销量」
+// 都拿不到（无销售、无退货率）才返回 null：签收率显示 —，评分按 0 计
 function groupReturnRate(members: Product[]): number | null {
-  let weighted = 0;
-  let weight = 0;
+  let weighted = 0; // Σ退货数量
+  let weight = 0;  // Σ销售数量
   let plain = 0;
   let counted = 0;
   for (const p of members) {
     const r = Number(p.returnRate);
-    if (!Number.isFinite(r) || r <= 0) continue;
-    const w = Number(p.netSales);
-    if (Number.isFinite(w) && w > 0) {
-      weighted += r * w;
-      weight += w;
+    const rateKnown = Number.isFinite(r) && r > 0;
+
+    const rq = Number(p.returnQty);
+    const sq = Number(p.salesQty);
+    if (Number.isFinite(rq) && Number.isFinite(sq) && sq > 0 && rq >= 0) {
+      weighted += rq;
+      weight += sq;
+      continue;
     }
+    if (!rateKnown) continue;
+
+    // 卡里没有数量列：用 净销量 + 总退货率 反推销售数量（退货率 =1 时无从反推，跳过）
+    const net = Number(p.netSales);
+    if (!Number.isFinite(net) || net <= 0 || r >= 1) {
+      plain += r;
+      counted++;
+      continue;
+    }
+    const s = net / (1 - r);
+    weighted += s * r;
+    weight += s;
     plain += r;
     counted++;
   }

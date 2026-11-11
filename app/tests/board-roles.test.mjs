@@ -40,6 +40,45 @@ test('签收率 = 1 − 总退货率，不用发货后退货率', () => {
   assert.ok(!/tagReturnPostShip/.test(roles), '禁用发货后退货率打标');
 });
 
+test('组内总退货率 = SUM(退货数量)/SUM(销售数量)，不是按款平均', async () => {
+  const { buildSuiteGroups } = await import('../src/lib/boardRoles.ts');
+  const p = (over) => ({ sub: '上班套', name: over.id, season: '秋冬', price: 1000, ...over });
+  // A：销售 1000 件、退货 400 件（40%）；B：销售 100 件、退货 50 件（50%）
+  // 数量口径 450/1100 ≈ 40.9%；若按款平均会是 45%，按净销量加权又会是另一个值
+  const groups = buildSuiteGroups(
+    [
+      p({ id: 'A1', returnQty: 400, salesQty: 1000, returnRate: 0.4, netSales: 600 }),
+      p({ id: 'A2', returnQty: 50, salesQty: 100, returnRate: 0.5, netSales: 50 }),
+    ],
+    () => 200,
+    () => 50,
+  );
+  assert.equal(groups.length, 1, '同一小名合成一个套系');
+  const sign = groups[0].signRate;
+  assert.ok(Math.abs(sign - (1 - 450 / 1100)) < 1e-9, `签收率按数量口径：得到 ${sign}`);
+  assert.ok(Math.abs(sign - 0.55) > 1e-6, '不能退化成按款平均的 55%');
+});
+
+test('卡里没有数量列时用 总退货率 + 净销量 反推销售数量，口径一致', async () => {
+  const { buildSuiteGroups } = await import('../src/lib/boardRoles.ts');
+  const p = (over) => ({ sub: '通勤套', name: over.id, season: '秋冬', price: 1000, ...over });
+  // 反推：A 销售 600/(1−0.4)=1000，退货 400；B 销售 50/(1−0.5)=100，退货 50 → 450/1100
+  const groups = buildSuiteGroups(
+    [
+      p({ id: 'B1', returnRate: 0.4, netSales: 600 }),
+      p({ id: 'B2', returnRate: 0.5, netSales: 50 }),
+    ],
+    () => 200,
+    () => 50,
+  );
+  assert.ok(Math.abs(groups[0].signRate - (1 - 450 / 1100)) < 1e-9);
+
+  const src = roles.slice(roles.indexOf('// 组内总退货率'), roles.indexOf('export function buildSuiteGroups'));
+  assert.ok(src.includes('SUM(退货数量) / SUM(销售数量)'), '注释写明口径');
+  assert.ok(src.includes('const s = net / (1 - r)'), '没有数量列时反推销售数量');
+  assert.ok(!src.includes('weighted / weight, r'), '不能先按款算率再平均');
+});
+
 test('套系 key = 小名（无小名退回款号），组内指标相加', () => {
   assert.ok(roles.includes("String(p.sub || '').trim() || p.id"), '小名优先、款号兜底');
   assert.ok(roles.includes('g.available += availableOf(p, estimateOf(p))'), '可用数按件相加');
