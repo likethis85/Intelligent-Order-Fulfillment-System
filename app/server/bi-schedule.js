@@ -5,6 +5,7 @@
 // 定时任务失败、或服务在 10:00 前后重启错过当天，首个访问会在数据超过 24h 时兜底补拉。
 
 import { refreshBiSkc, refreshBiProductMaster } from './bi-client.js';
+import { downloadProductSnapshot } from './product-snapshot.js';
 
 const DEFAULT_HOUR = 10;
 const DEFAULT_MINUTE = 0;
@@ -20,6 +21,8 @@ export function msUntilNextRun(now = new Date(), hour = DEFAULT_HOUR, minute = D
 const defaultRunners = [
   ['skc', refreshBiSkc],
   ['product', refreshBiProductMaster],
+  // 商品全表快照（近14天销量等）：每天跟两张卡一起下，排在最后，走同一条后台车道串行
+  ['product-snapshot', () => downloadProductSnapshot()],
 ];
 
 // 两张卡串行执行：guancli 后台车道只有 1 个并发名额，同时发起也会排队，串行日志更清楚

@@ -1,8 +1,8 @@
 // 销量客户端
 //   ① 直播当天销量: 宽表 (e106807e71f8045669969e95) --columns 款式编码,销售量 --filter 支付日期 EQ 日期
 //   ② 累计销量:   宽表 --columns 款式编码,销售量 --filter "款式编码 EQ X"（单款，不能批量，见下）
-//   ③ 近14天销量: 「商品全表」ETL 数据集 (g94553b7c10714125a095ea8) 里已经算好的近14天销量字段，
-//      不再用宽表按日期区间现算（宽表 1183 万行，区间+IN 代价高且容易 524）
+//   ③ 近14天销量: 「商品全表」ETL 数据集的本地快照（product-snapshot.js）。该数据集每天随 BI
+//      刷新一次，这里跟着下快照，查询只读本地文件——既不实时查 BI，也不用宽表按日期区间现算
 //
 // 这个数据集有 1183 万行 × 277 列，BI 侧任何一次预览都是 3-30 秒量级，并且 30 秒左右会被网关
 // 判死（API 524）。实测：
@@ -21,6 +21,7 @@
 //   - 缓存: bi_daysales.json (近2天30min, 历史12h) / bi_cumusales.json (2h)，成功的 0 也写盘
 
 import { runGuancli } from './guancli.js';
+import { getSales14dFromSnapshot } from './product-snapshot.js';
 import { mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -31,24 +32,16 @@ const __dirname = dirname(__filename);
 const CACHE_DIR = join(__dirname, '.cache');
 const DAILY_CACHE_FILE = join(CACHE_DIR, 'bi_daysales.json');
 const CUMU_CACHE_FILE = join(CACHE_DIR, 'bi_cumusales.json');
-const SALES14D_CACHE_FILE = join(CACHE_DIR, 'bi_sales14d.json');
 
 const DS_ID = 'e106807e71f8045669969e95'; // 宽表关联后数据源（当日 / 累计销量）
-const PRODUCT_DS_ID = 'g94553b7c10714125a095ea8'; // 商品全表 ETL（近14天销量、BOM 成本、尺码都在这里）
-// 近14天销量字段名不唯一（不同 ETL 版本叫法不同）：按顺序试，成功后记住
-const SALES14D_COLUMNS = ['近14天销量', '近14天净销量', '近14天销售量', '最近14天销量'];
-let sales14Column = null;
 
 // 缓存 TTL 配置
 const TTL_DAILY_RECENT_MS = 30 * 60 * 1000;       // 近 2 天日期: 30 分钟
 const TTL_DAILY_HISTORY_MS = 12 * 60 * 60 * 1000; // 历史日期: 12 小时
 const TTL_CUMU_MS = 2 * 60 * 60 * 1000;           // 累计销量: 2 小时
-const TTL_SALES14D_MS = 6 * 60 * 60 * 1000;       // 近 14 天销量: 6 小时（窗口末日变化即失效）
 
 // 预热参数
 const CHUNK_SIZE = 20;            // 宽表每批 IN 的款号数（实测 45 会触发 BI 30s 网关超时）
-// 商品全表只有 5.8 万行，100 个款号 IN 实测约 4.5s，可以一次带更多，避免几百个小任务把 BI 挤爆
-const CHUNK_SIZE_14D = 200;
 const QUERY_TIMEOUT_MS = 25_000;  // 必须低于 BI 网关的 ~30s 上限
 const WARM_CONCURRENCY = Number(process.env.SALES_WARM_CONCURRENCY) || 3;
 // 单测/排查时可关掉预热（SALES_WARM_DISABLED=1），接口仍返回缓存值 + pending
@@ -59,10 +52,8 @@ const MAX_ATTEMPTS = 4;
 // 内存缓存: 启动或首次按需从磁盘装载
 // daily: { [lowerPid]: { [date]: { q: number, at: timestamp } } }
 // cumu:  { [lowerPid]: { q: number, at: timestamp } }
-// sales14d: { [lowerPid]: { q: number, at: timestamp, end: 'YYYY-MM-DD' } }
 let memDaily = null;
 let memCumu = null;
-let memSales14 = null;
 let diskLoadPromise = null;
 
 // 判断目标日期是否为近 2 天 (Date.now() - t < 2d)
@@ -74,7 +65,7 @@ function isRecent2Days(dateStr) {
 
 // 磁盘装载
 async function ensureCacheLoaded() {
-  if (memDaily !== null && memCumu !== null && memSales14 !== null) return;
+  if (memDaily !== null && memCumu !== null) return;
   if (diskLoadPromise) return diskLoadPromise;
   diskLoadPromise = (async () => {
     try {
@@ -98,17 +89,6 @@ async function ensureCacheLoaded() {
     } catch {
       memCumu = {};
     }
-
-    try {
-      if (existsSync(SALES14D_CACHE_FILE)) {
-        const text = await readFile(SALES14D_CACHE_FILE, 'utf8');
-        memSales14 = JSON.parse(text) || {};
-      } else {
-        memSales14 = {};
-      }
-    } catch {
-      memSales14 = {};
-    }
   })();
   await diskLoadPromise;
 }
@@ -124,17 +104,6 @@ function scheduleDailySave() {
     await saveDiskCache(DAILY_CACHE_FILE, memDaily);
   }, 1000);
   dailySaveTimer.unref?.();
-}
-
-let sales14SaveTimer = null;
-
-function scheduleSales14Save() {
-  if (sales14SaveTimer) return;
-  sales14SaveTimer = setTimeout(async () => {
-    sales14SaveTimer = null;
-    await saveDiskCache(SALES14D_CACHE_FILE, memSales14);
-  }, 1000);
-  sales14SaveTimer.unref?.();
 }
 
 function scheduleCumuSave() {
@@ -190,8 +159,7 @@ function setCumuToCache(lowerPid, qty) {
   scheduleCumuSave();
 }
 
-// ── 近 14 天销量（含今天，按北京时间自然日）──
-// 缓存条目带窗口末日 end：跨天以后旧值直接失效，避免把昨天的「近 14 天」当今天用。
+// ── 近 14 天销量窗口（北京时间自然日，含今天）──
 export function last14Window(now = new Date()) {
   const fmt = (d) => {
     const p = (n) => String(n).padStart(2, '0');
@@ -201,20 +169,6 @@ export function last14Window(now = new Date()) {
   const end = new Date(now.getTime() + 8 * 60 * 60 * 1000);
   const start = new Date(end.getTime() - 13 * 24 * 60 * 60 * 1000);
   return { start: fmt(start), end: fmt(end) };
-}
-
-function getSales14FromCache(lowerPid, windowEnd) {
-  const entry = memSales14?.[lowerPid];
-  if (!entry || typeof entry.q !== 'number' || !entry.at) return null;
-  if (entry.end !== windowEnd) return null;
-  if (Date.now() - entry.at >= TTL_SALES14D_MS) return null;
-  return entry.q;
-}
-
-function setSales14ToCache(lowerPid, qty, windowEnd) {
-  if (!memSales14) memSales14 = {};
-  memSales14[lowerPid] = { q: qty, at: Date.now(), end: windowEnd };
-  scheduleSales14Save();
 }
 
 // CSV 行解析
@@ -305,8 +259,6 @@ async function runJob(job) {
   try {
     if (job.kind === 'daily') {
       await fetchDailyChunk(job.date, job.pids);
-    } else if (job.kind === 'sales14d') {
-      await fetchSales14dChunk(job.start, job.end, job.pids);
     } else {
       await fetchCumuOne(job.pid);
     }
@@ -345,40 +297,6 @@ async function fetchDailyChunk(date, pids) {
   const sums = sumRowsByCode(rows, 1);
   for (const code of pids) {
     setDailyToCache(code.toLowerCase(), date, sums.get(code) || 0);
-  }
-}
-
-// 一批款号的近 14 天销量：商品全表 ETL 里已按业务口径算好，直接按款号 IN 取回再跨 SKC 求和
-async function fetchSales14dChunk(start, end, pids) {
-  const candidates = sales14Column ? [sales14Column] : SALES14D_COLUMNS;
-  const detecting = !sales14Column;
-  let rows = null;
-  let lastErr = null;
-  for (const col of candidates) {
-    try {
-      rows = await runQuery([
-        'ds', 'preview', PRODUCT_DS_ID,
-        '--columns', `款式编码,${col}`,
-        '--filter', `款式编码 IN ${pids.join(',')}`,
-        '--limit', '50000',
-        '-f', 'csv',
-      ]);
-      sales14Column = col;
-      if (detecting) console.log(`[sales14d] 商品全表字段「${col}」可用`);
-      break;
-    } catch (err) {
-      lastErr = err;
-      // 已知列名还失败，说明不是字段名问题（BI 超时/网关），直接交给退避重试
-      if (sales14Column) throw err;
-    }
-  }
-  if (!rows) {
-    throw new Error(`商品全表取近14天销量失败（已试 ${SALES14D_COLUMNS.join('/')}）：${lastErr?.message || '无数据'}`);
-  }
-  // 同一款下有多个 SKC/颜色行：逐行相加（只累加正数，退货负数不计入销量）
-  const sums = sumRowsByCode(rows, 1);
-  for (const code of pids) {
-    setSales14ToCache(code.toLowerCase(), sums.get(code) || 0, end);
   }
 }
 
@@ -464,33 +382,15 @@ export async function getCumulativeSales(pids) {
 }
 
 /**
- * 批量查询近 14 天销量（含今天）：只读缓存，缺失的入队预热
- * @returns {Promise<{ byPid: Record<string, number>, pending: number, window: { start: string, end: string } }>}
+ * 批量查询近 14 天销量（含今天）：直接读商品全表本地快照，不走 BI、不排队
+ * 快照每天随 BI 刷新下载一次（product-snapshot.js），缺失时后台补，请求立即返回已有值。
+ * @returns {Promise<{ byPid: Record<string, number>, pending: number, window: { start: string, end: string }, snapshotAt?: number, snapshotDate?: string }>}
  */
 export async function getSales14d(pids) {
   const window = last14Window();
   if (!Array.isArray(pids) || pids.length === 0) return { byPid: {}, pending: 0, window };
-  await ensureCacheLoaded();
-
-  const entries = [];
-  const missing = [];
-  for (const raw of pids) {
-    const upper = String(raw).toUpperCase().trim();
-    if (!upper) continue;
-    const cached = getSales14FromCache(upper.toLowerCase(), window.end);
-    if (cached === null) {
-      missing.push(upper);
-      entries.push([upper, 0]);
-    } else {
-      entries.push([upper, cached]);
-    }
-  }
-
-  for (const chunk of chunkPids(missing, CHUNK_SIZE_14D)) {
-    enqueue({ kind: 'sales14d', key: `s14|${window.end}|${chunk.join(',')}`, start: window.start, end: window.end, pids: chunk });
-  }
-
-  return { byPid: toByPid(entries), pending: new Set(missing).size, window };
+  const snap = await getSales14dFromSnapshot(pids);
+  return { byPid: snap.byPid, pending: 0, window, snapshotAt: snap.at, snapshotDate: snap.date };
 }
 
 // 运维用：当前预热队列状态
@@ -502,14 +402,12 @@ export function getSalesWarmStats() {
 export async function clearSalesCache({ hard = false } = {}) {
   memDaily = {};
   memCumu = {};
-  memSales14 = {};
   jobs.length = 0;
   pendingKeys.clear();
   if (hard) {
     try {
       if (existsSync(DAILY_CACHE_FILE)) await unlink(DAILY_CACHE_FILE).catch(() => {});
       if (existsSync(CUMU_CACHE_FILE)) await unlink(CUMU_CACHE_FILE).catch(() => {});
-      if (existsSync(SALES14D_CACHE_FILE)) await unlink(SALES14D_CACHE_FILE).catch(() => {});
     } catch (err) {
       console.warn('[sales-cache] 清除磁盘文件失败:', err.message);
     }
