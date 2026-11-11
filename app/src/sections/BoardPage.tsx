@@ -707,7 +707,7 @@ export default function BoardPage({
                 <AiBadge p={p} />
               </div>
               <div className="mt-1.5 text-[11.5px] leading-5 text-ink-muted">
-                预估可用 {Math.round(g.available)} · 在途 {g.members.reduce((s, m) => s + (m.inTransit || 0), 0)} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
+                预估可用 {Math.round(g.available)} · 签收 {g.signRate === null ? '—' : `${(g.signRate * 100).toFixed(0)}%`} · 在途 {g.members.reduce((s, m) => s + (m.inTransit || 0), 0)} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
               </div>
               {g.members.length > 1 && (
                 <div className="mt-1.5 space-y-0.5 border-t border-edge-muted pt-1.5">

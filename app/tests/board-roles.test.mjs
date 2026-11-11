@@ -60,6 +60,13 @@ test('评分四段：净签收贡献 50 / 签收健康 20 / 应季 15 / 库存 1
   assert.ok(roles.includes('const sign = g.signRate ?? 0;'), '签收率缺失按 0 计');
 });
 
+test('卡片在预估可用与在途之间显示签收率', () => {
+  assert.ok(
+    page.includes("预估可用 {Math.round(g.available)} · 签收 {g.signRate === null ? '—'"),
+    '签收率位于预估可用和在途之间；没有退货数据时显示 —',
+  );
+});
+
 test('看板按评分从高到低排序，卡片显示评分', () => {
   assert.ok(page.includes('.sort((a, b) => b.score - a.score'), '评分降序');
   assert.ok(page.includes('评分 {score.toFixed(1)}'), '卡片展示评分');
