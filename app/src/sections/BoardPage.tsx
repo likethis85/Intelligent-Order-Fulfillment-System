@@ -222,7 +222,9 @@ export default function BoardPage({
       .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: [], priceBands: [...DIM.bands], roles: [...BOARD_ROLES], launchYears: [] }));
   }, []);
   // BI 返回的维度值里偶尔带「全部」占位，去掉后由 DimChips 统一渲染自己的「全部」
-  const catList = (dims.categories.length ? dims.categories : DIM.cats).filter((v) => v !== '全部');
+  // 「包装配件」不是选款对象，不放进品类选项
+  const catList = (dims.categories.length ? dims.categories : DIM.cats)
+    .filter((v) => v !== '全部' && v !== '包装配件');
   // 波段选项：按月份从早到晚（1A、1B、2A、2B…），季度波段不展示，占位值固定排最后
   const waveList = (() => {
     const raw = (dims.waves.length ? dims.waves : DIM.waves)
