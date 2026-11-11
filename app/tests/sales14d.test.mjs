@@ -2,7 +2,7 @@
 process.env.SALES_WARM_DISABLED = '1'; // 单测不触发 guancli 预热
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -21,6 +21,14 @@ test('近 14 天窗口：含今天，共 14 个自然日（北京时间）', () 
 test('窗口按 UTC+8 取日期，跨零点不提前一天', () => {
   const w = last14Window(new Date('2026-11-10T17:30:00Z')); // 北京 11-11 01:30
   assert.equal(w.end, '2026-11-11');
+});
+
+test('近14天销量读商品全表 ETL，不再用宽表按日期区间现算', async () => {
+  const src = await readFile(new URL('../server/daysales-client.js', import.meta.url), 'utf8');
+  assert.ok(src.includes("const PRODUCT_DS_ID = 'g94553b7c10714125a095ea8'"), '商品全表数据集 ID');
+  const fn = src.slice(src.indexOf('async function fetchSales14dChunk'));
+  assert.ok(fn.includes('PRODUCT_DS_ID'), '近14天销量查询走商品全表');
+  assert.ok(!fn.includes('支付日期'), '不再按支付日期区间过滤');
 });
 
 test('缓存命中的近 14 天销量直接返回，过期的按未预热处理', async () => {

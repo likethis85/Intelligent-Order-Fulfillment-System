@@ -1,6 +1,8 @@
-// 销量客户端：从「宽表关联后数据源」(e106807e71f8045669969e95) 读取
-//   ① 直播当天销量: --columns 款式编码,销售量 --filter "款式编码 IN A,B,C" --filter "支付日期 EQ YYYY-MM-DD"
-//   ② 累计销量:   --columns 款式编码,销售量 --filter "款式编码 EQ X"（单款，不能批量，见下）
+// 销量客户端
+//   ① 直播当天销量: 宽表 (e106807e71f8045669969e95) --columns 款式编码,销售量 --filter 支付日期 EQ 日期
+//   ② 累计销量:   宽表 --columns 款式编码,销售量 --filter "款式编码 EQ X"（单款，不能批量，见下）
+//   ③ 近14天销量: 「商品全表」ETL 数据集 (g94553b7c10714125a095ea8) 里已经算好的近14天销量字段，
+//      不再用宽表按日期区间现算（宽表 1183 万行，区间+IN 代价高且容易 524）
 //
 // 这个数据集有 1183 万行 × 277 列，BI 侧任何一次预览都是 3-30 秒量级，并且 30 秒左右会被网关
 // 判死（API 524）。实测：
@@ -31,7 +33,11 @@ const DAILY_CACHE_FILE = join(CACHE_DIR, 'bi_daysales.json');
 const CUMU_CACHE_FILE = join(CACHE_DIR, 'bi_cumusales.json');
 const SALES14D_CACHE_FILE = join(CACHE_DIR, 'bi_sales14d.json');
 
-const DS_ID = 'e106807e71f8045669969e95'; // 宽表关联后数据源
+const DS_ID = 'e106807e71f8045669969e95'; // 宽表关联后数据源（当日 / 累计销量）
+const PRODUCT_DS_ID = 'g94553b7c10714125a095ea8'; // 商品全表 ETL（近14天销量、BOM 成本、尺码都在这里）
+// 近14天销量字段名不唯一（不同 ETL 版本叫法不同）：按顺序试，成功后记住
+const SALES14D_COLUMNS = ['近14天销量', '近14天净销量', '近14天销售量', '最近14天销量'];
+let sales14Column = null;
 
 // 缓存 TTL 配置
 const TTL_DAILY_RECENT_MS = 30 * 60 * 1000;       // 近 2 天日期: 30 分钟
@@ -340,23 +346,33 @@ async function fetchDailyChunk(date, pids) {
   }
 }
 
-// 一批款号的近 14 天销量：IN + 日期区间一次取齐（与当日销量同样的批量车道）
+// 一批款号的近 14 天销量：商品全表 ETL 里已按业务口径算好，直接按款号 IN 取回再跨 SKC 求和
 async function fetchSales14dChunk(start, end, pids) {
-  const rows = await runQuery([
-    'ds', 'preview', DS_ID,
-    '--columns', '款式编码,销售量,支付日期',
-    '--filter', `款式编码 IN ${pids.join(',')}`,
-    '--combine-type', 'AND',
-    '--filter', `支付日期 GE ${start}`,
-    '--limit', '50000',
-    '-f', 'csv',
-  ]);
-  // 上界在本地裁：日期窗口末日之后的行（含未来支付日期占位）不计入近 14 天
-  const inWindow = rows.filter((r) => {
-    const d = String(r[2] || '').trim().slice(0, 10);
-    return !d || (d >= start && d <= end);
-  });
-  const sums = sumRowsByCode(inWindow, 1);
+  const candidates = sales14Column ? [sales14Column] : SALES14D_COLUMNS;
+  let rows = null;
+  let lastErr = null;
+  for (const col of candidates) {
+    try {
+      rows = await runQuery([
+        'ds', 'preview', PRODUCT_DS_ID,
+        '--columns', `款式编码,${col}`,
+        '--filter', `款式编码 IN ${pids.join(',')}`,
+        '--limit', '50000',
+        '-f', 'csv',
+      ]);
+      sales14Column = col;
+      break;
+    } catch (err) {
+      lastErr = err;
+      // 已知列名还失败，说明不是字段名问题（BI 超时/网关），直接交给退避重试
+      if (sales14Column) throw err;
+    }
+  }
+  if (!rows) {
+    throw new Error(`商品全表取近14天销量失败（已试 ${SALES14D_COLUMNS.join('/')}）：${lastErr?.message || '无数据'}`);
+  }
+  // 同一款下有多个 SKC/颜色行：逐行相加（只累加正数，退货负数不计入销量）
+  const sums = sumRowsByCode(rows, 1);
   for (const code of pids) {
     setSales14ToCache(code.toLowerCase(), sums.get(code) || 0, end);
   }
