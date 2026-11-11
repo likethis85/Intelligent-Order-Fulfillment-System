@@ -17,6 +17,7 @@ interface Filters {
   cats: string[];      // 品类
   waves: string[];     // 波段
   bands: string[];     // 价格带
+  seasons: string[];   // 季节（到款式）
   roles: BoardRole[];  // 商品角色（每款只归属一个角色，按优先级判定）
   years: number[];     // 上新年份
   minStock: number;    // 预估剩余库存 ≥
@@ -28,7 +29,7 @@ interface Filters {
 }
 
 const DEFAULT_FILTERS: Filters = {
-  cats: [], waves: [], bands: [], roles: [], years: [],
+  cats: [], waves: [], bands: [], seasons: [], roles: [], years: [],
   minStock: 0, noTransit: false, minConv: 0, maxReturn: 80, minNewBuyer: 0,
   perLookN: 3,
 };
@@ -37,6 +38,8 @@ const DIM = {
   cats: ['大衣', '针织', 'T恤', '裤装', '套装', '鞋靴', '衬衫', '外套', '西装', '背心', '夹克', '羽绒'],
   waves: ['9月1波段', '9月2波段', '10月1波段', '常青款'],
   bands: ['低', '中', '高'] as const,
+  // 季节（到款式）：BI 里是「夏/秋/冬/春/其他」这类值，兜底用这组
+  seasons: ['春', '夏', '秋', '冬', '其他'],
 };
 
 interface ChatMsg {
@@ -217,6 +220,14 @@ export default function BoardPage({
     });
   })();
   const bandList = (dims.priceBands.length ? dims.priceBands : DIM.bands).filter((v) => v !== '全部');
+  // 季节（到款式）：按 春/夏/秋/冬/其他 排序，数据里出现的组合值（如「秋冬」）追加在后面
+  const seasonList = (() => {
+    const seen = new Set(PRODUCTS.map((p) => String(p.season || '').trim()).filter(Boolean));
+    if (seen.size === 0) return DIM.seasons;
+    const known = DIM.seasons.filter((s) => seen.has(s));
+    const extra = [...seen].filter((s) => !DIM.seasons.includes(s)).sort();
+    return [...known, ...extra];
+  })();
   // 上新年份：优先 /meta/filters，其次剩余库存卡；都拿不到时用商品自身的上新日期兜底，
   // 保证这一维度始终能出现（否则接口失败时整个「上新年份」行会被隐藏）
   const yearList = (() => {
@@ -303,6 +314,8 @@ export default function BoardPage({
           (f.cats.length === 0 || f.cats.includes(p.category)) &&
           (f.waves.length === 0 || f.waves.includes(p.wave)) &&
           (f.bands.length === 0 || f.bands.includes(p.priceBand)) &&
+          // 季节含组合值（如「秋冬」）时，选「秋」也要能命中
+          (f.seasons.length === 0 || f.seasons.some((s) => String(p.season || '').includes(s))) &&
           (f.years.length === 0 || (() => {
             // 领猫侧没有 launchDate，回退到剩余库存 BI 卡片的「款上新时间」
             const ld = String(p.launchDate || '') || String(remainingMap.get(p.id.toLowerCase())?.launchDate || '');
@@ -470,9 +483,6 @@ export default function BoardPage({
           <Dim label="商品角色">
             <DimChips options={roleList} selected={f.roles} onChange={(roles) => setF((x) => ({ ...x, roles }))} labelOf={(r) => `${r}款`} />
           </Dim>
-          <Dim label="品类">
-            <DimChips options={catList} selected={f.cats} onChange={(cats) => setF((x) => ({ ...x, cats }))} />
-          </Dim>
           {yearList.length > 0 && (
             <Dim label="上新年份">
               <DimChips options={yearList} selected={f.years} onChange={(years) => setF((x) => ({ ...x, years }))} labelOf={(y) => `${y}年`} />
@@ -480,6 +490,12 @@ export default function BoardPage({
           )}
           <Dim label="波段">
             <DimChips options={waveList} selected={f.waves} onChange={(waves) => setF((x) => ({ ...x, waves }))} />
+          </Dim>
+          <Dim label="品类">
+            <DimChips options={catList} selected={f.cats} onChange={(cats) => setF((x) => ({ ...x, cats }))} />
+          </Dim>
+          <Dim label="季节">
+            <DimChips options={seasonList} selected={f.seasons} onChange={(seasons) => setF((x) => ({ ...x, seasons }))} />
           </Dim>
           <Dim label="价格带">
             <DimChips

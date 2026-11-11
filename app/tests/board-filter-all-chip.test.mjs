@@ -12,7 +12,7 @@ const code = fs.readFileSync(path.resolve(__dirname, '../src/sections/BoardPage.
 test('每个多选维度都走统一的 DimChips，并带「全部」', () => {
   assert.ok(code.includes('function DimChips<T extends string | number>('), '需要统一的筛选 chip 组件');
   assert.ok(code.includes('<Chip on={selected.length === 0} label="全部" onClick={() => onChange([])} />'), '「全部」在数组为空时选中');
-  for (const dim of ['品类', '波段', '上新年份', '价格带', '商品角色']) {
+  for (const dim of ['品类', '波段', '上新年份', '价格带', '季节', '商品角色']) {
     assert.ok(code.includes(`<Dim label="${dim}">`), `${dim} 维度存在`);
   }
   const uses = code.match(/<DimChips/g) || [];
@@ -28,7 +28,19 @@ test('点具体项时从「全部」切过去，多选仍可叠加', () => {
 
 test('默认筛选全部为空，等于每个维度都选中「全部」', () => {
   assert.ok(code.includes('const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });'), '初始值不能预设品类');
-  assert.ok(code.includes('cats: [], waves: [], bands: [], roles: [], years: []'), 'DEFAULT_FILTERS 的数组维度都为空');
+  assert.ok(code.includes('cats: [], waves: [], bands: [], seasons: [], roles: [], years: []'), 'DEFAULT_FILTERS 的数组维度都为空');
+});
+
+test('维度顺序：商品角色 → 上新年份 → 波段 → 品类 → 季节 → 价格带', () => {
+  const at = (label) => code.indexOf(`<Dim label="${label}">`);
+  const seq = ['商品角色', '上新年份', '波段', '品类', '季节', '价格带'].map(at);
+  assert.ok(seq.every((i) => i > 0), '六个维度都存在');
+  for (let i = 1; i < seq.length; i++) assert.ok(seq[i] > seq[i - 1], '顺序不能变');
+});
+
+test('季节筛选按「季节(到款式)」匹配，组合值（秋冬）也能被秋/冬命中', () => {
+  assert.ok(code.includes("f.seasons.some((s) => String(p.season || '').includes(s))"), '按季节值包含匹配');
+  assert.ok(code.includes("const seasonList = (() =>"), '季节选项从商品数据里取');
 });
 
 test('适穿温度带与场景规则维度已移除', () => {
@@ -38,11 +50,10 @@ test('适穿温度带与场景规则维度已移除', () => {
   assert.ok(!code.includes('scenes:'), 'Filters 里不再保留 scenes');
 });
 
-test('上新年份位于品类和波段之间，且无接口数据时用商品上新日期兜底', () => {
-  const catAt = code.indexOf('<Dim label="品类">');
+test('上新年份位于波段之前，且无接口数据时用商品上新日期兜底', () => {
   const yearAt = code.indexOf('<Dim label="上新年份">');
   const waveAt = code.indexOf('<Dim label="波段">');
-  assert.ok(catAt >= 0 && yearAt > catAt && waveAt > yearAt, '顺序：品类 → 上新年份 → 波段');
+  assert.ok(yearAt >= 0 && waveAt > yearAt, '顺序：上新年份 → 波段');
   assert.ok(code.includes("p.launchDate || '').match(/^(\\d{4})/"), '接口没有年份时从商品上新日期兜底取年份');
 });
 

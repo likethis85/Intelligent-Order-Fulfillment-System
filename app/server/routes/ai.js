@@ -27,6 +27,7 @@ const SYSTEM_PROMPT = `你是货盘选款策略助手。基于用户的直播目
 ## 可改的 patch 字段
 - cats: string[]   品类
 - bands: string[]  价格带（低/中/高）
+- seasons: string[]  季节（春/夏/秋/冬/其他）
 - roles: ('主推'|'经典'|'现金回收'|'利润'|'库存')[]  角色（每款只归属一个，按此优先级判定）
 - minStock: number 最低预估剩余可用数
 - minConv: number  最低转化率 %
