@@ -31,6 +31,14 @@ test('默认筛选全部为空，等于每个维度都选中「全部」', () =>
   assert.ok(code.includes('cats: [], waves: [], bands: [], temps: [], roles: [], years: []'), 'DEFAULT_FILTERS 的数组维度都为空');
 });
 
+test('上新年份位于品类和波段之间，且无接口数据时用商品上新日期兜底', () => {
+  const catAt = code.indexOf('<Dim label="品类">');
+  const yearAt = code.indexOf('<Dim label="上新年份">');
+  const waveAt = code.indexOf('<Dim label="波段">');
+  assert.ok(catAt >= 0 && yearAt > catAt && waveAt > yearAt, '顺序：品类 → 上新年份 → 波段');
+  assert.ok(code.includes("p.launchDate || '').match(/^(\\d{4})/"), '接口没有年份时从商品上新日期兜底取年份');
+});
+
 test('库存条件用「预估剩余库存」，输入框可连续输入（Dim 必须在组件外）', () => {
   assert.ok(code.includes('预估剩余库存 ≥'), '库存条件文案');
   assert.ok(!code.includes('现货 ≥'), '不再显示旧的「现货 ≥」');

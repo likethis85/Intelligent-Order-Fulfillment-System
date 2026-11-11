@@ -209,7 +209,18 @@ export default function BoardPage({
   const waveList = (dims.waves.length ? dims.waves : DIM.waves).filter((v) => v !== '全部');
   const tempList = (dims.tempBands.length ? dims.tempBands : DIM.temps).filter((v) => v !== '全部');
   const bandList = (dims.priceBands.length ? dims.priceBands : DIM.bands).filter((v) => v !== '全部');
-  const yearList = (dims.launchYears && dims.launchYears.length ? dims.launchYears : remainingYears);
+  // 上新年份：优先 /meta/filters，其次剩余库存卡；都拿不到时用商品自身的上新日期兜底，
+  // 保证这一维度始终能出现（否则接口失败时整个「上新年份」行会被隐藏）
+  const yearList = (() => {
+    const fromApi = dims.launchYears && dims.launchYears.length ? dims.launchYears : remainingYears;
+    if (fromApi.length) return [...fromApi].sort((a, b) => b - a);
+    const years = new Set<number>();
+    for (const p of PRODUCTS) {
+      const m = String(p.launchDate || '').match(/^(\d{4})/);
+      if (m) years.add(Number(m[1]));
+    }
+    return [...years].sort((a, b) => b - a);
+  })();
   const roleList = DIM.roles;
 
   // 剩余库存推荐（按款号索引，未覆盖的款不显示该段）
@@ -387,14 +398,14 @@ export default function BoardPage({
           <Dim label="品类">
             <DimChips options={catList} selected={f.cats} onChange={(cats) => setF((x) => ({ ...x, cats }))} />
           </Dim>
+          {yearList.length > 0 && (
+            <Dim label="上新年份">
+              <DimChips options={yearList} selected={f.years} onChange={(years) => setF((x) => ({ ...x, years }))} labelOf={(y) => `${y}年`} />
+            </Dim>
+          )}
           <Dim label="波段">
             <DimChips options={waveList} selected={f.waves} onChange={(waves) => setF((x) => ({ ...x, waves }))} />
           </Dim>
-          {yearList.length > 0 && (
-            <Dim label="上新年份">
-              <DimChips options={yearList} selected={f.years} onChange={(years) => setF((x) => ({ ...x, years }))} />
-            </Dim>
-          )}
           <Dim label="价格带">
             <DimChips
               options={bandList}
