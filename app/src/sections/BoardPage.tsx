@@ -270,6 +270,7 @@ export default function BoardPage({
   // 前端分批请求（每批 400 个款号，避免 URL 过长），有待预热时 30s 后自动补一次。
   const [sales14Map, setSales14Map] = useState<Map<string, number>>(new Map());
   const [sales14Pending, setSales14Pending] = useState(0);
+  const [sales14Date, setSales14Date] = useState(''); // 快照里数据的日期（每天随 BI 刷新）
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -281,11 +282,13 @@ export default function BoardPage({
     const load = async () => {
       const map = new Map<string, number>();
       let pending = 0;
+      let snapDate = '';
       for (const chunk of chunks) {
         try {
           const r = await fetchSales14d(chunk);
           for (const [k, v] of Object.entries(r.byPid || {})) map.set(k.toLowerCase(), Number(v) || 0);
           pending += r.pending || 0;
+          snapDate = r.snapshotDate || snapDate;
         } catch {
           // 取不到就按 0 计：经典款那一支会因此更严格，不会误放
         }
@@ -293,6 +296,7 @@ export default function BoardPage({
       if (!alive) return;
       setSales14Map(map);
       setSales14Pending(pending);
+      setSales14Date(snapDate);
       // 后端预热有延迟：还有缺的就再补一次（最多 3 次）
       if (pending > 0 && tries < 3) {
         tries++;
@@ -517,6 +521,8 @@ export default function BoardPage({
           <div className="flex items-center gap-2 border-b border-edge-muted py-3">
             <span className="text-[11px] leading-5 text-ink-muted">
               套系口径：一个坑位 = 一个套系（按小名合并，无小名用款号）
+              {/* 近14天销量/成本/尺码都来自每天下载一次的「商品全表」快照，这里标明数据日期 */}
+              {sales14Date && <span className="ml-2 text-ink-faint">数据日期 {sales14Date}</span>}
               {sales14Pending > 0 && <span className="ml-2 text-ink-faint">近14天销量补齐中（{sales14Pending} 款）</span>}
             </span>
             <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto shrink-0 text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>

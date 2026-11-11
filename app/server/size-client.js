@@ -1,12 +1,14 @@
 // 尺码范围客户端：从「商品全表」ETL 数据集（g94553b7c10714125a095ea8）取「尺码名称调整」字段
 // 按款号聚合：跨色去重 → 按尺码顺序排序 → 范围式 "S~XL"
-// 用法：loadSizeRange(pids) 批量查询并缓存（按需 guancli ds preview with --filter OR）
+// 数据来源：优先读 product-snapshot.js 的本地快照（每天随 BI 刷新下载一次，含尺码），
+//          快照里没有的款号才退回实时 guancli 查询
+// 用法：loadSizeRange(pids) 批量查询并缓存
 //       getSizeRangeForCode(code) 同步取缓存
 //
-// 性能：单次 batch 5s 左右（数据集 58k 行），首次查会慢，缓存后毫秒级
 // 缓存：内存 Map + 磁盘 JSON（小，pid→"S~XL"），TTL 7 天
 
 import { runGuancli } from './guancli.js';
+import { getSnapshotData } from './product-snapshot.js';
 import { unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -114,8 +116,28 @@ export async function loadSizeRange(pids) {
     if (!memCache.has(k)) missing.push(k);
   }
   if (missing.length === 0) return;
+
+  // ① 先读「商品全表」本地快照（每天下载一次，尺码已在里面），命中就不打 BI
+  const snap = await getSnapshotData();
+  const stillMissing = [];
+  let fromSnap = 0;
+  for (const k of missing) {
+    const sizes = snap?.byCode.get(k.toUpperCase())?.z;
+    const range = sizes && sizes.size > 0 ? aggregateSizes([...sizes]) : '';
+    if (range) {
+      memCache.set(k, range);
+      fromSnap++;
+    } else {
+      stillMissing.push(k);
+    }
+  }
+  if (fromSnap > 0) saveDiskCache().catch(() => {});
+  if (stillMissing.length === 0) return;
+
+  // ② 快照里没有（新上款 / 快照未生成）才退回实时查 BI
   if (inflight) return inflight;
   inflight = (async () => {
+    const missing = stillMissing;
     // 一次 OR 查询拿所有缺失款号
     const filters = missing.map((k) => `款式编码 EQ ${k.toUpperCase()}`);
     let csv = '';

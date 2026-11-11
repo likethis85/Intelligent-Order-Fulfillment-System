@@ -1,12 +1,14 @@
 // BOM 成本客户端：从「商品全表」ETL 数据集（g94553b7c10714125a095ea8）取「bom商品成本」字段
 // 按款号聚合：跨 SKC / 颜色取最大值（保守口径）
-// 用法：loadBomCost(pids) 批量查询并缓存（按需 guancli ds preview with --filter OR）
+// 数据来源：优先读 product-snapshot.js 的本地快照（每天随 BI 刷新下载一次，含成本），
+//          快照里没有的款号才退回实时 guancli 查询
+// 用法：loadBomCost(pids) 批量查询并缓存
 //       getBomCostForCode(code) 同步取缓存
 //
-// 性能：单次 batch 5s 左右（数据集 58k 行），首次查会慢，缓存后毫秒级
 // 缓存：内存 Map + 磁盘 JSON（小，pid→数字字符串），TTL 7 天
 
 import { runGuancli } from './guancli.js';
+import { getSnapshotData } from './product-snapshot.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
@@ -82,8 +84,27 @@ export async function loadBomCost(pids) {
     if (!memCache.has(k)) missing.push(k);
   }
   if (missing.length === 0) return;
+
+  // ① 先读「商品全表」本地快照（每天下载一次，成本已在里面），命中就不打 BI
+  const snap = await getSnapshotData();
+  const stillMissing = [];
+  let fromSnap = 0;
+  for (const k of missing) {
+    const cost = snap?.byCode.get(k.toUpperCase())?.c;
+    if (Number.isFinite(cost) && cost > 0) {
+      memCache.set(k, String(cost));
+      fromSnap++;
+    } else {
+      stillMissing.push(k);
+    }
+  }
+  if (fromSnap > 0) saveDiskCache().catch(() => {});
+  if (stillMissing.length === 0) return;
+
+  // ② 快照里没有（新上款 / 快照未生成）才退回实时查 BI
   if (inflight) return inflight;
   inflight = (async () => {
+    const missing = stillMissing;
     const filters = missing.map((k) => `款式编码 EQ ${k.toUpperCase()}`);
     let csv = '';
     try {

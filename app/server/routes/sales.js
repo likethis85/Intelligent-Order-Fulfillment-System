@@ -56,8 +56,8 @@ router.get('/last14', async (req, res) => {
   const pids = pidList(req.query.pids);
   if (pids.length === 0) return res.json({ byPid: {}, pending: 0 });
   try {
-    const { byPid, pending, window } = await getSales14d(pids);
-    res.json({ byPid, pending, window, updatedAt: new Date().toISOString() });
+    const { byPid, pending, window, snapshotAt, snapshotDate } = await getSales14d(pids);
+    res.json({ byPid, pending, window, snapshotAt, snapshotDate, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.warn('[sales/last14]', err.message);
     res.status(503).json({ error: 'fetch_failed', message: err.message, byPid: {} });
