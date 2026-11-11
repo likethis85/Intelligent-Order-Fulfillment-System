@@ -39,6 +39,14 @@ export function enrichWithBi(product, biRow, productMasterRow) {
       for (const [k, v] of Object.entries(biOv)) {
         // 名称/小名/售价/价格定位/面料/波段/产品分类以款式卡为准，SKC 不覆盖
         if (['name', 'sub', 'price', 'priceNum', 'priceBand', 'fabric', 'wave', 'category'].includes(k)) continue;
+        // 款级指标同理：款式卡的 总退货率 / 销售数量 / 退货数量 / 净销量 是整款口径，
+        // SKC 卡只带「第一个颜色」的那一行，覆盖过去会把整款的签收率算成单色小样本
+        // （MD09FW033 就是这样：款级 2483/3686=67.4% → 签收 33%，被单色 60/142=42.3% 覆盖成 58%）。
+        // 款式卡没给这些值时仍然用 SKC 兜底。
+        if (['returnRate', 'returnQty', 'salesQty', 'netSales'].includes(k)) {
+          const cur = Number(product[k]);
+          if (Number.isFinite(cur) && cur > 0) continue;
+        }
         if (v !== undefined && v !== null && v !== '') product[k] = v;
       }
     }

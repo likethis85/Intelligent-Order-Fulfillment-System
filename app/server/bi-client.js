@@ -588,12 +588,7 @@ export function biOverrides(row) {
   // 指标字段（取首条 SKC 的款级数据）
   const netSales = num(first['净销量']);
   if (netSales !== undefined) out.netSales = netSales;
-  // 退货数量 / 销售数量：签收率口径要 SUM(退货数量)/SUM(销售数量)（卡里没有这两个字段时留空，
-  // 前端用 总退货率 + 净销量 反推同样口径的权重）
-  const returnQty = num(first['退货数量']);
-  if (returnQty !== undefined) out.returnQty = returnQty;
-  const salesQty = num(first['销售数量']);
-  if (salesQty !== undefined) out.salesQty = salesQty;
+  // 退货数量 / 销售数量在下面按 SKC 行累加（单取 first 只是单个颜色的样本）
   const newBuyer = pct(first['新买家占比(款)']);
   if (newBuyer !== undefined) out.newBuyer = newBuyer;
   const priceBand = str(pickCol(first, '价格定位', '款价格定位'));
@@ -602,8 +597,27 @@ export function biOverrides(row) {
   if (forecastNetSales !== undefined) out.forecastNetSales = forecastNetSales;
   const forecastPostShipReturn = num(first['预计发货后退货数']);
   if (forecastPostShipReturn !== undefined) out.forecastPostShipReturn = forecastPostShipReturn;
-  const returnRate = num(first['总退货率']);
-  if (returnRate !== undefined) out.returnRate = returnRate;
+  // 退货数量 / 销售数量：跨 SKC 颜色行相加（款级口径），签收率 = 1 − Σ退货数量/Σ销售数量。
+  // 只取 first 那一行的话拿到的是单个颜色的样本（MD09FW033 单色 60/142=42%，
+  // 整款是 2483/3686=67%），所以必须整款累加。
+  let sumSalesQty = 0;
+  let sumReturnQty = 0;
+  let hasQty = false;
+  for (const s of row.skcs) {
+    const raw = s.raw || {};
+    const sq = Number(raw['销售数量']);
+    if (Number.isFinite(sq) && sq > 0) { sumSalesQty += sq; hasQty = true; }
+    const rq = Number(raw['退货数量']);
+    if (Number.isFinite(rq) && rq >= 0 && raw['退货数量'] !== '' && raw['退货数量'] !== undefined) { sumReturnQty += rq; hasQty = true; }
+  }
+  if (hasQty && sumSalesQty > 0) {
+    out.salesQty = sumSalesQty;
+    out.returnQty = sumReturnQty;
+    out.returnRate = sumReturnQty / sumSalesQty; // 款级签收率口径
+  } else {
+    const returnRate = num(first['总退货率']);
+    if (returnRate !== undefined) out.returnRate = returnRate;
+  }
   const conversion = pct(first['转化率']);
   if (conversion !== undefined) out.conversion = conversion;
   const cartRate = pct(first['加购率']);
