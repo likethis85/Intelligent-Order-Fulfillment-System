@@ -29,6 +29,9 @@ test('近14天销量读商品全表 ETL，不再用宽表按日期区间现算',
   const fn = src.slice(src.indexOf('async function fetchSales14dChunk'));
   assert.ok(fn.includes('PRODUCT_DS_ID'), '近14天销量查询走商品全表');
   assert.ok(!fn.includes('支付日期'), '不再按支付日期区间过滤');
+  // 商品全表小（5.8 万行），批量要比宽表的 20 大得多，否则几百个小任务会把 BI 挤到超时
+  assert.ok(src.includes('const CHUNK_SIZE_14D = 200'), '近14天批量 200 款/次');
+  assert.ok(src.includes('chunkPids(missing, CHUNK_SIZE_14D)'), '预热按 200 分批');
 });
 
 test('缓存命中的近 14 天销量直接返回，过期的按未预热处理', async () => {

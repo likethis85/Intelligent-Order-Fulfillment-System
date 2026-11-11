@@ -46,7 +46,9 @@ const TTL_CUMU_MS = 2 * 60 * 60 * 1000;           // 累计销量: 2 小时
 const TTL_SALES14D_MS = 6 * 60 * 60 * 1000;       // 近 14 天销量: 6 小时（窗口末日变化即失效）
 
 // 预热参数
-const CHUNK_SIZE = 20;            // 每批 IN 的款号数（实测 45 会触发 BI 30s 网关超时）
+const CHUNK_SIZE = 20;            // 宽表每批 IN 的款号数（实测 45 会触发 BI 30s 网关超时）
+// 商品全表只有 5.8 万行，100 个款号 IN 实测约 4.5s，可以一次带更多，避免几百个小任务把 BI 挤爆
+const CHUNK_SIZE_14D = 200;
 const QUERY_TIMEOUT_MS = 25_000;  // 必须低于 BI 网关的 ~30s 上限
 const WARM_CONCURRENCY = Number(process.env.SALES_WARM_CONCURRENCY) || 3;
 // 单测/排查时可关掉预热（SALES_WARM_DISABLED=1），接口仍返回缓存值 + pending
@@ -349,6 +351,7 @@ async function fetchDailyChunk(date, pids) {
 // 一批款号的近 14 天销量：商品全表 ETL 里已按业务口径算好，直接按款号 IN 取回再跨 SKC 求和
 async function fetchSales14dChunk(start, end, pids) {
   const candidates = sales14Column ? [sales14Column] : SALES14D_COLUMNS;
+  const detecting = !sales14Column;
   let rows = null;
   let lastErr = null;
   for (const col of candidates) {
@@ -361,6 +364,7 @@ async function fetchSales14dChunk(start, end, pids) {
         '-f', 'csv',
       ]);
       sales14Column = col;
+      if (detecting) console.log(`[sales14d] 商品全表字段「${col}」可用`);
       break;
     } catch (err) {
       lastErr = err;
@@ -482,7 +486,7 @@ export async function getSales14d(pids) {
     }
   }
 
-  for (const chunk of chunkPids(missing, CHUNK_SIZE)) {
+  for (const chunk of chunkPids(missing, CHUNK_SIZE_14D)) {
     enqueue({ kind: 'sales14d', key: `s14|${window.end}|${chunk.join(',')}`, start: window.start, end: window.end, pids: chunk });
   }
 
