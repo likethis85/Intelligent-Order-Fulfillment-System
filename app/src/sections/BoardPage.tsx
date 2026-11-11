@@ -10,7 +10,7 @@ import {
 import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
-import { availableOf, BOARD_ROLES, buildSuiteGroups, roleRank, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
+import { availableOf, BOARD_ROLES, buildSuiteGroups, roleRank, scoreGroup, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
 interface Filters {
@@ -359,16 +359,21 @@ export default function BoardPage({
     return list.filter((g) => f.roles.length === 0 || (g.role !== '其他' && f.roles.includes(g.role)));
   }, [pool, remainingMap, sales14Map, f.roles]);
 
+  // 评分：套系指标口径（销量/签收率/可用数按组内合计），按总分从高到低排
+  const scoreOf = (g: SuiteGroup) =>
+    scoreGroup({
+      available: g.available,
+      sales14d: g.sales14d,
+      signRate: g.signRate,
+      seasons: g.members.map((m) => String(m.season || '')),
+    });
+
   const visible = useMemo(() => {
     const list = roleTab === '全部' ? [...groups] : groups.filter((g) => g.role === roleTab);
-    const aiRank = (g: SuiteGroup) => {
-      const p = g.members[0];
-      return p.ai === 'top' ? 0 : p.ai === 'extra' ? 2 : p.ai === 'avoid' ? 3 : 1;
-    };
-    return list.sort(
-      (a, b) => roleRank(a.role) - roleRank(b.role) || aiRank(a) - aiRank(b) || b.members[0].conversion - a.members[0].conversion,
-    );
-  }, [groups, roleTab]);
+    return list
+      .map((g) => ({ g, score: scoreOf(g) }))
+      .sort((a, b) => b.score - a.score || roleRank(a.g.role) - roleRank(b.g.role) || b.g.members[0].conversion - a.g.members[0].conversion);
+  }, [groups, roleTab, sales14Map, remainingMap]);
 
   const inTray = (pid: string) => tray.sections.some((s) => s.looks.some((l) => l.pids.includes(pid)));
 
@@ -647,7 +652,7 @@ export default function BoardPage({
       </div>
 
       <div ref={resultsRef} className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 pb-10 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-        {pageItems.map((g) => {
+        {pageItems.map(({ g, score }) => {
           const p = g.members[0];
           const avoid = p.ai === 'avoid';
           const added = g.members.some((m) => inTray(m.id));
@@ -700,6 +705,9 @@ export default function BoardPage({
                 {g.members.length > 1 ? `${g.members.length} 件套系` : p.id.toUpperCase()} · {p.colors.join(' / ')}
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-sm bg-action-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  评分 {score.toFixed(1)}
+                </span>
                 {g.role !== '其他' && (
                   <span className="rounded-sm border border-edge-strong px-1.5 py-0.5 text-[10px] text-ink-secondary">{g.role}款</span>
                 )}

@@ -49,6 +49,22 @@ test('套系 key = 小名（无小名退回款号），组内指标相加', () =
   assert.ok(page.includes('onAdd(g.members.map((m) => m.id), s.id)'), '放入货盘时整套系作为一个坑位');
 });
 
+test('评分四段：净签收贡献 50 / 签收健康 20 / 应季 15 / 库存 15', () => {
+  const body = roles.slice(roles.indexOf('export function scoreGroup'));
+  assert.ok(body.includes('Math.min(50, ((g.sales14d * sign) / 110) * 50)'), '净件数 110 封顶，占 50 分');
+  assert.ok(body.includes('Math.min(20, Math.max(0, ((sign - 0.15) / 0.45) * 20))'), '签收率 15% 起算、60% 满分');
+  assert.ok(body.includes('g.available >= 150 ? 15 : g.available >= 100 ? 10 : 5'), '库存 15/10/5 分档');
+  assert.ok(roles.includes("if (list.some((s) => /秋|冬/.test(s))) return 15;"), '秋冬 15 分');
+  assert.ok(roles.includes("if (list.every((s) => /春|夏/.test(s))) return 0;"), '只有春夏 0 分');
+  assert.ok(roles.includes('return 8;'), '其他或空值 8 分');
+  assert.ok(roles.includes('const sign = g.signRate ?? 0;'), '签收率缺失按 0 计');
+});
+
+test('看板按评分从高到低排序，卡片显示评分', () => {
+  assert.ok(page.includes('.sort((a, b) => b.score - a.score'), '评分降序');
+  assert.ok(page.includes('评分 {score.toFixed(1)}'), '卡片展示评分');
+});
+
 test('快捷方案已移除，商品角色排在最上面', () => {
   assert.ok(!page.includes('const PRESETS'), '不再有快捷方案');
   assert.ok(!page.includes('快捷方案'), '不再渲染快捷方案行');

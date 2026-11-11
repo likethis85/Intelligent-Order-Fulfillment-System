@@ -185,3 +185,27 @@ export const roleRank = (r: GroupRole): number => {
   const i = BOARD_ROLES.indexOf(r as BoardRole);
   return i < 0 ? BOARD_ROLES.length : i;
 };
+
+// ── 选款评分（满分 100，四段）──
+//   净签收贡献 50 分：近14天销量 × 签收率 = 净件数，110 件封顶 → min(50, net/110*50)
+//   签收健康   20 分：签收率 15% 起算、60% 满分 → min(20, max(0, (签收率-0.15)/0.45*20))
+//   应季       15 分：秋/冬 15，其他/空 8，春/夏 0
+//   库存       15 分：预估剩余可用 ≥150 得 15，≥100 得 10，其余 5
+// 签收率缺失（无退货数据）按 0 计：销量再多也拿不到净签收贡献和签收健康分。
+export function scoreGroup(g: { available: number; sales14d: number; signRate: number | null; seasons: string[] }): number {
+  const sign = g.signRate ?? 0;
+  const netScore = Math.min(50, ((g.sales14d * sign) / 110) * 50);
+  const healthScore = Math.min(20, Math.max(0, ((sign - 0.15) / 0.45) * 20));
+  const seasonScore = seasonPoints(g.seasons);
+  const stockScore = g.available >= 150 ? 15 : g.available >= 100 ? 10 : 5;
+  return netScore + healthScore + seasonScore + stockScore;
+}
+
+// 应季分段：秋冬优先（组内任一件秋冬即算应季）；只有春夏得 0；没有季节数据/其他得 8
+export function seasonPoints(seasons: string[]): number {
+  const list = seasons.map((s) => String(s || '')).filter(Boolean);
+  if (list.some((s) => /秋|冬/.test(s))) return 15;
+  if (list.length === 0) return 8;
+  if (list.every((s) => /春|夏/.test(s))) return 0;
+  return 8;
+}
