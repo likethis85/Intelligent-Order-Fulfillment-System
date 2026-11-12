@@ -41,6 +41,14 @@ export function suiteName(p: Product): string {
   return String(p.sub || '').trim() || p.name || p.id.toUpperCase();
 }
 
+// 同套系的其他款（按小名）。没有小名时返回空数组——这款自己就是一套，不用提醒。
+// 看板按款显示，放入货盘时用它提示「要不要把这个款同套系的其他款一起放进一个坑位」。
+export function suiteSiblings(p: Product, all: Product[]): Product[] {
+  const sub = String(p.sub || '').trim();
+  if (!sub) return [];
+  return all.filter((q) => q.id !== p.id && String(q.sub || '').trim() === sub);
+}
+
 // 成本：领猫 SKU 成本优先，其次 BI bomCost
 export function costOf(p: Product): number {
   const c = Number(p.costPrice);
@@ -147,15 +155,18 @@ export function deriveGroupRole(g: {
   return '其他';
 }
 
-// 把候选款按套系聚合 + 判定角色（同一套系只出一个坑位）
+// 把候选款聚合 + 判定角色
+//   bySuite: true（默认）一个套系一张卡；false 每款一张卡（看板按款呈现时用）
+// 无论哪种粒度，组内指标都是「先相加再判定」，不会把同一套系拆到不同角色里各挂一次。
 export function buildSuiteGroups(
   products: Product[],
   estimateOf: (p: Product) => number | undefined,
   sales14dOf: (p: Product) => number,
+  { bySuite = true }: { bySuite?: boolean } = {},
 ): SuiteGroup[] {
   const map = new Map<string, SuiteGroup>();
   for (const p of products) {
-    const key = suiteKey(p);
+    const key = bySuite ? suiteKey(p) : String(p.id);
     let g = map.get(key);
     if (!g) {
       g = {

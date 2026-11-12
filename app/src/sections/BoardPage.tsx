@@ -10,7 +10,8 @@ import {
 import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
-import { availableOf, BOARD_ROLES, buildSuiteGroups, roleRank, scoreGroup, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
+import { availableOf, BOARD_ROLES, buildSuiteGroups, roleRank, scoreGroup, suiteSiblings, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
 interface Filters {
@@ -209,6 +210,15 @@ export default function BoardPage({
 
   const PRODUCTS = useProducts();
 
+  // 放入货盘时的套系提示：这款有同小名的其他款时，先问要不要一起放进同一个坑位。
+  // picked 默认空 —— 不勾选就只放当前这款。
+  const [suitePrompt, setSuitePrompt] = useState<{
+    product: Product;
+    sectionId: string;
+    others: Product[];
+    picked: string[];
+  } | null>(null);
+
   // 上新年份（优先 /api/products/meta/filters 的全量年份；兜底 remaining-inventory 的）
   const [remainingYears, setRemainingYears] = useState<number[]>([]);
   useEffect(() => {
@@ -356,10 +366,10 @@ export default function BoardPage({
     [f, PRODUCTS, remainingMap],
   );
 
-  // 一个坑位 = 一个套系：先按小名（无小名用款号）聚合，再在组上判定角色。
-  // 角色筛选也在组一级生效，避免同一套系的不同件被拆到不同角色里各挂一次。
+  // 看板按款呈现：一款一张卡（bySuite: false）。角色/评分仍走组内相加的口径，
+  // 只是这里的「组」就是这一款自己；同套系的其他款在放入货盘时再问要不要一起带。
   const groups = useMemo(() => {
-    const list = buildSuiteGroups(pool, estimateOf, (p) => sales14Map.get(p.id.toLowerCase()) || 0);
+    const list = buildSuiteGroups(pool, estimateOf, (p) => sales14Map.get(p.id.toLowerCase()) || 0, { bySuite: false });
     return list.filter((g) => f.roles.length === 0 || (g.role !== '其他' && f.roles.includes(g.role)));
   }, [pool, remainingMap, sales14Map, f.roles]);
 
@@ -520,7 +530,7 @@ export default function BoardPage({
         <div className="border border-edge bg-surface-card px-5 py-2">
           <div className="flex items-center gap-2 border-b border-edge-muted py-3">
             <span className="text-[11px] leading-5 text-ink-muted">
-              套系口径：一个坑位 = 一个套系（按小名合并，无小名用款号）
+              按款显示：一个款一张卡；放入货盘时若有同套系的其他款，可选一起加入一个坑位
               {/* 近14天销量/成本/尺码都来自每天下载一次的「商品全表」快照，这里标明数据日期 */}
               {sales14Date && <span className="ml-2 text-ink-faint">数据日期 {sales14Date}</span>}
               {sales14Pending > 0 && <span className="ml-2 text-ink-faint">近14天销量补齐中（{sales14Pending} 款）</span>}
@@ -628,12 +638,12 @@ export default function BoardPage({
             onClick={() => applyRole(r === '全部' ? null : r)}
             className={`relative pb-3 text-[13px] transition-colors ${roleTab === r ? 'font-semibold' : 'text-ink-muted hover:text-ink-primary'}`}
           >
-            {r === '全部' ? `全部候选（${groups.length} 个套系）` : `${r}款（${groups.filter((g) => g.role === r).length}）`}
+            {r === '全部' ? `全部候选（${groups.length} 款）` : `${r}款（${groups.filter((g) => g.role === r).length}）`}
             {roleTab === r && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-action-primary" />}
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2 pb-2 text-[11.5px] text-ink-muted">
-          <span>共 {visible.length} 个坑位</span>
+          <span>共 {visible.length} 款</span>
           <span className="text-ink-faint">·</span>
           <span>每页</span>
           {PAGE_SIZES.map((n) => (
@@ -847,9 +857,14 @@ export default function BoardPage({
                       <DropdownMenuItem
                         key={s.id}
                         onClick={() => {
-                          // 一个坑位 = 一个套系：套系内所有件作为一个坑位一起放入
-                          onAdd(g.members.map((m) => m.id), s.id);
-                          toast.success(`「${g.name}」${g.members.length > 1 ? `（${g.members.length} 件套系）` : ''}已作为新坑位放入 ${s.label}`);
+                          // 有同套系的其他款就先问一句；没有就直接放这一款
+                          const others = suiteSiblings(p, PRODUCTS);
+                          if (others.length > 0) {
+                            setSuitePrompt({ product: p, sectionId: s.id, others, picked: [] });
+                            return;
+                          }
+                          onAdd([p.id], s.id);
+                          toast.success(`「${p.name}」已作为新坑位放入 ${s.label}`);
                         }}
                       >
                         {s.label} 版块（新坑位）
@@ -909,6 +924,80 @@ export default function BoardPage({
           </div>
         </div>
       )}
+
+      {/* 套系提醒：这款有同小名的其他款，勾选的会一起放进同一个坑位 */}
+      <Dialog open={!!suitePrompt} onOpenChange={(open) => { if (!open) setSuitePrompt(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>这个款还有同套系的其他款</DialogTitle>
+            <DialogDescription>
+              「{suitePrompt?.product.sub}」套系下除 {suitePrompt?.product.id.toUpperCase()} 外还有{' '}
+              {suitePrompt?.others.length} 款。勾选的会作为同一坑位一起放入，不勾选就只放当前这款。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 space-y-1 overflow-auto">
+            {suitePrompt?.others.map((q) => {
+              const on = suitePrompt.picked.includes(q.id);
+              return (
+                <label
+                  key={q.id}
+                  className={`flex cursor-pointer items-center gap-2 rounded-sm border px-2.5 py-2 text-[12px] transition-colors ${
+                    on ? 'border-action-primary bg-action-primary/5' : 'border-edge hover:border-edge-strong'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() =>
+                      setSuitePrompt((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              picked: prev.picked.includes(q.id)
+                                ? prev.picked.filter((x) => x !== q.id)
+                                : [...prev.picked, q.id],
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                  <span className="w-24 shrink-0 font-medium">{q.id.toUpperCase()}</span>
+                  <span className="min-w-0 flex-1 truncate text-ink-muted">{q.name}</span>
+                  <span className="shrink-0 text-[11px] text-ink-faint">
+                    可用 {Math.round(availableOf(q, estimateOf(q))).toLocaleString()} · 在途 {q.inTransit || 0}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setSuitePrompt(null)}
+              className="rounded-md border border-edge px-3 py-1.5 text-[12px] text-ink-muted hover:border-edge-strong"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                if (!suitePrompt) return;
+                const { product, sectionId, picked } = suitePrompt;
+                onAdd([product.id, ...picked], sectionId);
+                setSuitePrompt(null);
+                toast.success(
+                  picked.length > 0
+                    ? `「${product.name}」及 ${picked.length} 件同套系款已作为一个坑位放入`
+                    : `「${product.name}」已作为新坑位放入`,
+                );
+              }}
+              className="rounded-md bg-action-primary px-3 py-1.5 text-[12px] font-medium text-white"
+            >
+              {suitePrompt && suitePrompt.picked.length > 0
+                ? `一起放入（${suitePrompt.picked.length + 1} 件）`
+                : '只放入这一款'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -83,9 +83,35 @@ test('套系 key = 小名（无小名退回款号），组内指标相加', () =
   assert.ok(roles.includes("String(p.sub || '').trim() || p.id"), '小名优先、款号兜底');
   assert.ok(roles.includes('g.available += availableOf(p, estimateOf(p))'), '可用数按件相加');
   assert.ok(roles.includes('g.sales14d += sales14dOf(p) || 0'), '近14天销量按件相加');
-  assert.ok(page.includes('buildSuiteGroups(pool, estimateOf'), '看板按套系聚合后再判定');
-  assert.ok(page.includes('<div key={g.key}'), '一张卡片 = 一个套系');
-  assert.ok(page.includes('onAdd(g.members.map((m) => m.id), s.id)'), '放入货盘时整套系作为一个坑位');
+  assert.ok(page.includes('buildSuiteGroups(pool, estimateOf'), '看板仍按组口径判定角色');
+  assert.ok(page.includes('<div key={g.key}'), '一张卡片 = 一个组');
+});
+
+test('看板按款显示：bySuite: false，一款一张卡', async () => {
+  const { buildSuiteGroups } = await import('../src/lib/boardRoles.ts');
+  const mk = (id, sub) => ({ id, sub, name: id, season: '冬', price: 1000, sales14d: 0 });
+  // 默认（bySuite 省略）按小名合并成一张卡
+  assert.equal(buildSuiteGroups([mk('a', '上班套'), mk('b', '上班套')], () => 200, () => 10).length, 1);
+  // 看板用的 bySuite: false → 每个款各一张
+  assert.equal(buildSuiteGroups([mk('a', '上班套'), mk('b', '上班套')], () => 200, () => 10, { bySuite: false }).length, 2);
+  assert.ok(page.includes('{ bySuite: false }'), '看板传 bySuite: false');
+});
+
+test('放入货盘：同套系的其他款先问、勾选才一起加入', async () => {
+  const { suiteSiblings } = await import('../src/lib/boardRoles.ts');
+  const all = [
+    { id: 'md09fw033', sub: '上班套', name: '马甲' },
+    { id: 'md09fw034', sub: '上班套', name: '半裙' },
+    { id: 'x1', sub: '', name: '无小名' },
+    { id: 'x2', sub: '', name: '无小名2' },
+  ];
+  assert.deepEqual(suiteSiblings(all[0], all).map((p) => p.id), ['md09fw034'], '同小名的其他款');
+  assert.deepEqual(suiteSiblings(all[2], all), [], '没有小名就没有可提醒的套系款');
+  assert.deepEqual(suiteSiblings(all[0], all).map((p) => p.id).includes('md09fw033'), false, '不含自己');
+
+  assert.ok(page.includes('setSuitePrompt({ product: p, sectionId: s.id, others, picked: [] })'), '有同套系款先弹提醒');
+  assert.ok(page.includes('onAdd([p.id], s.id)'), '不勾选时只放当前这款');
+  assert.ok(page.includes('onAdd([product.id, ...picked], sectionId)'), '勾选的作为同一坑位一起加入');
 });
 
 test('评分四段：净签收贡献 50 / 签收健康 20 / 应季 15 / 库存 15', () => {
