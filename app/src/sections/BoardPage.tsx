@@ -528,14 +528,25 @@ export default function BoardPage({
       <div className="board-strategy mt-6 grid grid-cols-[1fr_340px] gap-6">
         {/* 策略筛选面板 */}
         <div className="border border-edge bg-surface-card px-5 py-2">
-          <div className="flex items-center gap-2 border-b border-edge-muted py-3">
-            <span className="text-[11px] leading-5 text-ink-muted">
-              按款显示：一个款一张卡；放入货盘时若有同套系的其他款，可选一起加入一个坑位
-              {/* 近14天销量/成本/尺码都来自每天下载一次的「商品全表」快照，这里标明数据日期 */}
-              {sales14Date && <span className="ml-2 text-ink-faint">数据日期 {sales14Date}</span>}
-              {sales14Pending > 0 && <span className="ml-2 text-ink-faint">近14天销量补齐中（{sales14Pending} 款）</span>}
-            </span>
-            <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto shrink-0 text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
+          <div className="flex items-start gap-2 border-b border-edge-muted py-3">
+            <div className="min-w-0 text-[11px] leading-5 text-ink-muted">
+              <div>
+                按款显示：一个款一张卡；放入货盘时若有同套系的其他款，可选一起加入一个坑位
+                {/* 近14天销量/成本/尺码都来自每天下载一次的「商品全表」快照，这里标明数据日期 */}
+                {sales14Date && <span className="ml-2 text-ink-faint">数据日期 {sales14Date}</span>}
+                {sales14Pending > 0 && <span className="ml-2 text-ink-faint">近14天销量补齐中（{sales14Pending} 款）</span>}
+              </div>
+              {/* 季节 / 价格带 / 指标阈值的口径，写在筛选面板顶部，免得每次都要问 */}
+              <div className="mt-0.5 text-[10.5px] leading-4 text-ink-faint">
+                季节：取款级「季节(到款式)」，组合值（如「秋冬」）选「秋」也算命中
+                <span className="mx-1.5">·</span>
+                价格带：取 BI 款「价格定位」低/中/高
+                <span className="mx-1.5">·</span>
+                指标阈值：转化率、拉新率为款级占比，≥ 阈值才保留；签收率 = 1 − 总退货率（含发货前+发货后），
+                没有退货数据的款不算达标；退货率 ≤ 也是总退货率（Σ退货数量/Σ销售数量），无数据的款不设限
+              </div>
+            </div>
+            <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto shrink-0 pt-0.5 text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
           </div>
           <Dim label="商品角色">
             {/* 角色单选：每款只归属一个角色，选「全部」清空 */}

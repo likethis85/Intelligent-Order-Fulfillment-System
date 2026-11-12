@@ -114,3 +114,12 @@ test('BI 维度值里若带「全部」占位要去重，避免重复渲染', ()
   assert.ok(filters, '找到维度列表定义');
   assert.equal((filters[0].match(/v !== '全部'/g) || []).length, 3, '品类/波段/价格带都要过滤占位');
 });
+
+test('筛选面板顶部写明 季节 / 价格带 / 指标阈值 的口径', () => {
+  assert.ok(code.includes('季节：取款级「季节(到款式)」'), '季节口径');
+  assert.ok(code.includes('组合值（如「秋冬」）选「秋」也算命中'), '季节组合值说明与筛选实现一致');
+  assert.ok(code.includes('价格带：取 BI 款「价格定位」低/中/高'), '价格带口径');
+  assert.ok(code.includes('签收率 = 1 − 总退货率（含发货前+发货后）'), '签收率口径');
+  assert.ok(code.includes('Σ退货数量/Σ销售数量'), '退货率数量口径');
+  assert.ok(code.includes('没有退货数据的款不算达标'), '无数据不算签收达标');
+});
