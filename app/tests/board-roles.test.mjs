@@ -148,11 +148,12 @@ test('看板按预估剩余可用数降序排序，评分只展示不参与排�
   assert.ok(page.includes('评分 {score.toFixed(1)}'), '卡片仍展示评分');
 });
 
-test('快捷方案已移除，商品角色排在最上面', () => {
+test('快捷方案与商品角色筛选都已移除，角色只留在卡片标签上', () => {
   assert.ok(!page.includes('const PRESETS'), '不再有快捷方案');
   assert.ok(!page.includes('快捷方案'), '不再渲染快捷方案行');
-  const roleAt = page.indexOf('<Dim label="商品角色">');
-  const catAt = page.indexOf('<Dim label="品类">');
-  assert.ok(roleAt > 0 && roleAt < catAt, '商品角色在品类之前');
+  assert.ok(!page.includes('<Dim label="商品角色">'), '商品角色筛选维度已下线');
+  assert.ok(!page.includes('roleTab'), '角色页签已下线');
+  // 角色本身还在算：卡片上仍然显示「主推款 / 经典款 …」标签
+  assert.ok(page.includes('{g.role}款'), '卡片保留角色标签');
   assert.ok(page.includes('近14天销量补齐中'), '近14天销量还在预热时给出提示');
 });

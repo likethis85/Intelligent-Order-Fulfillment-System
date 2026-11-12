@@ -12,11 +12,11 @@ const code = fs.readFileSync(path.resolve(__dirname, '../src/sections/BoardPage.
 test('每个多选维度都走统一的 DimChips，并带「全部」', () => {
   assert.ok(code.includes('function DimChips<T extends string | number>('), '需要统一的筛选 chip 组件');
   assert.ok(code.includes('<Chip on={selected.length === 0} label="全部" onClick={() => onChange([])} />'), '「全部」在数组为空时选中');
-  for (const dim of ['品类', '波段', '上新年份', '价格带', '季节', '商品角色']) {
+  for (const dim of ['品类', '波段', '上新年份', '价格带', '季节']) {
     assert.ok(code.includes(`<Dim label="${dim}">`), `${dim} 维度存在`);
   }
   const uses = code.match(/<DimChips/g) || [];
-  assert.ok(uses.length >= 5, '品类/上新年份/波段/价格带/角色都要用 DimChips');
+  assert.ok(uses.length >= 5, '品类/上新年份/波段/价格带/季节都要用 DimChips');
 });
 
 test('点具体项时从「全部」切过去，多选仍可叠加', () => {
@@ -28,13 +28,13 @@ test('点具体项时从「全部」切过去，多选仍可叠加', () => {
 
 test('默认筛选全部为空，等于每个维度都选中「全部」', () => {
   assert.ok(code.includes('const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });'), '初始值不能预设品类');
-  assert.ok(code.includes('cats: [], waves: [], bands: [], seasons: [], roles: [], years: []'), 'DEFAULT_FILTERS 的数组维度都为空');
+  assert.ok(code.includes('cats: [], waves: [], bands: [], seasons: [], years: []'), 'DEFAULT_FILTERS 的数组维度都为空');
 });
 
-test('维度顺序：商品角色 → 上新年份 → 波段 → 品类 → 季节 → 价格带', () => {
+test('维度顺序：上新年份 → 波段 → 品类 → 季节 → 价格带', () => {
   const at = (label) => code.indexOf(`<Dim label="${label}">`);
-  const seq = ['商品角色', '上新年份', '波段', '品类', '季节', '价格带'].map(at);
-  assert.ok(seq.every((i) => i > 0), '六个维度都存在');
+  const seq = ['上新年份', '波段', '品类', '季节', '价格带'].map(at);
+  assert.ok(seq.every((i) => i > 0), '五个维度都存在');
   for (let i = 1; i < seq.length; i++) assert.ok(seq[i] > seq[i - 1], '顺序不能变');
 });
 
@@ -43,21 +43,13 @@ test('季节筛选按「季节(到款式)」匹配，组合值（秋冬）也能
   assert.ok(code.includes("const seasonList = (() =>"), '季节选项从商品数据里取');
 });
 
-test('商品角色只能单选，并联动库存条件/季节/指标阈值', () => {
-  assert.ok(code.includes("onClick={() => applyRole(f.roles[0] === r ? null : r)}"), '再次点击取消，点另一个替换');
-  const presets = code.match(/const ROLE_PRESETS:[\s\S]*?\n\};/);
-  assert.ok(presets, '角色预置条件存在');
-  const body = presets[0];
-  assert.ok(body.includes("主推: { minStock: 150, seasons: ['秋', '冬'], minSignRate: 45 }"), '主推：可用≥150 + 秋冬 + 签收≥45%');
-  assert.ok(body.includes('现金回收: { minStock: 100'), '现金回收：可用 >100，退货率不设上限');
-  assert.ok(body.includes('利润: { minStock: 150'), '利润：可用 ≥150 + 秋冬');
-  assert.ok(body.includes('库存: { minStock: 150'), '库存：可用 ≥150');
-  // 联动时要先把三类条件复位，避免上一个角色的值残留
-  assert.ok(code.includes('minStock: DEFAULT_FILTERS.minStock'), '库存条件先复位');
-  assert.ok(code.includes('seasons: [...DEFAULT_FILTERS.seasons]'), '季节先复位');
-  assert.ok(code.includes('maxReturn: DEFAULT_FILTERS.maxReturn'), '指标阈值先复位');
-  assert.ok(code.includes('minSignRate: DEFAULT_FILTERS.minSignRate'), '签收率也先复位');
-  assert.ok(code.includes("onClick={() => applyRole(r === '全部' ? null : r)}"), '角色 Tab 也走同一套联动');
+test('商品角色筛选已下线：没有角色维度、预置和页签', () => {
+  assert.ok(!code.includes('<Dim label="商品角色">'), '不再渲染商品角色维度');
+  assert.ok(!code.includes('ROLE_PRESETS'), '不再有角色预置');
+  assert.ok(!code.includes('applyRole'), '不再有角色联动');
+  assert.ok(!code.includes('roleTab'), '不再有角色页签');
+  assert.ok(!code.includes('f.roles'), '筛选条件里不再有 roles');
+  assert.ok(code.includes('商品角色筛选已下线'), 'AI 下发的 roles 会被丢掉，注释写明原因');
 });
 
 test('指标阈值里有签收率，位于转化率和退货率之间', () => {

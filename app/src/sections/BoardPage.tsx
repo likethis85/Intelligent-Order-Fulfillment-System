@@ -10,7 +10,7 @@ import {
 import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
-import { availableOf, BOARD_ROLES, buildSuiteGroups, scoreGroup, suiteSiblings, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
+import { availableOf, BOARD_ROLES, buildSuiteGroups, scoreGroup, suiteSiblings, type SuiteGroup } from '@/lib/boardRoles';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
 interface Filters {
@@ -18,7 +18,6 @@ interface Filters {
   waves: string[];     // 波段
   bands: string[];     // 价格带
   seasons: string[];   // 季节（到款式）
-  roles: BoardRole[];  // 商品角色（每款只归属一个角色，按优先级判定）
   years: number[];     // 上新年份
   minStock: number;    // 预估剩余库存 ≥
   noTransit: boolean;  // 仅无在途
@@ -29,23 +28,8 @@ interface Filters {
 }
 
 const DEFAULT_FILTERS: Filters = {
-  cats: [], waves: [], bands: [], seasons: [], roles: [], years: [],
+  cats: [], waves: [], bands: [], seasons: [], years: [],
   minStock: 0, noTransit: false, minConv: 0, minSignRate: 0, maxReturn: 80, minNewBuyer: 0,
-};
-
-// 选角色（单选）时联动「库存条件 / 季节 / 指标阈值」：
-// 把角色判定里的阈值直接落成界面可改的筛选值，用户看到的就是这套口径。
-//   主推：可用 ≥150、应季（秋/冬）、签收率 ≥45%
-//   经典：红榜+150 或 签收率≥45%+近14天≥30 → 不限可用数
-//   现金回收：可用 >100，退货率不设上限（本身就在收高退货款）
-//   利润：可用 ≥150、应季（秋/冬）
-//   库存：可用 ≥150
-const ROLE_PRESETS: Record<BoardRole, Partial<Filters>> = {
-  主推: { minStock: 150, seasons: ['秋', '冬'], minSignRate: 45 },
-  经典: { minStock: 0, seasons: [], minSignRate: 45 },
-  现金回收: { minStock: 100, seasons: [], minSignRate: 0 },
-  利润: { minStock: 150, seasons: ['秋', '冬'] },
-  库存: { minStock: 150, seasons: [] },
 };
 
 const DIM = {
@@ -73,8 +57,8 @@ function aiReplyFallback(q: string): ChatMsg {
   if (/清仓|库存|滞销/.test(q))
     return {
       from: 'ai',
-      text: '建议按清仓策略：锁定「库存款」角色（主仓>200 且无在途），转化率 ≥5% 保证动销，退货率 ≤30% 避免清出售后压力。要应用吗？',
-      patch: { roles: ['库存'], noTransit: true, minStock: 200, minConv: 5, maxReturn: 30 },
+      text: '建议按清仓策略：只看无在途、预估可用 ≥200 的款，转化率 ≥5% 保证动销，退货率 ≤30% 避免清出售后压力。要应用吗？',
+      patch: { noTransit: true, minStock: 200, minConv: 5, maxReturn: 30 },
     };
   if (/拉新|新客/.test(q))
     return {
@@ -85,8 +69,8 @@ function aiReplyFallback(q: string): ChatMsg {
   if (/利润|毛利|赚钱/.test(q))
     return {
       from: 'ai',
-      text: '利润导向建议：锁定「利润款」角色（零售/成本比 ≥2.8），价格带高，退货率 ≤30%。建议峰值时段释放。要应用吗？',
-      patch: { roles: ['利润'], bands: ['高'], maxReturn: 30 },
+      text: '利润导向建议：价格带高、退货率 ≤30% 的款，零售/成本比 ≥2.8 的优先。建议峰值时段释放。要应用吗？',
+      patch: { bands: ['高'], maxReturn: 30 },
     };
   const catHit = DIM.cats.find((c) => q.includes(c));
   if (catHit)
@@ -203,7 +187,6 @@ export default function BoardPage({
 }) {
   // 默认所有维度都是「全部」：不预设品类，进页面先看到全量候选池
   const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });
-  const [roleTab, setRoleTab] = useState<'全部' | BoardRole>('全部');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<TrayType>('马总直播货盘');
@@ -271,7 +254,6 @@ export default function BoardPage({
     }
     return [...years].sort((a, b) => b - a);
   })();
-  const roleList = BOARD_ROLES;
 
   // 剩余库存推荐（按款号索引，未覆盖的款不显示该段）
   const [remainingMap, setRemainingMap] = useState<Map<string, RemainingGroup>>(new Map());
@@ -373,12 +355,12 @@ export default function BoardPage({
     [f, PRODUCTS, remainingMap],
   );
 
-  // 看板按款呈现：一款一张卡（bySuite: false）。角色/评分仍走组内相加的口径，
-  // 只是这里的「组」就是这一款自己；同套系的其他款在放入货盘时再问要不要一起带。
-  const groups = useMemo(() => {
-    const list = buildSuiteGroups(pool, estimateOf, (p) => sales14Map.get(p.id.toLowerCase()) || 0, { bySuite: false });
-    return list.filter((g) => f.roles.length === 0 || (g.role !== '其他' && f.roles.includes(g.role)));
-  }, [pool, remainingMap, sales14Map, f.roles]);
+  // 看板按款呈现：一款一张卡（bySuite: false）。角色仍按组内相加口径判定，只用于卡片上的标签，
+  // 不再参与筛选（商品角色筛选已下线）；同套系的其他款在放入货盘时再问要不要一起带。
+  const groups = useMemo(
+    () => buildSuiteGroups(pool, estimateOf, (p) => sales14Map.get(p.id.toLowerCase()) || 0, { bySuite: false }),
+    [pool, remainingMap, sales14Map],
+  );
 
   // 评分：套系指标口径（销量/签收率/可用数按组内合计），按总分从高到低排
   const scoreOf = (g: SuiteGroup) =>
@@ -390,12 +372,11 @@ export default function BoardPage({
     });
 
   const visible = useMemo(() => {
-    const list = roleTab === '全部' ? [...groups] : groups.filter((g) => g.role === roleTab);
-    return list
+    return groups
       .map((g) => ({ g, score: scoreOf(g) }))
       // 排序：预估剩余可用数降序（评分只展示、不再参与排序）；同数时按转化率降序保证顺序稳定
       .sort((a, b) => b.g.available - a.g.available || b.g.members[0].conversion - a.g.members[0].conversion);
-  }, [groups, roleTab, sales14Map, remainingMap]);
+  }, [groups, sales14Map, remainingMap]);
 
   const inTray = (pid: string) => tray.sections.some((s) => s.looks.some((l) => l.pids.includes(pid)));
 
@@ -406,7 +387,7 @@ export default function BoardPage({
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // 换筛选条件 / 切角色 Tab / 改每页数量都回到第一页
-  useEffect(() => { setPage(0); }, [pool, roleTab, pageSize]);
+  useEffect(() => { setPage(0); }, [pool, pageSize]);
 
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
@@ -433,32 +414,11 @@ export default function BoardPage({
     return out;
   }, [pageCount, safePage]);
 
-  // 角色单选：选中后把该角色的判定阈值落到库存条件 / 季节 / 指标阈值上（可再手动改）
-  const applyRole = (role: BoardRole | null) => {
-    setRoleTab(role ?? '全部');
-    setF((x) => ({
-      ...x,
-      roles: role ? [role] : [],
-      // 先回到默认值，再套角色预置，避免上一个角色的条件残留
-      minStock: DEFAULT_FILTERS.minStock,
-      minConv: DEFAULT_FILTERS.minConv,
-      minSignRate: DEFAULT_FILTERS.minSignRate,
-      maxReturn: DEFAULT_FILTERS.maxReturn,
-      minNewBuyer: DEFAULT_FILTERS.minNewBuyer,
-      seasons: [...DEFAULT_FILTERS.seasons],
-      ...(role ? ROLE_PRESETS[role] : {}),
-    }));
-  };
-
-  // 后端 AI 仍按旧角色词（引流）出建议，这里映射到看板的五类角色
+  // 商品角色筛选已下线：AI 返回的 patch 里若还带 roles，直接丢掉，其余条件照常应用
   const normalizePatch = (patch?: Partial<Filters>): Partial<Filters> | undefined => {
     if (!patch) return undefined;
-    if (!patch.roles) return patch;
-    const alias: Record<string, BoardRole> = {
-      引流: '主推', 主推: '主推', 经典: '经典', 现金回收: '现金回收', 利润: '利润', 库存: '库存',
-    };
-    const roles = [...new Set(patch.roles.map((r) => alias[String(r)]).filter(Boolean))] as BoardRole[];
-    return { ...patch, roles };
+    const { roles: _drop, ...rest } = patch as Partial<Filters> & { roles?: unknown };
+    return rest;
   };
 
   const send = async () => {
@@ -556,18 +516,6 @@ export default function BoardPage({
             </div>
             <button onClick={() => setF(DEFAULT_FILTERS)} className="ml-auto shrink-0 pt-0.5 text-[11px] text-ink-muted hover:text-ink-primary">清空条件</button>
           </div>
-          <Dim label="商品角色">
-            {/* 角色单选：每款只归属一个角色，选「全部」清空 */}
-            <Chip on={f.roles.length === 0} label="全部" onClick={() => applyRole(null)} />
-            {roleList.map((r) => (
-              <Chip
-                key={r}
-                on={f.roles[0] === r}
-                label={`${r}款`}
-                onClick={() => applyRole(f.roles[0] === r ? null : r)}
-              />
-            ))}
-          </Dim>
           {yearList.length > 0 && (
             <Dim label="上新年份">
               <DimChips options={yearList} selected={f.years} onChange={(years) => setF((x) => ({ ...x, years }))} labelOf={(y) => `${y}年`} />
@@ -651,16 +599,7 @@ export default function BoardPage({
 
       {/* 结果 */}
       <div className="board-results-tabs mt-8 flex flex-wrap items-center gap-6 border-b border-edge" data-local-scroll>
-        {(['全部', ...roleList] as const).map((r) => (
-          <button
-            key={r}
-            onClick={() => applyRole(r === '全部' ? null : r)}
-            className={`relative pb-3 text-[13px] transition-colors ${roleTab === r ? 'font-semibold' : 'text-ink-muted hover:text-ink-primary'}`}
-          >
-            {r === '全部' ? `全部候选（${groups.length} 款）` : `${r}款（${groups.filter((g) => g.role === r).length}）`}
-            {roleTab === r && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-action-primary" />}
-          </button>
-        ))}
+        <span className="pb-3 text-[13px] font-semibold">全部候选（{groups.length} 款）</span>
         <div className="ml-auto flex items-center gap-2 pb-2 text-[11.5px] text-ink-muted">
           <span>共 {visible.length} 款</span>
           <span className="text-ink-faint">·</span>
