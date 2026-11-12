@@ -152,7 +152,7 @@ test('快捷方案与商品角色筛选都已移除，角色只留在卡片标�
   assert.ok(!page.includes('const PRESETS'), '不再有快捷方案');
   assert.ok(!page.includes('快捷方案'), '不再渲染快捷方案行');
   assert.ok(!page.includes('<Dim label="商品角色">'), '商品角色筛选维度已下线');
-  assert.ok(!page.includes('roleTab'), '角色页签已下线');
+  assert.ok(page.includes("onClick={() => setRoleTab(r)}"), '结果区角色页签保留');
   // 角色本身还在算：卡片上仍然显示「主推款 / 经典款 …」标签
   assert.ok(page.includes('{g.role}款'), '卡片保留角色标签');
   assert.ok(page.includes('近14天销量补齐中'), '近14天销量还在预热时给出提示');

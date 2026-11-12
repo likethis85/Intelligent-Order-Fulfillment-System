@@ -10,7 +10,7 @@ import {
 import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
-import { availableOf, BOARD_ROLES, buildSuiteGroups, scoreGroup, suiteSiblings, type SuiteGroup } from '@/lib/boardRoles';
+import { availableOf, BOARD_ROLES, buildSuiteGroups, scoreGroup, suiteSiblings, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
 interface Filters {
@@ -187,6 +187,8 @@ export default function BoardPage({
 }) {
   // 默认所有维度都是「全部」：不预设品类，进页面先看到全量候选池
   const [f, setF] = useState<Filters>({ ...DEFAULT_FILTERS });
+  // 角色只做结果页签的切换（不再作为筛选维度，也不联动其他条件）
+  const [roleTab, setRoleTab] = useState<'全部' | BoardRole>('全部');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<TrayType>('马总直播货盘');
@@ -254,6 +256,7 @@ export default function BoardPage({
     }
     return [...years].sort((a, b) => b - a);
   })();
+  const roleList = BOARD_ROLES;
 
   // 剩余库存推荐（按款号索引，未覆盖的款不显示该段）
   const [remainingMap, setRemainingMap] = useState<Map<string, RemainingGroup>>(new Map());
@@ -372,11 +375,12 @@ export default function BoardPage({
     });
 
   const visible = useMemo(() => {
-    return groups
+    const list = roleTab === '全部' ? groups : groups.filter((g) => g.role === roleTab);
+    return list
       .map((g) => ({ g, score: scoreOf(g) }))
       // 排序：预估剩余可用数降序（评分只展示、不再参与排序）；同数时按转化率降序保证顺序稳定
       .sort((a, b) => b.g.available - a.g.available || b.g.members[0].conversion - a.g.members[0].conversion);
-  }, [groups, sales14Map, remainingMap]);
+  }, [groups, roleTab, sales14Map, remainingMap]);
 
   const inTray = (pid: string) => tray.sections.some((s) => s.looks.some((l) => l.pids.includes(pid)));
 
@@ -387,7 +391,7 @@ export default function BoardPage({
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // 换筛选条件 / 切角色 Tab / 改每页数量都回到第一页
-  useEffect(() => { setPage(0); }, [pool, pageSize]);
+  useEffect(() => { setPage(0); }, [pool, roleTab, pageSize]);
 
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
@@ -599,7 +603,16 @@ export default function BoardPage({
 
       {/* 结果 */}
       <div className="board-results-tabs mt-8 flex flex-wrap items-center gap-6 border-b border-edge" data-local-scroll>
-        <span className="pb-3 text-[13px] font-semibold">全部候选（{groups.length} 款）</span>
+        {(['全部', ...roleList] as const).map((r) => (
+          <button
+            key={r}
+            onClick={() => setRoleTab(r)}
+            className={`relative pb-3 text-[13px] transition-colors ${roleTab === r ? 'font-semibold' : 'text-ink-muted hover:text-ink-primary'}`}
+          >
+            {r === '全部' ? `全部候选（${groups.length} 款）` : `${r}款（${groups.filter((g) => g.role === r).length}）`}
+            {roleTab === r && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-action-primary" />}
+          </button>
+        ))}
         <div className="ml-auto flex items-center gap-2 pb-2 text-[11.5px] text-ink-muted">
           <span>共 {visible.length} 款</span>
           <span className="text-ink-faint">·</span>

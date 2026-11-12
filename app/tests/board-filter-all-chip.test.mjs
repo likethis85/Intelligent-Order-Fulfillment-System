@@ -47,7 +47,9 @@ test('商品角色筛选已下线：没有角色维度、预置和页签', () =>
   assert.ok(!code.includes('<Dim label="商品角色">'), '不再渲染商品角色维度');
   assert.ok(!code.includes('ROLE_PRESETS'), '不再有角色预置');
   assert.ok(!code.includes('applyRole'), '不再有角色联动');
-  assert.ok(!code.includes('roleTab'), '不再有角色页签');
+  // 结果区的角色页签保留（只切换展示，不联动筛选条件）
+  assert.ok(code.includes("onClick={() => setRoleTab(r)}"), '结果区角色页签保留');
+  assert.ok(!code.includes('applyRole'), '页签不再联动筛选条件');
   assert.ok(!code.includes('f.roles'), '筛选条件里不再有 roles');
   assert.ok(code.includes('商品角色筛选已下线'), 'AI 下发的 roles 会被丢掉，注释写明原因');
 });
