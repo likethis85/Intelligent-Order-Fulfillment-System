@@ -10,7 +10,7 @@ import {
 import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayType } from '@/data/products';
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
-import { availableOf, BOARD_ROLES, buildSuiteGroups, roleRank, scoreGroup, suiteSiblings, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
+import { availableOf, BOARD_ROLES, buildSuiteGroups, scoreGroup, suiteSiblings, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
@@ -386,7 +386,8 @@ export default function BoardPage({
     const list = roleTab === '全部' ? [...groups] : groups.filter((g) => g.role === roleTab);
     return list
       .map((g) => ({ g, score: scoreOf(g) }))
-      .sort((a, b) => b.score - a.score || roleRank(a.g.role) - roleRank(b.g.role) || b.g.members[0].conversion - a.g.members[0].conversion);
+      // 排序：预估剩余可用数降序（评分只展示、不再参与排序）；同数时按转化率降序保证顺序稳定
+      .sort((a, b) => b.g.available - a.g.available || b.g.members[0].conversion - a.g.members[0].conversion);
   }, [groups, roleTab, sales14Map, remainingMap]);
 
   const inTray = (pid: string) => tray.sections.some((s) => s.looks.some((l) => l.pids.includes(pid)));

@@ -132,9 +132,10 @@ test('卡片在预估可用与在途之间显示签收率', () => {
   );
 });
 
-test('看板按评分从高到低排序，卡片显示评分', () => {
-  assert.ok(page.includes('.sort((a, b) => b.score - a.score'), '评分降序');
-  assert.ok(page.includes('评分 {score.toFixed(1)}'), '卡片展示评分');
+test('看板按预估剩余可用数降序排序，评分只展示不参与排序', () => {
+  assert.ok(page.includes('.sort((a, b) => b.g.available - a.g.available'), '预估剩余可用数降序');
+  assert.ok(!page.includes('b.score - a.score'), '评分不再参与排序');
+  assert.ok(page.includes('评分 {score.toFixed(1)}'), '卡片仍展示评分');
 });
 
 test('快捷方案已移除，商品角色排在最上面', () => {
