@@ -499,7 +499,8 @@ export default function BoardPage({
               </div>
               {/* 季节 / 价格带 / 指标阈值的口径，写在筛选面板顶部，免得每次都要问 */}
               <div className="mt-0.5 text-[10.5px] leading-4 text-ink-faint">
-                季节：取款级「季节(到款式)」，组合值（如「秋冬」）选「秋」也算命中
+                季节：取款级「季节(到款式)」，组合值（如「秋冬」）选「秋」也算命中；
+                应季：按当前月份，8–12 月及 1 月为秋+冬，2–7 月为春+夏
                 <span className="mx-1.5">·</span>
                 价格带：基于各品类相对价格调整，非固定价格划分
                 <span className="mx-1.5">·</span>

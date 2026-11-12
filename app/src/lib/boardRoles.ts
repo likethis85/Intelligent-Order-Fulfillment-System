@@ -26,7 +26,7 @@ export interface SuiteGroup {
   sales14d: number;         // 近 14 天销量（组内相加）
   signRate: number | null;  // 签收率 = 1 − 总退货率；组内无退货数据时为 null
   ratio: number;            // 倍率 = 售价 / 成本，取组内最高
-  seasonal: boolean;        // 应季：组内任一件季节为秋/冬
+  seasonal: boolean;        // 应季：按当前月份（8–12/1 月秋冬，2–7 月春夏），组内任一件命中即算
   red: boolean;             // 红榜
   cashFlag: boolean;        // 现金回收信号：9AW 老款 / 福利款 / 总退货率 ≥ 85%
 }
@@ -65,8 +65,17 @@ export function ratioOf(p: Product): number {
   return price / cost;
 }
 
-export function isSeasonal(p: Product): boolean {
-  return /秋|冬/.test(String(p.season || ''));
+// 应季按「当前月份」判定，不看款自己的季节值：
+//   8/9/10/11/12/1 月 → 应季 = 秋 + 冬
+//   2/3/4/5/6/7 月   → 应季 = 春 + 夏
+export function seasonalSeasons(month = new Date().getMonth() + 1): string[] {
+  return month >= 8 || month === 1 ? ['秋', '冬'] : ['春', '夏'];
+}
+
+// 款的季节值里含当前应季之一就算应季（「秋冬」「春夏」这类组合值按字面命中）
+export function isSeasonal(p: Product, month = new Date().getMonth() + 1): boolean {
+  const season = String(p.season || '');
+  return seasonalSeasons(month).some((s) => season.includes(s));
 }
 
 // 9AW 老款：款号以 9AW 开头
@@ -141,14 +150,14 @@ export function deriveGroupRole(g: {
   welfare: boolean;
 }): GroupRole {
   const signOk = g.signRate !== null && g.signRate >= 0.45;
-  // 主推：预估剩余可用数 ≥150 且 签收 ≥45% 且 应季（秋/冬）
+  // 主推：预估剩余可用数 ≥150 且 签收 ≥45% 且 应季（应季季节随当前月份变化，见 seasonalSeasons）
   if (g.available >= 150 && signOk && g.seasonal) return '主推';
   // 经典：红榜且可用 ≥150；或 签收 ≥45% 且近14天销量 ≥30（这一支不看可用数）
   if ((g.red && g.available >= 150) || (signOk && g.sales14d >= 30)) return '经典';
   // 现金回收：(总退货率 ≥85% 或 9AW 老款 或 福利款) 且 可用数 >100
   const cashSignal = (g.returnRate !== null && g.returnRate >= 0.85) || g.legacy9AW || g.welfare;
   if (cashSignal && g.available > 100) return '现金回收';
-  // 利润：倍率 ≥3.0 且 应季 且 可用 ≥150
+  // 利润：倍率 ≥3.0 且 应季（同上）且 可用 ≥150
   if (g.ratio >= 3 && g.seasonal && g.available >= 150) return '利润';
   // 库存：可用 ≥150 且未落入以上任一维度
   if (g.available >= 150) return '库存';

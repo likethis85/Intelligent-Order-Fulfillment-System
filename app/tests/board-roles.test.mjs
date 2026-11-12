@@ -79,6 +79,23 @@ test('卡里没有数量列时用 总退货率 + 净销量 反推销售数量，
   assert.ok(!src.includes('weighted / weight, r'), '不能先按款算率再平均');
 });
 
+test('应季按当前月份判定：8–12 月及 1 月秋冬，2–7 月春夏', async () => {
+  const { seasonalSeasons, isSeasonal } = await import('../src/lib/boardRoles.ts');
+  for (const m of [8, 9, 10, 11, 12, 1]) assert.deepEqual(seasonalSeasons(m), ['秋', '冬'], `${m} 月应为秋冬`);
+  for (const m of [2, 3, 4, 5, 6, 7]) assert.deepEqual(seasonalSeasons(m), ['春', '夏'], `${m} 月应为春夏`);
+
+  const winter = { id: 'w', season: '冬', sub: '', name: 'W', price: 1000 };
+  const summer = { id: 's', season: '夏', sub: '', name: 'S', price: 1000 };
+  const both = { id: 'b', season: '春夏', sub: '', name: 'B', price: 1000 };
+  assert.equal(isSeasonal(winter, 11), true, '11 月看冬款应季');
+  assert.equal(isSeasonal(winter, 5), false, '5 月看冬款不应季');
+  assert.equal(isSeasonal(summer, 5), true, '5 月看夏款应季');
+  assert.equal(isSeasonal(summer, 11), false, '11 月看夏款不应季');
+  assert.equal(isSeasonal(both, 3), true, '「春夏」组合值 3 月命中');
+  assert.equal(isSeasonal(both, 10), false, '「春夏」组合值 10 月不命中');
+  assert.ok(roles.includes('month >= 8 || month === 1'), '秋冬月份判定');
+});
+
 test('套系 key = 小名（无小名退回款号），组内指标相加', () => {
   assert.ok(roles.includes("String(p.sub || '').trim() || p.id"), '小名优先、款号兜底');
   assert.ok(roles.includes('g.available += availableOf(p, estimateOf(p))'), '可用数按件相加');
