@@ -512,7 +512,7 @@ export default function BoardPage({
               <div className="mt-0.5 text-[10.5px] leading-4 text-ink-faint">
                 季节：取款级「季节(到款式)」，组合值（如「秋冬」）选「秋」也算命中
                 <span className="mx-1.5">·</span>
-                价格带：取 BI 款「价格定位」低/中/高
+                价格带：基于各品类相对价格调整，非固定价格划分
                 <span className="mx-1.5">·</span>
                 指标阈值：转化率、拉新率为款级占比，≥ 阈值才保留；签收率 = 1 − 总退货率（含发货前+发货后），
                 没有退货数据的款不算达标；退货率 ≤ 也是总退货率（Σ退货数量/Σ销售数量），无数据的款不设限
