@@ -420,12 +420,13 @@ export function saveWeatherRules(rules: WeatherRules): Promise<{ rules: WeatherR
 // ── AI 选款策略 LLM 端点 ──
 export interface AiStrategyPatch {
   cats?: string[];
+  waves?: string[];
   bands?: string[];
-  temps?: string[];
-  roles?: string[];
-  scenes?: string[];
+  seasons?: string[];
+  years?: number[];
   minStock?: number;
   minConv?: number;
+  minSignRate?: number;
   maxReturn?: number;
   minNewBuyer?: number;
   noTransit?: boolean;

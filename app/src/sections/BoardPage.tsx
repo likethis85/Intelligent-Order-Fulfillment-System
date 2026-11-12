@@ -32,6 +32,12 @@ const DEFAULT_FILTERS: Filters = {
   minStock: 0, noTransit: false, minConv: 0, minSignRate: 0, maxReturn: 80, minNewBuyer: 0,
 };
 
+// AI 能改的筛选字段（与后端 prompt 的 patch 字段一一对应）；其余键一律丢弃
+const PATCH_KEYS = [
+  'cats', 'waves', 'bands', 'seasons', 'years',
+  'minStock', 'noTransit', 'minConv', 'minSignRate', 'maxReturn', 'minNewBuyer',
+] as const satisfies readonly (keyof Filters)[];
+
 const DIM = {
   cats: ['大衣', '针织', 'T恤', '裤装', '套装', '鞋靴', '衬衫', '外套', '西装', '背心', '夹克', '羽绒'],
   waves: ['9月1波段', '9月2波段', '10月1波段', '常青款'],
@@ -81,7 +87,7 @@ function aiReplyFallback(q: string): ChatMsg {
     };
   return {
     from: 'ai',
-    text: '我可以按这些维度帮你定策略：品类 / 上新年份 / 波段 / 价格带 / 角色（引流·利润·库存）/ 库存条件 / 转化率·退货率·拉新率阈值。试试说"清一波库存"或"这场主打拉新"。',
+    text: '我可以按这些维度帮你定策略：品类 / 波段 / 季节 / 上新年份 / 价格带 / 库存条件 / 转化率·签收率·退货率·拉新率阈值 / 无在途。试试说"清一波库存"或"这场主打拉新"。',
   };
 }
 
@@ -407,11 +413,13 @@ export default function BoardPage({
     return out;
   }, [pageCount, safePage]);
 
-  // 商品角色筛选已下线：AI 返回的 patch 里若还带 roles，直接丢掉，其余条件照常应用
+  // 商品角色 / 场景 / 适穿温度带筛选都已下线：AI 返回的 patch 只按白名单保留看板还在用的字段，
+  // 已下线维度和模型乱造的键直接丢掉，避免脏数据写进筛选状态
   const normalizePatch = (patch?: Partial<Filters>): Partial<Filters> | undefined => {
     if (!patch) return undefined;
-    const { roles: _drop, ...rest } = patch as Partial<Filters> & { roles?: unknown };
-    return rest;
+    return Object.fromEntries(
+      Object.entries(patch).filter(([k]) => (PATCH_KEYS as readonly string[]).includes(k)),
+    ) as Partial<Filters>;
   };
 
   const send = async () => {
