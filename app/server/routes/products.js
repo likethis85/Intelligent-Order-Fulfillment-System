@@ -43,7 +43,7 @@ export function enrichWithBi(product, biRow, productMasterRow) {
         // SKC 卡只带「第一个颜色」的那一行，覆盖过去会把整款的签收率算成单色小样本
         // （MD09FW033 就是这样：款级 2483/3686=67.4% → 签收 33%，被单色 60/142=42.3% 覆盖成 58%）。
         // 款式卡没给这些值时仍然用 SKC 兜底。
-        if (['returnRate', 'returnQty', 'salesQty', 'netSales'].includes(k)) {
+        if (['returnRate', 'returnQty', 'salesQty', 'netSales', 'afterShipReturnQty', 'shippedQty'].includes(k)) {
           const cur = Number(product[k]);
           if (Number.isFinite(cur) && cur > 0) continue;
         }

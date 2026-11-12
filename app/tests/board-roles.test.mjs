@@ -26,18 +26,41 @@ test('判定按优先级短路，后面的维度不覆盖', () => {
 });
 
 test('主推 / 经典 / 现金回收 / 利润 的阈值口径', () => {
-  assert.ok(roles.includes('g.available >= 150 && signOk && g.seasonal'), '主推：可用≥150 + 签收≥45% + 应季');
-  assert.ok(roles.includes('(g.red && g.available >= 150) || (signOk && g.sales14d >= 30)'), '经典：红榜+可用≥150 或 签收≥45%+近14天≥30');
+  assert.ok(roles.includes('g.available >= 150 && afterShipOk && g.seasonal'), '主推：可用≥150 + 发货后退货率≤40% + 应季');
+  assert.ok(roles.includes('(g.red && g.available >= 150) || (afterShipOk && g.sales14d >= 30)'), '经典：红榜+可用≥150 或 发货后退货率≤40%+近14天≥30');
+  assert.ok(roles.includes('g.afterShipRate !== null && g.afterShipRate <= 0.4'), '发货后退货率 ≤ 40% 才算过线');
   assert.ok(roles.includes('g.returnRate >= 0.85'), '现金回收：总退货率≥85%');
   assert.ok(roles.includes('g.available > 100'), '现金回收：可用数 >100');
   assert.ok(roles.includes('g.ratio >= 3 && g.seasonal && g.available >= 150'), '利润：倍率≥3.0 + 应季 + 可用≥150');
   assert.ok(roles.includes('g.available >= 150) return \'库存\''), '库存：可用≥150 且未落入以上');
 });
 
-test('签收率 = 1 − 总退货率，不用发货后退货率', () => {
+test('签收率仍按 1 − 总退货率 展示；角色判定改用发货后退货率', () => {
   assert.ok(roles.includes('g.signRate = rr === null ? null : 1 - rr;'), '签收率 = 1 − 总退货率');
-  assert.ok(roles.includes('signRate !== null && g.signRate >= 0.45'), '无退货数据时不算签收达标');
-  assert.ok(!/tagReturnPostShip/.test(roles), '禁用发货后退货率打标');
+  assert.ok(roles.includes('SUM(发货后退货) / SUM(实发)'), '发货后退货率 = Σ发货后退货/Σ实发');
+  assert.ok(!roles.includes('signOk'), '签收率不再参与角色判定');
+  assert.ok(!/tagReturnPostShip/.test(roles), '仍不使用「发货后退货率打标」这个字段');
+});
+
+test('发货后退货率 = Σ发货后退货/Σ实发，≤40% 才能进主推/经典', async () => {
+  const { buildSuiteGroups } = await import('../src/lib/boardRoles.ts');
+  const mk = (over) => ({ sub: '', name: over.id, season: '冬', price: 1000, returnQty: 1, salesQty: 10, ...over });
+  const roleOf = (over) => {
+    const [g] = buildSuiteGroups([mk(over)], () => 200, () => 50, { bySuite: false });
+    return g;
+  };
+
+  const ok = roleOf({ id: 'OK', afterShipReturnQty: 30, shippedQty: 100 });
+  assert.ok(Math.abs(ok.afterShipRate - 0.3) < 1e-12, '30/100 = 30%');
+  assert.equal(ok.role, '主推', '发货后退货率 30% ≤40% + 可用200 + 应季 → 主推');
+
+  const bad = roleOf({ id: 'BAD', afterShipReturnQty: 90, shippedQty: 200 });
+  assert.ok(Math.abs(bad.afterShipRate - 0.45) < 1e-12, '90/200 = 45%');
+  assert.equal(bad.role, '库存', '45% 超过 40% 线，掉回库存（可用 ≥150）');
+
+  const noData = roleOf({ id: 'NA', available: 200 });
+  assert.equal(noData.afterShipRate, null, '没有实发量时为空');
+  assert.equal(noData.role, '库存', '数据缺失按不达标处理，不会误放成主推');
 });
 
 test('组内总退货率 = SUM(退货数量)/SUM(销售数量)，不是按款平均', async () => {

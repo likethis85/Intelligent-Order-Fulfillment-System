@@ -44,7 +44,7 @@ test('领猫款合并时，SKC 卡不能覆盖款式卡已有的款级退货/销
   const src = fs.readFileSync(productsRoutePath, 'utf8');
   const block = src.slice(src.indexOf('SKC 卡覆盖'), src.indexOf('product.biMatched'));
   assert.ok(
-    block.includes("['returnRate', 'returnQty', 'salesQty', 'netSales'].includes(k)"),
+    block.includes("['returnRate', 'returnQty', 'salesQty', 'netSales', 'afterShipReturnQty', 'shippedQty'].includes(k)"),
     '款级指标在 SKC 覆盖前先看款式卡有没有值',
   );
   assert.ok(block.includes('if (Number.isFinite(cur) && cur > 0) continue;'), '款式卡有值就跳过 SKC 覆盖');

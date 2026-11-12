@@ -25,6 +25,7 @@ export interface SuiteGroup {
   available: number;        // 预估剩余可用数（组内相加）
   sales14d: number;         // 近 14 天销量（组内相加）
   signRate: number | null;  // 签收率 = 1 − 总退货率；组内无退货数据时为 null
+  afterShipRate: number | null; // 发货后退货率 = SUM(发货后退货)/SUM(实发)；主推/经典用它判定
   ratio: number;            // 倍率 = 售价 / 成本，取组内最高
   seasonal: boolean;        // 应季：按当前月份（8–12/1 月秋冬，2–7 月春夏），组内任一件命中即算
   red: boolean;             // 红榜
@@ -137,11 +138,29 @@ function groupReturnRate(members: Product[]): number | null {
   return null;
 }
 
+// 组内发货后退货率 = SUM(发货后退货) / SUM(实发)
+// 主推 / 经典的 45% 签收线已改为「发货后退货率 ≤ 40%」，用这条：
+// 发货后退货率和实发量都是 BI 商品卡的款级字段，套系内各件先加数量再相除。
+// 没有实发量（或字段缺失）返回 null —— 判定时当作不达标，不会误放。
+function groupAfterShipRate(members: Product[]): number | null {
+  let returns = 0;
+  let shipped = 0;
+  for (const p of members) {
+    const rq = Number(p.afterShipReturnQty);
+    const sq = Number(p.shippedQty);
+    if (!Number.isFinite(rq) || !Number.isFinite(sq) || sq <= 0 || rq < 0) continue;
+    returns += rq;
+    shipped += sq;
+  }
+  return shipped > 0 ? returns / shipped : null;
+}
+
 // 按优先级给套系定一个角色。阈值全部来自业务口径，改口径时同步改这里和测试。
 export function deriveGroupRole(g: {
   available: number;
   sales14d: number;
   signRate: number | null;
+  afterShipRate: number | null;
   returnRate: number | null;
   ratio: number;
   seasonal: boolean;
@@ -149,11 +168,12 @@ export function deriveGroupRole(g: {
   legacy9AW: boolean;
   welfare: boolean;
 }): GroupRole {
-  const signOk = g.signRate !== null && g.signRate >= 0.45;
-  // 主推：预估剩余可用数 ≥150 且 签收 ≥45% 且 应季（应季季节随当前月份变化，见 seasonalSeasons）
-  if (g.available >= 150 && signOk && g.seasonal) return '主推';
-  // 经典：红榜且可用 ≥150；或 签收 ≥45% 且近14天销量 ≥30（这一支不看可用数）
-  if ((g.red && g.available >= 150) || (signOk && g.sales14d >= 30)) return '经典';
+  // 发货后退货率 ≤ 40% 才算过线（没有实发量/数据缺失按不达标处理）
+  const afterShipOk = g.afterShipRate !== null && g.afterShipRate <= 0.4;
+  // 主推：预估剩余可用数 ≥150 且 发货后退货率 ≤40% 且 应季（应季季节随当前月份变化，见 seasonalSeasons）
+  if (g.available >= 150 && afterShipOk && g.seasonal) return '主推';
+  // 经典：红榜且可用 ≥150；或 发货后退货率 ≤40% 且近14天销量 ≥30（这一支不看可用数）
+  if ((g.red && g.available >= 150) || (afterShipOk && g.sales14d >= 30)) return '经典';
   // 现金回收：(总退货率 ≥85% 或 9AW 老款 或 福利款) 且 可用数 >100
   const cashSignal = (g.returnRate !== null && g.returnRate >= 0.85) || g.legacy9AW || g.welfare;
   if (cashSignal && g.available > 100) return '现金回收';
@@ -186,6 +206,7 @@ export function buildSuiteGroups(
         available: 0,
         sales14d: 0,
         signRate: null,
+        afterShipRate: null,
         ratio: 0,
         seasonal: false,
         red: false,
@@ -204,12 +225,14 @@ export function buildSuiteGroups(
   for (const g of map.values()) {
     const rr = groupReturnRate(g.members);
     g.signRate = rr === null ? null : 1 - rr;
+    g.afterShipRate = groupAfterShipRate(g.members);
     const legacy9AW = g.members.some(is9AW);
     const welfare = g.members.some(isWelfare);
     g.role = deriveGroupRole({
       available: g.available,
       sales14d: g.sales14d,
       signRate: g.signRate,
+      afterShipRate: g.afterShipRate,
       returnRate: rr,
       ratio: g.ratio,
       seasonal: g.seasonal,

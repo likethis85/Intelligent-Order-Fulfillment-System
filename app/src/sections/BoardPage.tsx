@@ -500,7 +500,8 @@ export default function BoardPage({
               {/* 季节 / 价格带 / 指标阈值的口径，写在筛选面板顶部，免得每次都要问 */}
               <div className="mt-0.5 text-[10.5px] leading-4 text-ink-faint">
                 季节：取款级「季节(到款式)」，组合值（如「秋冬」）选「秋」也算命中；
-                应季：按当前月份，8–12 月及 1 月为秋+冬，2–7 月为春+夏
+                应季：按当前月份，8–12 月及 1 月为秋+冬，2–7 月为春+夏；
+                角色判定：主推、经典看「发货后退货率」= SUM(发货后退货)/SUM(实发) ≤ 40%
                 <span className="mx-1.5">·</span>
                 价格带：基于各品类相对价格调整，非固定价格划分
                 <span className="mx-1.5">·</span>
@@ -681,7 +682,8 @@ export default function BoardPage({
                 <AiBadge p={p} />
               </div>
               <div className="mt-1.5 text-[11.5px] leading-5 text-ink-muted">
-                预估可用 {Math.round(g.available)} · 签收 {g.signRate === null ? '—' : `${(g.signRate * 100).toFixed(0)}%`} · 在途 {g.members.reduce((s, m) => s + (m.inTransit || 0), 0)} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
+                预估可用 {Math.round(g.available)} · 签收 {g.signRate === null ? '—' : `${(g.signRate * 100).toFixed(0)}%`}
+                · 发货退货 {g.afterShipRate === null ? '—' : `${(g.afterShipRate * 100).toFixed(0)}%`} · 在途 {g.members.reduce((s, m) => s + (m.inTransit || 0), 0)} · 转化 {(p.conversion * 100).toFixed(1)}% · 拉新 {(p.newBuyer * 100).toFixed(0)}%
               </div>
               {g.members.length > 1 && (
                 <div className="mt-1.5 space-y-0.5 border-t border-edge-muted pt-1.5">

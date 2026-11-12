@@ -610,6 +610,20 @@ export function biOverrides(row) {
     const rq = Number(raw['退货数量']);
     if (Number.isFinite(rq) && rq >= 0 && raw['退货数量'] !== '' && raw['退货数量'] !== undefined) { sumReturnQty += rq; hasQty = true; }
   }
+  // 发货后退货 / 实发：同样跨 SKC 颜色行相加（主推/经典判定的发货后退货率用）
+  let sumAfterShipReturn = 0;
+  let sumShipped = 0;
+  for (const s of row.skcs) {
+    const raw = s.raw || {};
+    const ar = Number(raw['发货后退货']);
+    if (Number.isFinite(ar) && ar >= 0 && raw['发货后退货'] !== '' && raw['发货后退货'] !== undefined) sumAfterShipReturn += ar;
+    const sh = Number(raw['实发']);
+    if (Number.isFinite(sh) && sh > 0) sumShipped += sh;
+  }
+  if (sumShipped > 0) {
+    out.afterShipReturnQty = sumAfterShipReturn;
+    out.shippedQty = sumShipped;
+  }
   if (hasQty && sumSalesQty > 0) {
     out.salesQty = sumSalesQty;
     out.returnQty = sumReturnQty;
@@ -708,6 +722,11 @@ export function biProductOverrides(productRow) {
   if (returnQty !== undefined) out.returnQty = returnQty;
   const salesQty = num(r['销售数量']);
   if (salesQty !== undefined) out.salesQty = salesQty;
+  // 发货后退货率 = SUM(发货后退货)/SUM(实发)：主推/经典的角色判定用它（不再用签收率）
+  const afterShipReturnQty = num(r['发货后退货']);
+  if (afterShipReturnQty !== undefined) out.afterShipReturnQty = afterShipReturnQty;
+  const shippedQty = num(r['实发']);
+  if (shippedQty !== undefined) out.shippedQty = shippedQty;
   const newBuyer = pct(r['新买家占比(款)']);
   if (newBuyer !== undefined) out.newBuyer = newBuyer;
   const forecastNetSales = num(r['预计总净销量']);
@@ -807,6 +826,8 @@ export function biOnlyProduct(row, productMasterRow) {
     netSales: merged.netSales ?? 0,
     returnQty: merged.returnQty ?? null,
     salesQty: merged.salesQty ?? null,
+    afterShipReturnQty: merged.afterShipReturnQty ?? null,
+    shippedQty: merged.shippedQty ?? null,
     conversion: merged.conversion ?? 0,
     returnRate: merged.returnRate ?? 0,
     newBuyer: merged.newBuyer ?? 0,

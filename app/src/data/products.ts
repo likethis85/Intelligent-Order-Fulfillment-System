@@ -47,6 +47,10 @@ export interface Product {
   // 卡里没有这两个字段时为 null，前端用 总退货率 + 净销量 反推同一口径
   returnQty?: number | null;
   salesQty?: number | null;
+  // 发货后退货 / 实发（BI 款级）：发货后退货率 = SUM(发货后退货)/SUM(实发)，
+  // 主推款、经典款的判定用它（≤40%%），不再用签收率
+  afterShipReturnQty?: number | null;
+  shippedQty?: number | null;
   ai: AiFlag;
   aiReason?: string;
   wave: string;
