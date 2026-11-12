@@ -11,7 +11,6 @@ import { TRAY_TYPES, totalQty, goodsValue, type Product, type Tray, type TrayTyp
 import { useProducts } from '@/data/ProductsContext';
 import { postAiStrategy, fetchRemainingInventory, type RemainingGroup, fetchFilters, type ApiFilters, fetchLaunchYears, fetchSales14d } from '@/data/api';
 import { availableOf, BOARD_ROLES, buildSuiteGroups, scoreGroup, suiteSiblings, type BoardRole, type SuiteGroup } from '@/lib/boardRoles';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // ── 策略筛选条件（多维筛选框，维度与商品侧共创） ──
 interface Filters {
@@ -858,7 +857,9 @@ export default function BoardPage({
               )}
 
               {!avoid && (
-                <DropdownMenu>
+                // modal={false}：菜单打开时不要给 body 加 pointer-events: none，
+                // 否则紧接着弹出的套系确认框关闭后可能把这一层一起带走，整页点不动
+                <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <button className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-edge py-2 text-[12px] font-medium transition-colors hover:bg-action-primary hover:text-white">
                       <Plus size={13} /> 放入「{tray.name}」
@@ -937,79 +938,84 @@ export default function BoardPage({
         </div>
       )}
 
-      {/* 套系提醒：这款有同小名的其他款，勾选的会一起放进同一个坑位 */}
-      <Dialog open={!!suitePrompt} onOpenChange={(open) => { if (!open) setSuitePrompt(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>这个款还有同套系的其他款</DialogTitle>
-            <DialogDescription>
-              「{suitePrompt?.product.sub}」套系下除 {suitePrompt?.product.id.toUpperCase()} 外还有{' '}
-              {suitePrompt?.others.length} 款。勾选的会作为同一坑位一起放入，不勾选就只放当前这款。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-72 space-y-1 overflow-auto">
-            {suitePrompt?.others.map((q) => {
-              const on = suitePrompt.picked.includes(q.id);
-              return (
-                <label
-                  key={q.id}
-                  className={`flex cursor-pointer items-center gap-2 rounded-sm border px-2.5 py-2 text-[12px] transition-colors ${
-                    on ? 'border-action-primary bg-action-primary/5' : 'border-edge hover:border-edge-strong'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() =>
-                      setSuitePrompt((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              picked: prev.picked.includes(q.id)
-                                ? prev.picked.filter((x) => x !== q.id)
-                                : [...prev.picked, q.id],
-                            }
-                          : prev,
-                      )
-                    }
-                  />
-                  <span className="w-24 shrink-0 font-medium">{q.id.toUpperCase()}</span>
-                  <span className="min-w-0 flex-1 truncate text-ink-muted">{q.name}</span>
-                  <span className="shrink-0 text-[11px] text-ink-faint">
-                    可用 {Math.round(availableOf(q, estimateOf(q))).toLocaleString()} · 在途 {q.inTransit || 0}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          <DialogFooter>
-            <button
-              onClick={() => setSuitePrompt(null)}
-              className="rounded-md border border-edge px-3 py-1.5 text-[12px] text-ink-muted hover:border-edge-strong"
-            >
-              取消
-            </button>
-            <button
-              onClick={() => {
-                if (!suitePrompt) return;
-                const { product, sectionId, picked } = suitePrompt;
-                onAdd([product.id, ...picked], sectionId);
-                setSuitePrompt(null);
-                toast.success(
-                  picked.length > 0
-                    ? `「${product.name}」及 ${picked.length} 件同套系款已作为一个坑位放入`
-                    : `「${product.name}」已作为新坑位放入`,
+      {/* 套系提醒：这款有同小名的其他款，勾选的会一起放进同一个坑位。
+          注意：这里用自绘遮罩，不用 Radix Dialog —— 从 DropdownMenu 里打开 Radix 弹层时，
+          两层都会给 body 加 pointer-events: none，回滚顺序打架会把整页变成点不动。 */}
+      {suitePrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => setSuitePrompt(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-edge bg-surface-card p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[14px] font-semibold">这个款还有同套系的其他款</div>
+            <div className="mt-1 text-[12px] leading-5 text-ink-muted">
+              「{suitePrompt.product.sub}」套系下除 {suitePrompt.product.id.toUpperCase()} 外还有{' '}
+              {suitePrompt.others.length} 款。勾选的会作为同一坑位一起放入，不勾选就只放当前这款。
+            </div>
+            <div className="mt-3 max-h-72 space-y-1 overflow-auto">
+              {suitePrompt.others.map((q) => {
+                const on = suitePrompt.picked.includes(q.id);
+                return (
+                  <label
+                    key={q.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-sm border px-2.5 py-2 text-[12px] transition-colors ${
+                      on ? 'border-action-primary bg-action-primary/5' : 'border-edge hover:border-edge-strong'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() =>
+                        setSuitePrompt((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                picked: prev.picked.includes(q.id)
+                                  ? prev.picked.filter((x) => x !== q.id)
+                                  : [...prev.picked, q.id],
+                              }
+                            : prev,
+                        )
+                      }
+                    />
+                    <span className="w-24 shrink-0 font-medium">{q.id.toUpperCase()}</span>
+                    <span className="min-w-0 flex-1 truncate text-ink-muted">{q.name}</span>
+                    <span className="shrink-0 text-[11px] text-ink-faint">
+                      可用 {Math.round(availableOf(q, estimateOf(q))).toLocaleString()} · 在途 {q.inTransit || 0}
+                    </span>
+                  </label>
                 );
-              }}
-              className="rounded-md bg-action-primary px-3 py-1.5 text-[12px] font-medium text-white"
-            >
-              {suitePrompt && suitePrompt.picked.length > 0
-                ? `一起放入（${suitePrompt.picked.length + 1} 件）`
-                : '只放入这一款'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              })}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setSuitePrompt(null)}
+                className="rounded-md border border-edge px-3 py-1.5 text-[12px] text-ink-muted hover:border-edge-strong"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  const { product, sectionId, picked } = suitePrompt;
+                  onAdd([product.id, ...picked], sectionId);
+                  setSuitePrompt(null);
+                  toast.success(
+                    picked.length > 0
+                      ? `「${product.name}」及 ${picked.length} 件同套系款已作为一个坑位放入`
+                      : `「${product.name}」已作为新坑位放入`,
+                  );
+                }}
+                className="rounded-md bg-action-primary px-3 py-1.5 text-[12px] font-medium text-white"
+              >
+                {suitePrompt.picked.length > 0 ? `一起放入（${suitePrompt.picked.length + 1} 件）` : '只放入这一款'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

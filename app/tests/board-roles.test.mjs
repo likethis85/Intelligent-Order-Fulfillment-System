@@ -114,6 +114,16 @@ test('放入货盘：同套系的其他款先问、勾选才一起加入', async
   assert.ok(page.includes('onAdd([product.id, ...picked], sectionId)'), '勾选的作为同一坑位一起加入');
 });
 
+test('套系确认框用自绘遮罩，且放入菜单不开模态，避免 body 卡住 pointer-events: none', () => {
+  // 症状：勾选套系款一起放入后整页点不动 —— Radix DropdownMenu 与 Dialog 两层都在给 body 设
+  // pointer-events: none，回滚顺序打架时留下一层，页面就废了。
+  assert.ok(!page.includes("from '@/components/ui/dialog'"), '不再用 Radix Dialog 弹窗');
+  assert.ok(page.includes('<DropdownMenu modal={false}>'), '放入菜单不锁 body 指针事件');
+  const overlay = page.slice(page.indexOf('套系提醒'), page.indexOf('只放入这一款'));
+  assert.ok(overlay.includes('fixed inset-0 z-50'), '自绘遮罩层');
+  assert.ok(overlay.includes('setSuitePrompt(null)'), '遮罩点击可关闭');
+});
+
 test('评分四段：净签收贡献 50 / 签收健康 20 / 应季 15 / 库存 15', () => {
   const body = roles.slice(roles.indexOf('export function scoreGroup'));
   assert.ok(body.includes('Math.min(50, ((g.sales14d * sign) / 110) * 50)'), '净件数 110 封顶，占 50 分');
