@@ -68,8 +68,14 @@ test('指标阈值里有签收率，位于转化率和退货率之间', () => {
   assert.ok(code.includes('(1 - p.returnRate) * 100 >= f.minSignRate'), '签收率 = 1 − 总退货率（SUM 退货数量/SUM 销售数量）');
 });
 
-test('品类选项里不显示「包装配件」', () => {
-  assert.ok(code.includes("v !== '全部' && v !== '包装配件'"), '品类选项过滤包装配件');
+test('配件 / 赠品整类排除：品类选项不列、候选池也不出现', () => {
+  assert.ok(code.includes("const ACCESSORY_CAT_RE = /配件|配饰|赠品/"), '统一的排除规则');
+  assert.ok(code.includes("v !== '全部' && !ACCESSORY_CAT_RE.test(v)"), '品类选项里过滤');
+  assert.ok(code.includes('!isAccessoryOrGift(p) &&'), '候选池里先排除，排在所有维度条件之前');
+  // 品类是「包装配件」、或者名称里带「赠品」的款都不该进候选池
+  const re = /配件|配饰|赠品/;
+  assert.ok(re.test('包装配件') && re.test('配件') && re.test('赠品'), '覆盖常见取值');
+  assert.ok(!re.test('针织衫') && !re.test('大衣'), '正常品类不受影响');
 });
 
 test('坑位数量维度已移除', () => {

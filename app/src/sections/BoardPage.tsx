@@ -56,6 +56,12 @@ const DIM = {
   seasons: ['春', '夏', '秋', '冬', '其他'],
 };
 
+// 配件 / 赠品不是选款对象：包装配件、配件、配饰、赠品（如「抖音赠品(超时用途)」）整类排除，
+// 品类选项里不列、候选池里也不出现。
+const ACCESSORY_CAT_RE = /配件|配饰|赠品/;
+const isAccessoryOrGift = (p: { category?: string; name?: string }) =>
+  ACCESSORY_CAT_RE.test(String(p.category || '')) || ACCESSORY_CAT_RE.test(String(p.name || ''));
+
 interface ChatMsg {
   from: 'me' | 'ai';
   text: string;
@@ -231,9 +237,9 @@ export default function BoardPage({
       .catch(() => setDims({ categories: DIM.cats, waves: DIM.waves, tempBands: [], priceBands: [...DIM.bands], roles: [...BOARD_ROLES], launchYears: [] }));
   }, []);
   // BI 返回的维度值里偶尔带「全部」占位，去掉后由 DimChips 统一渲染自己的「全部」
-  // 「包装配件」不是选款对象，不放进品类选项
+  // 「包装配件」「赠品」这类不是选款对象，不放进品类选项
   const catList = (dims.categories.length ? dims.categories : DIM.cats)
-    .filter((v) => v !== '全部' && v !== '包装配件');
+    .filter((v) => v !== '全部' && !ACCESSORY_CAT_RE.test(v));
   // 波段选项：按月份从早到晚（1A、1B、2A、2B…），季度波段不展示，占位值固定排最后
   const waveList = (() => {
     const raw = (dims.waves.length ? dims.waves : DIM.waves)
@@ -340,6 +346,8 @@ export default function BoardPage({
     () =>
       PRODUCTS.filter(
         (p) =>
+          // 配件 / 赠品整类不进候选池（包装配件、赠品、配饰等都算），与品类选项里隐藏的口径一致
+          !isAccessoryOrGift(p) &&
           (f.cats.length === 0 || f.cats.includes(p.category)) &&
           (f.waves.length === 0 || f.waves.includes(p.wave)) &&
           (f.bands.length === 0 || f.bands.includes(p.priceBand)) &&
