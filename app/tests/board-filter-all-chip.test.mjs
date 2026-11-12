@@ -54,6 +54,12 @@ test('商品角色筛选已下线：没有角色维度、预置和页签', () =>
   assert.ok(code.includes('商品角色筛选已下线'), 'AI 下发的 roles 会被丢掉，注释写明原因');
 });
 
+test('退货率默认上限 100%（等于默认不卡退货率）', () => {
+  const def = code.slice(code.indexOf('const DEFAULT_FILTERS'), code.indexOf('};', code.indexOf('const DEFAULT_FILTERS')));
+  assert.ok(/maxReturn:\s*100\b/.test(def), '默认 maxReturn = 100');
+  assert.ok(!/maxReturn:\s*80\b/.test(def), '不再是 80');
+});
+
 test('指标阈值里有签收率，位于转化率和退货率之间', () => {
   const conv = code.indexOf("['转化率≥%', 'minConv'");
   const sign = code.indexOf("['签收率≥%', 'minSignRate'");

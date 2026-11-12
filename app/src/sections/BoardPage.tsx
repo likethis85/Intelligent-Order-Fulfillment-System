@@ -29,7 +29,7 @@ interface Filters {
 
 const DEFAULT_FILTERS: Filters = {
   cats: [], waves: [], bands: [], seasons: [], years: [],
-  minStock: 0, noTransit: false, minConv: 0, minSignRate: 0, maxReturn: 80, minNewBuyer: 0,
+  minStock: 0, noTransit: false, minConv: 0, minSignRate: 0, maxReturn: 100, minNewBuyer: 0,
 };
 
 // AI 能改的筛选字段（与后端 prompt 的 patch 字段一一对应）；其余键一律丢弃
