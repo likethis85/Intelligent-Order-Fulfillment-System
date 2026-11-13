@@ -33,7 +33,8 @@ function runGuancliDsPreview(dsId, columns, filter) {
   const args = ['ds', 'preview', dsId, '--limit', '60000', '-f', 'csv'];
   if (columns) args.push('--columns', columns);
   if (filter) args.push('--filter', filter);
-  return runGuancli(args);
+  // 一年分区 ~1.6 万行，BI 忙的时候 30s 会掐掉；给足 120s（同一时刻只会有一轮刷新，见 refreshFromBi）
+  return runGuancli(args, { timeoutMs: 120_000 });
 }
 
 // RFC-4180 CSV 解析（数据集里有带引号的字段：内含逗号 33 行、内含换行 10 行，naive split 会错位）
@@ -235,14 +236,21 @@ async function loadPurchaseOrders() {
   return purchaseCache;
 }
 
+// 返回磁盘缓存，不管新鲜与否（调用方自己判断是否过期）——过期也照样先给用户看，
+// 后台再刷新。之前这里直接丢掉过期缓存，缓存一过期就整条链路 503（BI 单次限 30s），
+// 看板所有卡片就全变成「暂无剩余库存推荐」。
 async function loadFromDisk() {
   try {
     await mkdir(CACHE_DIR, { recursive: true });
     const text = await readFile(REMAIN_CACHE_FILE, 'utf8');
     const j = JSON.parse(text);
-    if (j && j.at && Date.now() - j.at < DISK_TTL_MS && Array.isArray(j.groups)) return j;
+    if (j && j.at && Array.isArray(j.groups) && j.groups.length > 0) return j;
   } catch {}
   return null;
+}
+
+function isDiskFresh(at) {
+  return Boolean(at) && Date.now() - at < DISK_TTL_MS;
 }
 
 // 按「款上新时间」分年拉取（整拉 58895 行会 524 超时；每年 < 16000 行秒回）
@@ -255,26 +263,48 @@ function partitionFilters() {
   return filters;
 }
 
+// 同时只跑一轮分区拉取：之前并发请求（看板 + 货盘 + launch-years 同时开）会各自起一套
+// 8 个分区全量拉取，互相挤占 guancli 名额，结果每路都超时。
+let refreshing = null;
+
+function refreshFromBi() {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    const t0 = Date.now();
+    const allRows = [];
+    for (const filter of partitionFilters()) {
+      const csv = await runGuancliDsPreview(DS_ID, COLUMNS, filter);
+      allRows.push(...parseCsv(csv));
+    }
+    const groups = aggregate(allRows);
+    cache = { at: Date.now(), groups };
+    console.log(`[remaining-inventory] ds 分区拉取 ${allRows.length} 行 → ${groups.length} 款，耗时 ${Math.round((Date.now() - t0) / 1000)}s`);
+    writeFile(REMAIN_CACHE_FILE, JSON.stringify({ at: cache.at, groups })).catch((err) =>
+      console.warn('[remaining-inventory] 写盘失败:', err.message),
+    );
+    return cache;
+  })().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
 async function loadAll() {
   if (cache.groups.length && Date.now() - cache.at < MEM_TTL_MS) return cache;
   const fromDisk = await loadFromDisk();
   if (fromDisk) {
-    cache = { at: fromDisk.at, groups: fromDisk.groups };
+    if (isDiskFresh(fromDisk.at) || cache.groups.length === 0) {
+      // 内存里没有更新的数据时，先用磁盘这份（过期也先给用户看）
+      cache = { at: fromDisk.at, groups: fromDisk.groups };
+    }
+    if (!isDiskFresh(fromDisk.at)) {
+      // 过期：后台刷新，不阻塞这次请求；刷新失败不动现有缓存
+      refreshFromBi().catch((err) => console.warn('[remaining-inventory] 后台刷新失败:', err.message));
+    }
     return cache;
   }
-  const t0 = Date.now();
-  const allRows = [];
-  for (const filter of partitionFilters()) {
-    const csv = await runGuancliDsPreview(DS_ID, COLUMNS, filter);
-    allRows.push(...parseCsv(csv));
-  }
-  const groups = aggregate(allRows);
-  cache = { at: Date.now(), groups };
-  console.log(`[remaining-inventory] ds 分区拉取 ${allRows.length} 行 → ${groups.length} 款，耗时 ${Math.round((Date.now() - t0) / 1000)}s`);
-  writeFile(REMAIN_CACHE_FILE, JSON.stringify({ at: cache.at, groups })).catch((err) =>
-    console.warn('[remaining-inventory] 写盘失败:', err.message),
-  );
-  return cache;
+  // 连磁盘缓存都没有（首次部署/缓存被清）：只能阻塞拉一次
+  return refreshFromBi();
 }
 
 export async function listRemainingInventory({ tag = '', search = '', sort = 'estimate-desc', limit = 50 } = {}) {

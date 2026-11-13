@@ -2752,11 +2752,29 @@ function LookPicker({
     return byId(pid);
   };
   // 预估剩余库存（BI 剩余库存卡片，按款号索引；候选款/搭配款列表展示用）
+  // 后端冷缓存时首个请求可能 503，这里失败自动重试几次，避免整页一直缺预估剩余
   const [remainingMap, setRemainingMap] = useState<Map<string, RemainingGroup>>(new Map());
   useEffect(() => {
-    fetchRemainingInventory({ limit: 7000 })
-      .then((r) => setRemainingMap(new Map(r.items.map((it) => [it.styleCode.toLowerCase(), it]))))
-      .catch(() => setRemainingMap(new Map()));
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let tries = 0;
+    const load = async () => {
+      try {
+        const r = await fetchRemainingInventory({ limit: 7000 });
+        if (!alive) return;
+        if (!r.items || r.items.length === 0) throw new Error('empty');
+        setRemainingMap(new Map(r.items.map((it) => [it.styleCode.toLowerCase(), it])));
+      } catch {
+        if (!alive) return;
+        tries += 1;
+        if (tries < 4) timer = setTimeout(load, tries * 15000);
+      }
+    };
+    load();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   const main = selected[0] ?? null;

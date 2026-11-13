@@ -265,12 +265,40 @@ export default function BoardPage({
   const roleList = BOARD_ROLES;
 
   // 剩余库存推荐（按款号索引，未覆盖的款不显示该段）
+  // 后端冷缓存时会 503（BI 拉取超时），一次失败就空手而归会让所有卡片都显示
+  // 「暂无剩余库存推荐」；所以这里失败/空结果自动重试，并区分「加载中 / 失败 / 真没数据」
   const [remainingMap, setRemainingMap] = useState<Map<string, RemainingGroup>>(new Map());
+  const [remainingStatus, setRemainingStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [remainingRetry, setRemainingRetry] = useState(0);
   useEffect(() => {
-    fetchRemainingInventory({ limit: 7000 })
-      .then((r) => setRemainingMap(new Map(r.items.map((it) => [it.styleCode.toLowerCase(), it]))))
-      .catch(() => setRemainingMap(new Map()));
-  }, []);
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let tries = 0;
+    const load = async () => {
+      try {
+        const r = await fetchRemainingInventory({ limit: 7000 });
+        if (!alive) return;
+        if (!r.items || r.items.length === 0) throw new Error('empty');
+        setRemainingMap(new Map(r.items.map((it) => [it.styleCode.toLowerCase(), it])));
+        setRemainingStatus('ready');
+      } catch {
+        if (!alive) return;
+        tries += 1;
+        if (tries < 4) {
+          setRemainingStatus('loading');
+          timer = setTimeout(load, tries * 15000); // 15s / 30s / 45s 后再试
+        } else {
+          setRemainingStatus('failed');
+        }
+      }
+    };
+    setRemainingStatus('loading');
+    load();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [remainingRetry]);
 
   // 近 14 天销量（经典款判定用）：接口只读缓存，缺的款号后端后台预热；
   // 前端分批请求（每批 400 个款号，避免 URL 过长），有待预热时 30s 后自动补一次。
@@ -732,7 +760,18 @@ export default function BoardPage({
 
               {!remain && (
                 <div className="mt-3 border-t border-edge-muted pt-3 text-[10.5px] text-ink-faint">
-                  暂无剩余库存推荐 · BI 卡片未覆盖此款
+                  {remainingStatus === 'loading' ? (
+                    '剩余库存推荐加载中…'
+                  ) : remainingStatus === 'failed' ? (
+                    <button
+                      onClick={() => setRemainingRetry((n) => n + 1)}
+                      className="underline decoration-dotted underline-offset-2 hover:text-ink-secondary"
+                    >
+                      剩余库存推荐加载失败 · 点此重试
+                    </button>
+                  ) : (
+                    '暂无剩余库存推荐 · BI 卡片未覆盖此款'
+                  )}
                 </div>
               )}
               {remain && (
