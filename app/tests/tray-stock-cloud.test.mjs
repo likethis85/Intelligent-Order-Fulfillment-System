@@ -2,7 +2,7 @@
 // 位置固定在 在途/交期 之后、占单 之前，0 时不显示；只有云仓的颜色也要能单独成行。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStockLine, stockCellPartsList } from '../src/lib/stockLines.ts';
+import { parseStockLine, sellableQty, stockCellPartsList } from '../src/lib/stockLines.ts';
 
 test('云仓：库存行文本能解析出云仓数', () => {
   const e = parseStockLine('针织衫 藏青：现货8 在途150 12/5交 云仓20 占单3', ['藏青']);
@@ -14,12 +14,12 @@ test('云仓：库存行文本能解析出云仓数', () => {
   assert.equal(e.orderBook, 3, '云仓不能把占单吞掉');
 });
 
-test('云仓：渲染顺序 现货 → 在途 → 交期 → 云仓 → 占单', () => {
+test('云仓：渲染顺序 现货 → 在途 → 交期 → 云仓 → 占单 → 可售', () => {
   const parts = stockCellPartsList(
     [{ stock: 8, inTransit: 150, eta: '12/5', cloud: 20, orderBook: 30 }],
     { orderBookMinDisplay: 15 },
   )[0];
-  assert.deepEqual(parts, ['现货8', '在途150', '12/5交', '云仓20', '占单30']);
+  assert.deepEqual(parts, ['现货8', '在途150', '12/5交', '云仓20', '占单30', '可售138']);
 });
 
 test('云仓：为 0 时不写，且不影响「只有现货就省标签」的规则', () => {
@@ -27,7 +27,35 @@ test('云仓：为 0 时不写，且不影响「只有现货就省标签」的�
   assert.deepEqual(parts, ['47']);
 });
 
-test('云仓：只有云仓的颜色也出这一项', () => {
+test('云仓：只有云仓的颜色也出这一项，可售量兜底为 0', () => {
   const parts = stockCellPartsList([{ stock: 0, inTransit: 0, eta: null, cloud: 6, orderBook: 0 }])[0];
-  assert.deepEqual(parts, ['云仓6']);
+  assert.deepEqual(parts, ['云仓6', '可售0']);
+});
+
+test('可售量：现货+在途-云仓，负数按 0', () => {
+  assert.equal(sellableQty(8, 150, 20), 138);
+  assert.equal(sellableQty(5, 0, 20), 0);
+  assert.equal(sellableQty(0, 0, 0), 0);
+});
+
+test('可售量：没有云仓就不出现', () => {
+  const parts = stockCellPartsList([{ stock: 8, inTransit: 150, eta: null, cloud: 0, orderBook: 0 }])[0];
+  assert.deepEqual(parts, ['现货8', '在途150']);
+});
+
+test('可售量：手动改过的值优先于自动算', () => {
+  const [manual, auto] = stockCellPartsList([
+    { stock: 8, inTransit: 150, eta: null, cloud: 20, orderBook: 0, sellable: '99' },
+    { stock: 8, inTransit: 150, eta: null, cloud: 20, orderBook: 0, sellable: '' },
+  ]);
+  assert.deepEqual(manual, ['现货8', '在途150', '云仓20', '可售99']);
+  assert.deepEqual(auto, ['现货8', '在途150', '云仓20', '可售138']);
+});
+
+test('可售量：页面自己渲染编辑器时（includeSellable:false）文本里不带可售', () => {
+  const parts = stockCellPartsList(
+    [{ stock: 8, inTransit: 150, eta: null, cloud: 20, orderBook: 0 }],
+    { includeSellable: false },
+  )[0];
+  assert.deepEqual(parts, ['现货8', '在途150', '云仓20']);
 });

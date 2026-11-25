@@ -72,11 +72,11 @@ test('页面接线：库存单元格和 Excel 导出都按颜色行过滤', () =
     pageCode.includes('const visibleColors = ctx.colorOverride ? splitColorText(ctx.colorOverride) : undefined;'),
     '库存单元格取颜色行的勾选结果',
   );
-  assert.ok(pageCode.includes('renderStockForProduct(ps[0], undefined, undefined, visibleColors)'), '单款也要过滤');
-  assert.ok(pageCode.includes('renderStockForProduct(p, short, shortNode, visibleColors)'), '多款同样过滤');
+  assert.ok(pageCode.includes('renderStockForProduct(ps[0], undefined, undefined, visibleColors, sellableOpts(ctx, ps[0].id))'), '单款也要过滤');
+  assert.ok(pageCode.includes('renderStockForProduct(p, short, shortNode, visibleColors, sellableOpts(ctx, p.id))'), '多款同样过滤');
   assert.ok(
     pageCode.includes('const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;'),
     '导出库存列用同一个颜色覆盖',
   );
-  assert.ok(pageCode.includes('stockCellText(p, shortNames.get(p.id), visibleColors)'), '导出时把可见颜色传进去');
+  assert.ok(pageCode.includes('stockCellText(p, shortNames.get(p.id), visibleColors, t.sellableOverrides)'), '导出时把可见颜色和可售量覆盖传进去');
 });

@@ -25,9 +25,15 @@ function headColor(line: string): string {
 // 省掉「现货」两字；一旦同款还出现其它信息，保留标签才不会把 37 和 121 混成一组数字。
 // 判定对象是「整个款」（单元格）而不是某个颜色行：一个款里只要有任一颜色带在途，
 // 该款所有颜色的现货都带标签。页面和 Excel 共用这个函数。
+// 可售量：只有存在云仓时才看这个数——现货 + 在途 先扣掉被云仓占用的部分，最低 0。
+// 页面上可以手工改，改过的值（row.sellable）优先于这里的计算值。
+export function sellableQty(stock: number, inTransit: number, cloud: number): number {
+  return Math.max(0, (Number(stock) || 0) + (Number(inTransit) || 0) - (Number(cloud) || 0));
+}
+
 export function stockCellPartsList(
-  rows: { stock: number; inTransit: number; eta: string | null; cloud?: number; orderBook: number }[],
-  { orderBookMinDisplay = 0 }: { orderBookMinDisplay?: number } = {},
+  rows: { stock: number; inTransit: number; eta: string | null; cloud?: number; orderBook: number; sellable?: number | string | null }[],
+  { orderBookMinDisplay = 0, includeSellable = true }: { orderBookMinDisplay?: number; includeSellable?: boolean } = {},
 ): string[][] {
   const visibleOrderBook = (v: number) => v > 0 && v >= orderBookMinDisplay;
   const visibleCloud = (v: number) => v > 0;
@@ -39,6 +45,11 @@ export function stockCellPartsList(
     if (v.eta) parts.push(`${v.eta}交`);
     if (visibleCloud(v.cloud ?? 0)) parts.push(`云仓${v.cloud}`);
     if (visibleOrderBook(v.orderBook)) parts.push(`占单${v.orderBook}`);
+    // 可售量：有云仓才有这一项；手工改过的值优先
+    if (includeSellable && visibleCloud(v.cloud ?? 0)) {
+      const manual = v.sellable === undefined || v.sellable === null || v.sellable === '' ? null : v.sellable;
+      parts.push(`可售${manual ?? sellableQty(v.stock, v.inTransit, v.cloud ?? 0)}`);
+    }
     return parts;
   });
 }

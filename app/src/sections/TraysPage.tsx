@@ -19,7 +19,7 @@ import { formatTimestamp } from '@/lib/utils';
 import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
 import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
-import { applyJushuitanPriority, formatStockUpdatedAt, parseStockLine, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
+import { applyJushuitanPriority, formatStockUpdatedAt, parseStockLine, sellableQty, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -1483,6 +1483,95 @@ function ShortNameEditor({
   );
 }
 
+// 可售量内联编辑器：只有存在云仓的颜色才渲染。
+// 默认值 = 现货 + 在途 - 云仓（最低 0），点数字改成手动值，清空后回到自动算。
+function SellableQtyEditor({
+  value,
+  isOverridden,
+  onSave,
+  onClear,
+  disabled = false,
+}: {
+  value: number | string;
+  isOverridden: boolean;
+  onSave?: (val: string) => void;
+  onClear?: () => void;
+  disabled?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
+
+  const commit = (val: string) => {
+    const trimmed = val.trim();
+    if (trimmed && trimmed !== String(value)) {
+      onSave?.(trimmed);
+    } else if (!trimmed && isOverridden) {
+      onClear?.();
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
+        <span className="text-[11px]">可售</span>
+        <input
+          autoFocus
+          inputMode="numeric"
+          value={draft}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, ''))}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={() => commit(draft)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit(draft);
+            }
+            if (e.key === 'Escape') {
+              setDraft(String(value));
+              setEditing(false);
+            }
+          }}
+          style={{ width: `${Math.max(String(draft || value).length + 1, 3)}ch` }}
+          className="rounded px-0.5 py-0 bg-surface-card border border-action-primary text-ink-primary outline-none shadow-sm text-[11px] font-sans"
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 group/sellable rounded px-0.5 ${
+        disabled ? '' : 'cursor-pointer hover:bg-surface-subtle transition-colors'
+      }`}
+      onClick={(e) => {
+        if (disabled) return;
+        e.stopPropagation();
+        setEditing(true);
+      }}
+      title={
+        isOverridden
+          ? `可售量：${value}（已手动修改，点击改回自动计算：现货+在途-云仓）`
+          : `可售量：${value}（现货+在途-云仓，点击可修改）`
+      }
+    >
+      <span
+        className={`whitespace-nowrap select-none underline decoration-dashed decoration-ink-faint/60 underline-offset-2 group-hover/sellable:decoration-action-primary text-[11px] ${
+          isOverridden ? 'text-stage-return-fg font-semibold' : 'text-ink-secondary'
+        }`}
+      >
+        可售{value}
+      </span>
+    </span>
+  );
+}
+
 // 整行可点的「cost/ratio」编辑器：
 // - 成本在前面（左），倍率在后面（右），整体在 cell 内居中
 // - 点 row 任意位置（cost 数字 / "/" / ratio）都触发编辑
@@ -1964,9 +2053,12 @@ function costRatioText(pid: string, t: Tray, byId: TrayById, short?: string): st
   return `${prefix}${suffix ? `${body} ${suffix}` : body}`;
 }
 
+// 可售量 override 的存储键：款号（小写）+ 颜色
+const sellableKey = (pid: string, color: string) => `${pid.toLowerCase().trim()}|${color.trim()}`;
+
 // 库存情况（主仓）文本：跟 FIELDS.库存情况（主仓）.render 同款
 // 领猫款用 p.stock 颜色聚合；BI 独有用 stockMain + inTransit；都没有则 '—'
-function stockCellText(p: Product, short?: string, visibleColors?: string[]): string {
+function stockCellText(p: Product, short?: string, visibleColors?: string[], sellableOverrides?: Record<string, string>): string {
   const prefix = short ? `${short} ` : '';
   const lines = p.stock ?? [];
   if (lines.length === 0) {
@@ -1990,7 +2082,10 @@ function stockCellText(p: Product, short?: string, visibleColors?: string[]): st
     byColor.set(k, cur);
   }
   const entries = [...byColor.entries()];
-  const partsList = stockCellPartsList(entries.map(([, v]) => v), { orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY });
+  const partsList = stockCellPartsList(
+    entries.map(([color, v]) => ({ ...v, sellable: sellableOverrides?.[sellableKey(p.id, color)] })),
+    { orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY },
+  );
   return entries.map(([color], i) => `${prefix}${color}：${partsList[i].join(' ') || '—'}`)
     .join('\n') || (short ? `${short}：—` : '—');
 }
@@ -2248,7 +2343,7 @@ async function exportTrayLayoutExcel(
       const shortNames = ps.length > 1 ? computeRestockShortNames(ps, l.restockShortNames || t.restockShortNames) : new Map<string, string>();
       // 导出的库存表和颜色行走同一口径：勾掉的颜色不导出它的库存
       const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;
-      return ps.map((p) => stockCellText(p, shortNames.get(p.id), visibleColors)).join('\n');
+      return ps.map((p) => stockCellText(p, shortNames.get(p.id), visibleColors, t.sellableOverrides)).join('\n');
     } },
     { label: '翻单周期\n（下单日开始计算）', labelBlue: true, height: 60, get: (l) => restockCellText(l.pids.map(byId), t, l.restockShortNames) },
     {
@@ -3349,6 +3444,9 @@ interface FieldRenderCtx {
   readOnly?: boolean;
   onSaveRestockShortName?: (pid: string, value: string) => void;
   onClearRestockShortName?: (pid: string) => void;
+  sellableOverrides?: Record<string, string>; // 可售量手动编辑（`pid|颜色` → 数字），只对有云仓的颜色生效
+  onSaveSellable?: (pid: string, color: string, value: string) => void;
+  onClearSellable?: (pid: string, color: string) => void;
   codeBgColor?: string; // lookId 的款号格子背景颜色（yellow / blue / none）
   codeFgColor?: string; // lookId 的款号字体颜色（red / black）
   onOpenColorPicker?: () => void;
@@ -3470,7 +3568,30 @@ function computeRestockShortNames(ps: Product[], overrides?: Record<string, stri
   return m;
 }
 
-function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode, visibleColors?: string[]): ReactNode {
+// 可售量：有云仓的颜色才显示，值可手工改（按 颜色 取 / 存 override）
+type SellableCellOpts = {
+  getOverride?: (color: string) => string | undefined;
+  onSave?: (color: string, value: string) => void;
+  onClear?: (color: string) => void;
+  readOnly?: boolean;
+};
+
+function sellableOpts(ctx: FieldRenderCtx, pid: string): SellableCellOpts {
+  return {
+    getOverride: (color) => ctx.sellableOverrides?.[sellableKey(pid, color)],
+    onSave: (color, value) => ctx.onSaveSellable?.(pid, color, value),
+    onClear: (color) => ctx.onClearSellable?.(pid, color),
+    readOnly: ctx.readOnly,
+  };
+}
+
+function renderStockForProduct(
+  p: Product,
+  short?: string,
+  shortNode?: ReactNode,
+  visibleColors?: string[],
+  sellable?: SellableCellOpts,
+): ReactNode {
   const prefix = short ? `${short} ` : '';
   const stockLines = p.stock ?? [];
   if (stockLines.length === 0) {
@@ -3509,8 +3630,21 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
   // 现货为 0 时不写「现货0」；整款只有现货时省掉「现货」两字，
   // 有在途/交期/占单时整个款都保留标签（同一格里数字多，不标会分不清）
   const entries = [...byColor.entries()];
-  const partsList = stockCellPartsList(entries.map(([, v]) => v), { orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY });
-  const lines = entries.map(([color], i) => ({ color, restText: `${color}：${partsList[i].join(' ') || '—'}` }));
+  // 可售量单独渲染（要能点开编辑），所以这里先不拼进文本
+  const partsList = stockCellPartsList(entries.map(([, v]) => v), {
+    orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY,
+    includeSellable: false,
+  });
+  const lines = entries.map(([color, v], i) => {
+    const override = sellable?.getOverride?.(color);
+    const hasCloud = (v.cloud ?? 0) > 0;
+    return {
+      color,
+      restText: `${color}：${partsList[i].join(' ') || '—'}`,
+      sellableValue: hasCloud ? (override ?? String(sellableQty(v.stock, v.inTransit, v.cloud ?? 0))) : null,
+      sellableOverridden: hasCloud && override !== undefined && override !== '',
+    };
+  });
   return (
     <div className="w-full text-center text-ink-primary leading-5 space-y-0.5">
       {lines.map((l) => (
@@ -3522,6 +3656,15 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
             </>
           ) : (
             <span>{prefix}{l.restText}</span>
+          )}
+          {l.sellableValue !== null && (
+            <SellableQtyEditor
+              value={l.sellableValue}
+              isOverridden={l.sellableOverridden}
+              disabled={sellable?.readOnly}
+              onSave={(v) => sellable?.onSave?.(l.color, v)}
+              onClear={() => sellable?.onClear?.(l.color)}
+            />
           )}
         </div>
       ))}
@@ -4047,12 +4190,12 @@ const FIELDS: FieldRow[] = [
     label: '库存情况（主仓）',
     show: () => true,
     aggregate: true,
-    render: (p) => renderStockForProduct(p),
+    render: (p, _tpl, ctx) => renderStockForProduct(p, undefined, undefined, undefined, sellableOpts(ctx, p.id)),
     aggregateRender: (ps, _tpl, ctx) => {
       // 颜色行里勾掉的颜色，对应库存也隐藏（没设颜色 override 时显示全部）
       const visibleColors = ctx.colorOverride ? splitColorText(ctx.colorOverride) : undefined;
       if (ps.length === 1) {
-        return renderStockForProduct(ps[0], undefined, undefined, visibleColors);
+        return renderStockForProduct(ps[0], undefined, undefined, visibleColors, sellableOpts(ctx, ps[0].id));
       }
       const shortNames = computeRestockShortNames(ps, ctx.restockShortNames);
       return (
@@ -4069,7 +4212,7 @@ const FIELDS: FieldRow[] = [
                 onClear={() => ctx.onClearRestockShortName?.(p.id)}
               />
             ) : null;
-            return <div key={p.id}>{renderStockForProduct(p, short, shortNode, visibleColors)}</div>;
+            return <div key={p.id}>{renderStockForProduct(p, short, shortNode, visibleColors, sellableOpts(ctx, p.id))}</div>;
           })}
         </div>
       );
@@ -6273,6 +6416,18 @@ export default function TraysPage({
     }
   };
 
+  // 可售量手动修改（`款号|颜色` 维度，全货盘共用一份）；传空串清除覆盖、回到「现货+在途-云仓」自动算
+  const setSellable = (pid: string, color: string, value: string) => {
+    const key = sellableKey(pid, color);
+    const trimmedVal = String(value || '').trim();
+    upd((t) => {
+      const next = { ...(t.sellableOverrides || {}) };
+      if (trimmedVal) next[key] = trimmedVal;
+      else delete next[key];
+      return { ...t, sellableOverrides: Object.keys(next).length > 0 ? next : undefined };
+    });
+  };
+
   // 设置款号格子背景颜色（黄色 / 蓝色 / 默认无色）
   const setCodeBgColor = (_sectionId: string, lookId: string, color: string) => {
     const val = (color === 'yellow' || color === 'blue') ? color : '';
@@ -7613,6 +7768,9 @@ export default function TraysPage({
                                     readOnly,
                                     onSaveRestockShortName: (pid, val) => setRestockShortName(s.id, l.id, pid, val),
                                     onClearRestockShortName: (pid) => setRestockShortName(s.id, l.id, pid, ''),
+                                    sellableOverrides: tray.sellableOverrides,
+                                    onSaveSellable: (pid, color, val) => setSellable(pid, color, val),
+                                    onClearSellable: (pid, color) => setSellable(pid, color, ''),
                                     codeBgColor: tray.codeBgColorByLook?.[l.id] || l.codeBgColor,
                                     codeFgColor: tray.codeFgColorByLook?.[l.id] || l.codeFgColor,
                                     onSaveCodeBgColor: (color) => setCodeBgColor(s.id, l.id, color),
@@ -7696,6 +7854,9 @@ export default function TraysPage({
                                     restockShortNames: { ...(tray.restockShortNames || {}), ...(l.restockShortNames || {}) },
                                     onSaveRestockShortName: (p, val) => setRestockShortName(s.id, l.id, p, val),
                                     onClearRestockShortName: (p) => setRestockShortName(s.id, l.id, p, ''),
+                                    sellableOverrides: tray.sellableOverrides,
+                                    onSaveSellable: (p, color, val) => setSellable(p, color, val),
+                                    onClearSellable: (p, color) => setSellable(p, color, ''),
                                     codeBgColor: tray.codeBgColorByLook?.[l.id] || l.codeBgColor,
                                     codeFgColor: tray.codeFgColorByLook?.[l.id] || l.codeFgColor,
                                     onSaveCodeBgColor: (color) => setCodeBgColor(s.id, l.id, color),

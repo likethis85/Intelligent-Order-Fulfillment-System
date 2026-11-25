@@ -177,6 +177,7 @@ export interface Tray {
   costOverrides?: Record<string, string>; // BOM 成本手动编辑（pid → "123.45"），per-tray 优先于 BI bom商品成本；清空 = 清除 override
   mcostOverrides?: Record<string, string>; // 马总 BOM 成本手动编辑（仅马总场显示），per-tray 优先；清空 = 清除 override
   sizeRangeOverrides?: Record<string, string>; // 尺码范围手动编辑（pid → "S~XL" / "均码"），per-tray 优先于 BI ETL 聚合的 sizeRange；清空 = 清除 override
+  sellableOverrides?: Record<string, string>; // 可售量手动编辑（`pid|颜色` → 数字文案），只对有云仓的颜色生效；清空 = 回到「现货+在途-云仓」自动算
   customProducts?: Record<string, CustomProduct>; // 自定义款信息（未在库商品）：pid.toLowerCase() -> { id, name }
   // 直播排品（SequencePage）专用
   startTime?: string; // 'HH:MM' 直播开始时间，默认 '19:00'

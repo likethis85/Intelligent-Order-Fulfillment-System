@@ -13,7 +13,7 @@ const { stockCellPartsList } = await import('../src/lib/stockLines.ts');
 test('库存：占单低于 15 不显示', () => {
   assert.ok(pageCode.includes('const ORDER_BOOK_MIN_DISPLAY = 15;'), '阈值要有单一常量');
   // 页面单元格 + Excel 导出两处都把阈值传给同一个渲染函数，避免两处口径分叉
-  const uses = pageCode.match(/stockCellPartsList\(entries\.map\(\(\[, v\]\) => v\), \{ orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY \}\)/g) || [];
+  const uses = pageCode.match(/orderBookMinDisplay: ORDER_BOOK_MIN_DISPLAY/g) || [];
   assert.equal(uses.length, 2, '占单有两处渲染（货盘单元格、Excel/打印文本）');
   const row = (v) => stockCellPartsList([{ eta: null, stock: 0, inTransit: 0, ...v }], { orderBookMinDisplay: 15 })[0];
   assert.deepEqual(
