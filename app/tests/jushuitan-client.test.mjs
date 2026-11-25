@@ -53,33 +53,29 @@ test('jushuitan-client: getItemsByPids and getInventoryByPids handle empty input
   assert.deepEqual(invRes, { byPid: {}, items: [] });
 });
 
-test('jushuitan-client: 虚拟仓库存只汇总名字带「云仓」的虚拟仓', () => {
+test('jushuitan-client: 虚拟仓库存按 SKU 汇总全部虚拟仓', () => {
+  // 聚水潭的虚拟仓实际叫「跨境-日本」「线下门店（南京德基）」这类名字，不带「云仓」二字，
+  // 所以不能按名字筛，全部汇总才是「运营云仓占有」
   const rows = [
     {
       sku_id: 'S1',
       stocks: [
-        { lwh_id: 11, name: '天猫运营云仓', qty: 5, order_lock: 7, pick_lock: 1 },
-        { lwh_id: 12, name: '京东运营云仓', qty: 2, order_lock: 3, pick_lock: 0 },
-        { lwh_id: 13, name: '线下虚拟仓', qty: 9, order_lock: 4, pick_lock: 2 },
+        { lwh_id: 132, name: '跨境-日本', qty: 5, order_lock: 7, pick_lock: 1 },
+        { lwh_id: 137, name: '跨境-墨尔本', qty: 2, order_lock: 3, pick_lock: 0 },
+        { lwh_id: 127, name: '线下门店（南京德基）', qty: 9, order_lock: 4, pick_lock: 2 },
       ],
     },
   ];
   const r = summarizeVirtualStock(rows);
-  assert.deepEqual(r.cloudNames, ['11', '12'].map(Number));
-  assert.equal(r.bySku.S1.orderLock, 10, '天猫云仓 7 + 京东云仓 3，线下虚拟仓不计');
-  assert.equal(r.bySku.S1.qty, 7);
+  assert.deepEqual(r.warehouseNames.sort(), ['跨境-墨尔本', '跨境-日本', '线下门店（南京德基）'].sort());
+  assert.equal(r.bySku.S1.orderLock, 14);
+  assert.equal(r.bySku.S1.qty, 16);
+  assert.equal(r.bySku.S1.pickLock, 3);
   assert.equal(r.sawWarehouse, true);
 });
 
-test('jushuitan-client: 没有云仓命名的虚拟仓时退回汇总全部', () => {
-  const rows = [{ sku_id: 'S2', stocks: [{ lwh_id: 21, name: 'A仓', qty: 1, order_lock: 2 }, { lwh_id: 22, name: 'B仓', qty: 3, order_lock: 4 }] }];
-  const r = summarizeVirtualStock(rows);
-  assert.deepEqual(r.cloudNames, []);
-  assert.equal(r.bySku.S2.orderLock, 6);
-});
-
 test('jushuitan-client: 虚拟仓库存兼容 camelCase 字段', () => {
-  const rows = [{ skuId: 'S3', stocks: [{ lwhId: 31, name: '运营云仓', orderLock: 5, pickLock: 2, qty: 1 }] }];
+  const rows = [{ skuId: 'S3', stocks: [{ lwhId: 31, name: '线下门店（杭州万象）', orderLock: 5, pickLock: 2, qty: 1 }] }];
   const r = summarizeVirtualStock(rows);
   assert.equal(r.bySku.S3.orderLock, 5);
   assert.equal(r.bySku.S3.pickLock, 2);

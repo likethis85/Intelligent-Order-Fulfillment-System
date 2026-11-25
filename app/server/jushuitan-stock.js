@@ -9,7 +9,7 @@
 //   现货 = 各仓现存 qty 合计        （BI 是「主仓实际库存」）
 //   占单 = order_lock + pick_lock   （BI 是「订单占有数」）
 //   在途 = purchase_qty             （BI 是「采购在途数 - 虚拟云仓库存」）
-//   云仓 = 虚拟仓（运营云仓）的订单占有数，取自「虚拟仓商品库存查询」，按 SKU 汇总到颜色
+//   云仓 = 虚拟仓（运营云仓）里的库存数，取自「虚拟仓商品库存查询」，按 SKU 汇总到颜色
 //
 // 缓存：按款号内存缓存（默认 5 分钟），查不到也做短缓存（1 分钟），避免货盘反复请求打爆 ERP。
 // SKU 颜色元数据另做 6 小时缓存（尺码/颜色几乎不变），只有库存数走 5 分钟。
@@ -42,7 +42,8 @@ export function buildStockEntry(invEntry, itemEntry, eta = null, cloudBySku = nu
   for (const s of itemEntry?.skus || []) {
     if (s?.skuId) skuMeta.set(String(s.skuId), s);
   }
-  const cloudFor = (skuId) => Number(cloudBySku?.[skuId]?.orderLock) || 0;
+  // 云仓占有 = 该 SKU 在虚拟仓（运营云仓）里的库存数；改口径只动这一行
+  const cloudFor = (skuId) => Number(cloudBySku?.[skuId]?.qty) || 0;
 
   const byColor = new Map();
   for (const [skuId, st] of Object.entries(invEntry.skus || {})) {

@@ -409,13 +409,9 @@ export async function getInventoryByPids(pids = [], { pageSize = 100, maxPages =
 // /open/webapi/itemapi/iteminventory/getvirtualstock
 // 聚水潭「库存 → 商品库存」里的「运营云仓占有」= 虚拟仓里的订单占有数（order_lock）。
 // 请求：sku_ids 或 modified_begin/modified_end 二选一；分页是 page.current_page / page.page_size（字符串）。
-// 返回：data[].sku_id + data[].stocks[]（lwh_id 虚拟仓编号、name 虚拟仓名、qty、order_able_qty、order_lock、pick_lock）。
-// 只汇总名字里带「云仓」的虚拟仓（运营云仓）；一个都没匹配上时退回汇总全部虚拟仓，否则等于查了但没有数。
-const CLOUD_WAREHOUSE_RE = /云仓/;
-
-// 把接口返回的 data[] 整理成「按 SKU 汇总的云仓占有」。
-// 先看有没有名字带「云仓」的虚拟仓；有就只认它们，一个都没匹配上才退回汇总全部虚拟仓
-// （否则名字对不上时页面会一片 0，等于白查）。
+// 返回：data.data[].sku_id + data.data[].stocks[]（lwh_id 虚拟仓编号、name 虚拟仓名、qty、order_able_qty、order_lock、pick_lock）。
+// 聚水潭的「虚拟仓」就是运营云仓（实际叫「跨境-日本」「线下门店（南京德基）」这类名字，
+// 不带「云仓」二字），所以这里全部汇总，不按名字筛。
 export function summarizeVirtualStock(rows = []) {
   const bySku = {};
   let sawWarehouse = false;
@@ -436,24 +432,20 @@ export function summarizeVirtualStock(rows = []) {
     bySku[skuId] = cur;
   }
 
-  const matchedCloud = new Set();
-  for (const sku of Object.values(bySku)) {
-    for (const w of sku.warehouses) if (CLOUD_WAREHOUSE_RE.test(w.name)) matchedCloud.add(w.lwhId);
-  }
-  const isCloud = (w) => (matchedCloud.size > 0 ? matchedCloud.has(w.lwhId) : true);
+  const names = new Set();
   for (const sku of Object.values(bySku)) {
     sku.qty = 0;
     sku.orderLock = 0;
     sku.pickLock = 0;
     for (const w of sku.warehouses) {
-      if (!isCloud(w)) continue;
+      names.add(w.name);
       sku.qty += w.qty;
       sku.orderLock += w.orderLock;
       sku.pickLock += w.pickLock;
     }
   }
 
-  return { bySku, cloudNames: [...matchedCloud], sawWarehouse };
+  return { bySku, warehouseNames: [...names], sawWarehouse };
 }
 
 export async function getVirtualStockBySkus(skuIds = [], { pageSize = 100, maxPages = 20 } = {}) {
@@ -469,9 +461,13 @@ export async function getVirtualStockBySkus(skuIds = [], { pageSize = 100, maxPa
           page: { current_page: String(page), page_size: String(pageSize) },
         }, { raw: true, timeoutMs: 30_000 });
 
-        const pageRows = Array.isArray(payload?.data) ? payload.data : [];
+        // 这个接口返回信封套信封：{ code, data: { data: [...], has_next, page_index } }
+        const pageData = payload?.data;
+        const pageRows = Array.isArray(pageData)
+          ? pageData
+          : (Array.isArray(pageData?.data) ? pageData.data : []);
         rows.push(...pageRows);
-        if (!payload?.has_next || pageRows.length === 0) break;
+        if (!(pageData?.has_next ?? payload?.has_next) || pageRows.length === 0) break;
       }
     } catch (err) {
       console.warn(`[jushuitan] 虚拟仓库存查询失败（${chunk.length} 个 SKU）:`, err.message);
