@@ -43,7 +43,7 @@ export function stockCellPartsList(
     if (v.stock > 0) parts.push(hasOther ? `现货${v.stock}` : `${v.stock}`);
     if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
     if (v.eta) parts.push(`${v.eta}交`);
-    if (visibleCloud(v.cloud ?? 0)) parts.push(`云仓${v.cloud}`);
+    // 云仓本身不单独显示（只在算可售量时扣掉），避免一行里数字太多
     if (visibleOrderBook(v.orderBook)) parts.push(`占单${v.orderBook}`);
     // 可售量：有云仓才有这一项；手工改过的值优先
     if (includeSellable && visibleCloud(v.cloud ?? 0)) {
