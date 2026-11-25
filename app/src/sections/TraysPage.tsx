@@ -3668,9 +3668,6 @@ function renderStockForProduct(
           )}
         </div>
       ))}
-      {p.stockSource === 'jushuitan' && (
-        <div className="text-[9px] leading-3 text-ink-faint">聚水潭·全仓</div>
-      )}
     </div>
   );
 }
@@ -5952,7 +5949,7 @@ export default function TraysPage({
   // 当前货盘的全部款号都查一次（服务端按款缓存 5 分钟）。
   // 本次响应里没有的款号 = ERP 已查不到 → 删掉旧聚水潭值，回 BI 兜底，不能一直挂着旧库存。
   // 请求失败/部分款失败时服务端会返回带 stale 的旧缓存，单元格标注更新时间和「刷新失败，可能已过期」。
-  // 口径差异：聚水潭是全仓（现货=各仓现存，占单=订单锁库+拣货锁库），单元格会标注「聚水潭·全仓」
+  // 口径差异：聚水潭是全仓（现货=各仓现存，占单=订单锁库+拣货锁库）；单元格不再单独标注来源
   const [jstStockByCode, setJstStockByCode] = useState<Record<string, {
     stock: string[];
     stockMain: number;
