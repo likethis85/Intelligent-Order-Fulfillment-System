@@ -1978,12 +1978,13 @@ function stockCellText(p: Product, short?: string, visibleColors?: string[]): st
   }
   // 颜色行里勾掉的颜色，库存里也不显示（与 renderStockForProduct 同口径）
   const parsed = pickEntriesByColors(lines.map((s) => parseStockLine(s, p.colors ?? [])), visibleColors);
-  const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
+  const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; cloud: number; orderBook: number }>();
   for (const e of parsed) {
     const k = e.color || '其他';
-    const cur = byColor.get(k) || { stock: 0, inTransit: 0, eta: null, orderBook: 0 };
+    const cur = byColor.get(k) || { stock: 0, inTransit: 0, eta: null, cloud: 0, orderBook: 0 };
     cur.stock = Math.max(cur.stock, e.stock);
     cur.inTransit = Math.max(cur.inTransit, e.inTransit);
+    cur.cloud = Math.max(cur.cloud, e.cloud);
     cur.orderBook = Math.max(cur.orderBook, e.orderBook);
     if (e.eta && !cur.eta) cur.eta = e.eta;
     byColor.set(k, cur);
@@ -3494,12 +3495,13 @@ function renderStockForProduct(p: Product, short?: string, shortNode?: ReactNode
   // 颜色行里勾掉的颜色，库存里也不显示
   const parsed = pickEntriesByColors(stockLines.map((s) => parseStockLine(s, p.colors ?? [])), visibleColors);
   // 按颜色聚合（每色内可能有 现货/在途/交期/占单）
-  const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; orderBook: number }>();
+  const byColor = new Map<string, { stock: number; inTransit: number; eta: string | null; cloud: number; orderBook: number }>();
   for (const e of parsed) {
     const key = e.color || '其他';
-    const cur = byColor.get(key) || { stock: 0, inTransit: 0, eta: null, orderBook: 0 };
+    const cur = byColor.get(key) || { stock: 0, inTransit: 0, eta: null, cloud: 0, orderBook: 0 };
     cur.stock = Math.max(cur.stock, e.stock);
     cur.inTransit = Math.max(cur.inTransit, e.inTransit);
+    cur.cloud = Math.max(cur.cloud, e.cloud);
     cur.orderBook = Math.max(cur.orderBook, e.orderBook);
     if (e.eta && !cur.eta) cur.eta = e.eta;
     byColor.set(key, cur);

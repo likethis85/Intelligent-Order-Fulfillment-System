@@ -127,3 +127,37 @@ test('交期来自成衣采购单：款级兜底行同样带交期', () => {
   const e = toStockResult(inv, item([]), '12/8');
   assert.deepEqual(e.stock, ['针织衫：在途80 12/8交']);
 });
+
+test('云仓占有：按 SKU 汇总到颜色，排在交期之后、占单之前', () => {
+  const inv = {
+    skus: {
+      D1: { qty: 5, purchaseQty: 150, orderLock: 0, pickLock: 0 },
+      D2: { qty: 3, purchaseQty: 0, orderLock: 1, pickLock: 0 },
+    },
+  };
+  const it = item([
+    { skuId: 'D1', color: '藏青' },
+    { skuId: 'D2', color: '藏青' },
+  ]);
+  const cloud = {
+    D1: { orderLock: 12, qty: 0, pickLock: 0 },
+    D2: { orderLock: 8, qty: 0, pickLock: 0 },
+  };
+  const e = buildStockEntry(inv, it, '12/5', cloud);
+  assert.deepEqual(e.stock, ['针织衫 藏青：现货8 在途150 12/5交 云仓20 占单1']);
+  assert.equal(e.cloudOccupied, 20, '款级云仓合计');
+  assert.equal(e.orderBook, 1, '云仓不算进占单');
+});
+
+test('云仓占有：没有虚拟仓数据时行格式不变', () => {
+  const inv = { skus: { E1: { qty: 4, purchaseQty: 0, orderLock: 0, pickLock: 0 } } };
+  const e = buildStockEntry(inv, item([{ skuId: 'E1', color: '黑色' }]), null, null);
+  assert.deepEqual(e.stock, ['针织衫 黑色：现货4']);
+  assert.equal(e.cloudOccupied, 0);
+});
+
+test('云仓占有：只有云仓、没有现货/在途/占单的颜色也要出这一行', () => {
+  const inv = { skus: { F1: { qty: 0, purchaseQty: 0, orderLock: 0, pickLock: 0 } } };
+  const e = buildStockEntry(inv, item([{ skuId: 'F1', color: '米白' }]), null, { F1: { orderLock: 6 } });
+  assert.deepEqual(e.stock, ['针织衫 米白：云仓6']);
+});

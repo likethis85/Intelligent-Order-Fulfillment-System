@@ -212,7 +212,9 @@ export async function requestJushuitan(path, bizObj = {}, options = {}) {
       throw new Error(`聚水潭 API 报错 (code=${json.code}): ${json.msg || '未知错误'}`);
     }
 
-    return json.data ?? json;
+    // raw：要分页信封（page_index / has_next / data_count）时用，
+    // 虚拟仓库存接口的 data 是数组本身，拆包后分页信息就丢了
+    return options.raw ? json : (json.data ?? json);
   } catch (err) {
     clearTimeout(timer);
     throw err;
@@ -403,7 +405,83 @@ export async function getInventoryByPids(pids = [], { pageSize = 100, maxPages =
   return { byPid, items: allInventories };
 }
 
-// ── 业务接口 3: 聚水潭连通性与授权状态检查 ──
+// ── 业务接口 3: 虚拟仓（运营云仓）商品库存 ──
+// /open/webapi/itemapi/iteminventory/getvirtualstock
+// 聚水潭「库存 → 商品库存」里的「运营云仓占有」= 虚拟仓里的订单占有数（order_lock）。
+// 请求：sku_ids 或 modified_begin/modified_end 二选一；分页是 page.current_page / page.page_size（字符串）。
+// 返回：data[].sku_id + data[].stocks[]（lwh_id 虚拟仓编号、name 虚拟仓名、qty、order_able_qty、order_lock、pick_lock）。
+// 只汇总名字里带「云仓」的虚拟仓（运营云仓）；一个都没匹配上时退回汇总全部虚拟仓，否则等于查了但没有数。
+const CLOUD_WAREHOUSE_RE = /云仓/;
+
+// 把接口返回的 data[] 整理成「按 SKU 汇总的云仓占有」。
+// 先看有没有名字带「云仓」的虚拟仓；有就只认它们，一个都没匹配上才退回汇总全部虚拟仓
+// （否则名字对不上时页面会一片 0，等于白查）。
+export function summarizeVirtualStock(rows = []) {
+  const bySku = {};
+  let sawWarehouse = false;
+  for (const row of rows) {
+    const skuId = String(row?.sku_id ?? row?.skuId ?? '').trim();
+    if (!skuId) continue;
+    const cur = bySku[skuId] || { qty: 0, orderLock: 0, pickLock: 0, warehouses: [] };
+    for (const st of row?.stocks || []) {
+      sawWarehouse = true;
+      cur.warehouses.push({
+        lwhId: Number(st?.lwh_id ?? st?.lwhId) || 0,
+        name: String(st?.name ?? '').trim(),
+        qty: Number(st?.qty) || 0,
+        orderLock: Number(st?.order_lock ?? st?.orderLock) || 0,
+        pickLock: Number(st?.pick_lock ?? st?.pickLock) || 0,
+      });
+    }
+    bySku[skuId] = cur;
+  }
+
+  const matchedCloud = new Set();
+  for (const sku of Object.values(bySku)) {
+    for (const w of sku.warehouses) if (CLOUD_WAREHOUSE_RE.test(w.name)) matchedCloud.add(w.lwhId);
+  }
+  const isCloud = (w) => (matchedCloud.size > 0 ? matchedCloud.has(w.lwhId) : true);
+  for (const sku of Object.values(bySku)) {
+    sku.qty = 0;
+    sku.orderLock = 0;
+    sku.pickLock = 0;
+    for (const w of sku.warehouses) {
+      if (!isCloud(w)) continue;
+      sku.qty += w.qty;
+      sku.orderLock += w.orderLock;
+      sku.pickLock += w.pickLock;
+    }
+  }
+
+  return { bySku, cloudNames: [...matchedCloud], sawWarehouse };
+}
+
+export async function getVirtualStockBySkus(skuIds = [], { pageSize = 100, maxPages = 20 } = {}) {
+  const list = [...new Set(skuIds.map((s) => String(s || '').trim()).filter(Boolean))];
+  const rows = [];
+
+  for (let i = 0; i < list.length; i += 50) {
+    const chunk = list.slice(i, i + 50);
+    try {
+      for (let page = 1; page <= maxPages; page++) {
+        const payload = await requestJushuitan('/open/webapi/itemapi/iteminventory/getvirtualstock', {
+          sku_ids: chunk,
+          page: { current_page: String(page), page_size: String(pageSize) },
+        }, { raw: true, timeoutMs: 30_000 });
+
+        const pageRows = Array.isArray(payload?.data) ? payload.data : [];
+        rows.push(...pageRows);
+        if (!payload?.has_next || pageRows.length === 0) break;
+      }
+    } catch (err) {
+      console.warn(`[jushuitan] 虚拟仓库存查询失败（${chunk.length} 个 SKU）:`, err.message);
+    }
+  }
+
+  return summarizeVirtualStock(rows);
+}
+
+// ── 业务接口 4: 聚水潭连通性与授权状态检查 ──
 export async function getJushuitanStatus() {
   const cfg = getJushuitanConfig();
   if (!cfg.configured) {

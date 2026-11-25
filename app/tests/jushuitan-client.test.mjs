@@ -7,6 +7,7 @@ import {
   parseColorAndSizeFromProps,
   getItemsByPids,
   getInventoryByPids,
+  summarizeVirtualStock,
 } from '../server/jushuitan-client.js';
 
 test('jushuitan-client: official signature algorithm test vector', () => {
@@ -50,4 +51,36 @@ test('jushuitan-client: getItemsByPids and getInventoryByPids handle empty input
 
   const invRes = await getInventoryByPids([]);
   assert.deepEqual(invRes, { byPid: {}, items: [] });
+});
+
+test('jushuitan-client: 虚拟仓库存只汇总名字带「云仓」的虚拟仓', () => {
+  const rows = [
+    {
+      sku_id: 'S1',
+      stocks: [
+        { lwh_id: 11, name: '天猫运营云仓', qty: 5, order_lock: 7, pick_lock: 1 },
+        { lwh_id: 12, name: '京东运营云仓', qty: 2, order_lock: 3, pick_lock: 0 },
+        { lwh_id: 13, name: '线下虚拟仓', qty: 9, order_lock: 4, pick_lock: 2 },
+      ],
+    },
+  ];
+  const r = summarizeVirtualStock(rows);
+  assert.deepEqual(r.cloudNames, ['11', '12'].map(Number));
+  assert.equal(r.bySku.S1.orderLock, 10, '天猫云仓 7 + 京东云仓 3，线下虚拟仓不计');
+  assert.equal(r.bySku.S1.qty, 7);
+  assert.equal(r.sawWarehouse, true);
+});
+
+test('jushuitan-client: 没有云仓命名的虚拟仓时退回汇总全部', () => {
+  const rows = [{ sku_id: 'S2', stocks: [{ lwh_id: 21, name: 'A仓', qty: 1, order_lock: 2 }, { lwh_id: 22, name: 'B仓', qty: 3, order_lock: 4 }] }];
+  const r = summarizeVirtualStock(rows);
+  assert.deepEqual(r.cloudNames, []);
+  assert.equal(r.bySku.S2.orderLock, 6);
+});
+
+test('jushuitan-client: 虚拟仓库存兼容 camelCase 字段', () => {
+  const rows = [{ skuId: 'S3', stocks: [{ lwhId: 31, name: '运营云仓', orderLock: 5, pickLock: 2, qty: 1 }] }];
+  const r = summarizeVirtualStock(rows);
+  assert.equal(r.bySku.S3.orderLock, 5);
+  assert.equal(r.bySku.S3.pickLock, 2);
 });

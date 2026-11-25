@@ -7,6 +7,8 @@ export type StockEntry = {
   eta: string | null;
   stock: number;
   inTransit: number;
+  // 云仓占有：聚水潭「虚拟仓（运营云仓）」里的订单占有数，不是本仓现货
+  cloud: number;
   orderBook: number;
 };
 
@@ -24,16 +26,18 @@ function headColor(line: string): string {
 // 判定对象是「整个款」（单元格）而不是某个颜色行：一个款里只要有任一颜色带在途，
 // 该款所有颜色的现货都带标签。页面和 Excel 共用这个函数。
 export function stockCellPartsList(
-  rows: { stock: number; inTransit: number; eta: string | null; orderBook: number }[],
+  rows: { stock: number; inTransit: number; eta: string | null; cloud?: number; orderBook: number }[],
   { orderBookMinDisplay = 0 }: { orderBookMinDisplay?: number } = {},
 ): string[][] {
   const visibleOrderBook = (v: number) => v > 0 && v >= orderBookMinDisplay;
-  const hasOther = rows.some((v) => v.inTransit > 0 || Boolean(v.eta) || visibleOrderBook(v.orderBook));
+  const visibleCloud = (v: number) => v > 0;
+  const hasOther = rows.some((v) => v.inTransit > 0 || Boolean(v.eta) || visibleCloud(v.cloud ?? 0) || visibleOrderBook(v.orderBook));
   return rows.map((v) => {
     const parts: string[] = [];
     if (v.stock > 0) parts.push(hasOther ? `现货${v.stock}` : `${v.stock}`);
     if (v.inTransit > 0) parts.push(`在途${v.inTransit}`);
     if (v.eta) parts.push(`${v.eta}交`);
+    if (visibleCloud(v.cloud ?? 0)) parts.push(`云仓${v.cloud}`);
     if (visibleOrderBook(v.orderBook)) parts.push(`占单${v.orderBook}`);
     return parts;
   });
@@ -101,6 +105,9 @@ export function parseStockLine(line: string, productColors: string[] = []): Stoc
   // 在途 X
   const inTransitMatch = line.match(/在途\s*(\d+(?:\.\d+)?)/);
   const inTransit = inTransitMatch ? Number(inTransitMatch[1]) : 0;
+  // 云仓 X（虚拟仓/运营云仓占有）
+  const cloudMatch = line.match(/云仓\s*(\d+(?:\.\d+)?)/);
+  const cloud = cloudMatch ? Number(cloudMatch[1]) : 0;
   // 占单 X
   const orderMatch = line.match(/占单\s*(\d+(?:\.\d+)?)/);
   const orderBook = orderMatch ? Number(orderMatch[1]) : 0;
@@ -110,5 +117,5 @@ export function parseStockLine(line: string, productColors: string[] = []): Stoc
   // 兼容字段：第一数字（旧渲染兜底用）
   const numMatch = line.match(/(\d+(?:\.\d+)?)/);
   const qty = numMatch ? Number(numMatch[1]) : 0;
-  return { color, qty, eta, stock, inTransit, orderBook };
+  return { color, qty, eta, stock, inTransit, cloud, orderBook };
 }

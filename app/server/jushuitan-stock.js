@@ -9,11 +9,12 @@
 //   现货 = 各仓现存 qty 合计        （BI 是「主仓实际库存」）
 //   占单 = order_lock + pick_lock   （BI 是「订单占有数」）
 //   在途 = purchase_qty             （BI 是「采购在途数 - 虚拟云仓库存」）
+//   云仓 = 虚拟仓（运营云仓）的订单占有数，取自「虚拟仓商品库存查询」，按 SKU 汇总到颜色
 //
 // 缓存：按款号内存缓存（默认 5 分钟），查不到也做短缓存（1 分钟），避免货盘反复请求打爆 ERP。
 // SKU 颜色元数据另做 6 小时缓存（尺码/颜色几乎不变），只有库存数走 5 分钟。
 
-import { getInventoryByPids, getItemsByPids, isJushuitanConfigured } from './jushuitan-client.js';
+import { getInventoryByPids, getItemsByPids, getVirtualStockBySkus, isJushuitanConfigured } from './jushuitan-client.js';
 import { getEtaForCode } from './eta-client.js';
 
 const STOCK_TTL_MS = Number(process.env.JUSHUITAN_STOCK_TTL_MS) || 5 * 60 * 1000;
@@ -33,7 +34,7 @@ function normPid(pid) {
 
 // 把一条款的实时库存 + SKU 颜色，转成货盘用的库存行
 // 行格式与 BI 保持一致：`品类 色：现货X 在途Y 占单Z`（parseStockLine 靠这些关键字取值）
-export function buildStockEntry(invEntry, itemEntry, eta = null) {
+export function buildStockEntry(invEntry, itemEntry, eta = null, cloudBySku = null) {
   if (!invEntry) return null;
 
   const category = String(itemEntry?.category || '').trim();
@@ -41,15 +42,17 @@ export function buildStockEntry(invEntry, itemEntry, eta = null) {
   for (const s of itemEntry?.skus || []) {
     if (s?.skuId) skuMeta.set(String(s.skuId), s);
   }
+  const cloudFor = (skuId) => Number(cloudBySku?.[skuId]?.orderLock) || 0;
 
   const byColor = new Map();
   for (const [skuId, st] of Object.entries(invEntry.skus || {})) {
     const meta = skuMeta.get(String(skuId));
     const color = String(meta?.color || '').trim() || '其他';
-    const cur = byColor.get(color) || { qty: 0, transit: 0, lock: 0 };
+    const cur = byColor.get(color) || { qty: 0, transit: 0, lock: 0, cloud: 0 };
     cur.qty += Number(st.qty) || 0;
     cur.transit += Number(st.purchaseQty) || 0;
     cur.lock += (Number(st.orderLock) || 0) + (Number(st.pickLock) || 0);
+    cur.cloud += cloudFor(skuId);
     byColor.set(color, cur);
   }
 
@@ -57,16 +60,19 @@ export function buildStockEntry(invEntry, itemEntry, eta = null) {
   let totalQty = 0;
   let totalTransit = 0;
   let totalLock = 0;
+  let totalCloud = 0;
   const colors = [];
   for (const [color, v] of byColor) {
     totalQty += v.qty;
     totalTransit += v.transit;
     totalLock += v.lock;
-    if (v.qty <= 0 && v.transit <= 0 && v.lock <= 0) continue;
+    totalCloud += v.cloud;
+    if (v.qty <= 0 && v.transit <= 0 && v.lock <= 0 && v.cloud <= 0) continue;
     const head = category ? `${category} ${color}` : color;
     const parts = [];
     if (v.qty > 0) parts.push(`现货${v.qty}`);
     if (v.transit > 0) parts.push(`在途${v.transit}`);
+    if (v.cloud > 0) parts.push(`云仓${v.cloud}`);
     if (v.lock > 0) parts.push(`占单${v.lock}`);
     lines.push(`${head}：${parts.join(' ')}`);
     colors.push(color);
@@ -103,6 +109,7 @@ export function buildStockEntry(invEntry, itemEntry, eta = null) {
     stockMain: totalQty,
     inTransit: totalTransit,
     orderBook: totalLock,
+    cloudOccupied: totalCloud,
     colors,
     source: 'jushuitan',
   };
@@ -111,12 +118,12 @@ export function buildStockEntry(invEntry, itemEntry, eta = null) {
 // ERP 查到了这个款、但各仓现存/在途/占单都是 0：返回一条空库存。
 // 这是「有权威的 0」，必须覆盖 BI 的旧值；和「ERP 根本没这个款」（null）区分开。
 function zeroStockEntry() {
-  return { stock: [], stockMain: 0, inTransit: 0, orderBook: 0, colors: [], source: 'jushuitan' };
+  return { stock: [], stockMain: 0, inTransit: 0, orderBook: 0, cloudOccupied: 0, colors: [], source: 'jushuitan' };
 }
 
-export function toStockResult(invEntry, itemEntry, eta = null) {
+export function toStockResult(invEntry, itemEntry, eta = null, cloudBySku = null) {
   if (!invEntry) return null;
-  return buildStockEntry(invEntry, itemEntry, eta) || zeroStockEntry();
+  return buildStockEntry(invEntry, itemEntry, eta, cloudBySku) || zeroStockEntry();
 }
 
 // 给一条库存盖上数据时刻 + 是否来自失败后的旧缓存
@@ -161,12 +168,28 @@ async function fetchChunk(pids) {
       console.warn('[jushuitan-stock] SKU 颜色元数据拉取失败，降级为款级汇总:', err.message);
       return { byPid: {} };
     });
+    // 云仓占有：虚拟仓库存按 SKU 查，凑成本批全部 SKU 一次查完；失败只是没有「云仓」这一项
+    let cloudBySku = null;
+    try {
+      const skuIds = new Set();
+      for (const raw of pids) {
+        const entry = inv.byPid[raw.toLowerCase()] || inv.byPid[raw];
+        for (const skuId of Object.keys(entry?.skus || {})) skuIds.add(skuId);
+      }
+      if (skuIds.size > 0) {
+        const vs = await getVirtualStockBySkus([...skuIds]);
+        cloudBySku = vs.bySku;
+      }
+    } catch (err) {
+      console.warn('[jushuitan-stock] 虚拟仓库存（云仓占有）拉取失败，本批不显示云仓:', err.message);
+    }
+
     const result = new Map();
     for (const raw of pids) {
       const lower = raw.toLowerCase();
       const invEntry = inv.byPid[lower] || inv.byPid[raw] || null;
       const itemEntry = items.byPid[lower] || items.byPid[raw] || null;
-      result.set(lower, toStockResult(invEntry, itemEntry, getEtaForCode(raw)));
+      result.set(lower, toStockResult(invEntry, itemEntry, getEtaForCode(raw), cloudBySku));
     }
     return result;
   })().finally(() => inFlight.delete(key));
