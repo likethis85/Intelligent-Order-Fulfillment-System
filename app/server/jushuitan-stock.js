@@ -14,6 +14,7 @@
 // SKU 颜色元数据另做 6 小时缓存（尺码/颜色几乎不变），只有库存数走 5 分钟。
 
 import { getInventoryByPids, getItemsByPids, isJushuitanConfigured } from './jushuitan-client.js';
+import { getEtaForCode } from './eta-client.js';
 
 const STOCK_TTL_MS = Number(process.env.JUSHUITAN_STOCK_TTL_MS) || 5 * 60 * 1000;
 const ITEM_TTL_MS = 6 * 60 * 60 * 1000;
@@ -32,7 +33,7 @@ function normPid(pid) {
 
 // 把一条款的实时库存 + SKU 颜色，转成货盘用的库存行
 // 行格式与 BI 保持一致：`品类 色：现货X 在途Y 占单Z`（parseStockLine 靠这些关键字取值）
-export function buildStockEntry(invEntry, itemEntry) {
+export function buildStockEntry(invEntry, itemEntry, eta = null) {
   if (!invEntry) return null;
 
   const category = String(itemEntry?.category || '').trim();
@@ -89,6 +90,13 @@ export function buildStockEntry(invEntry, itemEntry) {
   }
 
   if (lines.length === 0) return null;
+  // 交期：成衣采购单里「最早待收货」的协议到货日期（和 BI 库存行同一个口径），
+  // 只注到有在途的行上；聚水潭本身不带交期，不补的话货盘只能看到「在途150」不知道几号到。
+  if (eta) {
+    for (let i = 0; i < lines.length; i++) {
+      lines[i] = lines[i].replace(/(在途\d+)/, `$1 ${eta}交`);
+    }
+  }
 
   return {
     stock: lines,
@@ -106,9 +114,9 @@ function zeroStockEntry() {
   return { stock: [], stockMain: 0, inTransit: 0, orderBook: 0, colors: [], source: 'jushuitan' };
 }
 
-export function toStockResult(invEntry, itemEntry) {
+export function toStockResult(invEntry, itemEntry, eta = null) {
   if (!invEntry) return null;
-  return buildStockEntry(invEntry, itemEntry) || zeroStockEntry();
+  return buildStockEntry(invEntry, itemEntry, eta) || zeroStockEntry();
 }
 
 // 给一条库存盖上数据时刻 + 是否来自失败后的旧缓存
@@ -158,7 +166,7 @@ async function fetchChunk(pids) {
       const lower = raw.toLowerCase();
       const invEntry = inv.byPid[lower] || inv.byPid[raw] || null;
       const itemEntry = items.byPid[lower] || items.byPid[raw] || null;
-      result.set(lower, toStockResult(invEntry, itemEntry));
+      result.set(lower, toStockResult(invEntry, itemEntry, getEtaForCode(raw)));
     }
     return result;
   })().finally(() => inFlight.delete(key));

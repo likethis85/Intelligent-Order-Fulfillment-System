@@ -102,3 +102,28 @@ test('withStockMeta: 带取数时刻；失败沿用的旧值标 stale 且保留�
   assert.equal(stale.updatedAt, '2026-11-10T01:00:00.000Z');
   assert.equal(withStockMeta(null, Date.now()), null);
 });
+
+test('在途带上交期：聚水潭行注入「M/D交」，没有交期时保持原样', () => {
+  const inv = { skus: { A1: { qty: 5, purchaseQty: 150, orderLock: 0, pickLock: 0 }, A2: { qty: 3, purchaseQty: 0, orderLock: 1, pickLock: 0 } } };
+  const it = item([
+    { skuId: 'A1', color: '藏青' },
+    { skuId: 'A2', color: '驼色' },
+  ]);
+  const withEta = buildStockEntry(inv, it, '12/5');
+  assert.deepEqual(withEta.stock, [
+    '针织衫 藏青：现货5 在途150 12/5交',
+    '针织衫 驼色：现货3 占单1',
+  ], '只在有在途的行上注交期');
+
+  const noEta = buildStockEntry(inv, it);
+  assert.deepEqual(noEta.stock, [
+    '针织衫 藏青：现货5 在途150',
+    '针织衫 驼色：现货3 占单1',
+  ], '没有交期时行格式不变');
+});
+
+test('交期来自成衣采购单：款级兜底行同样带交期', () => {
+  const inv = { totalQty: 0, purchaseQty: 80, orderLock: 0, pickLock: 0, skus: {} };
+  const e = toStockResult(inv, item([]), '12/8');
+  assert.deepEqual(e.stock, ['针织衫：在途80 12/8交']);
+});

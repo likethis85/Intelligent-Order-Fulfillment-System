@@ -3,6 +3,7 @@ import { hasCredentials, listProductsCached, mapProduct, clearProductsCache, lis
 import { loadBiProducts, biOverrides, biOnlyProduct, biOnlyProductFromMaster, loadBiProductMaster, biProductOverrides, getSkcsForCode, getBiCacheStatus } from '../bi-client.js';
 import { isJushuitanConfigured } from '../jushuitan-client.js';
 import { getStockByCodes } from '../jushuitan-stock.js';
+import { loadEtaMap } from '../eta-client.js';
 import { deriveRoles } from '../role-rules.js';
 import { loadSizeRange, getSizeRangeForCode } from '../size-client.js';
 import { loadBomCost, getBomCostForCode } from '../cost-client.js';
@@ -374,6 +375,9 @@ router.get('/stock/by-ids', async (req, res) => {
     return res.json({ ok: true, byCode: {}, source: 'none', failed: false, reason: 'jushuitan_not_configured' });
   }
   try {
+    // 交期（成衣采购单「最早待收货」协议到货日期）要在拼库存行之前就位，
+    // 这样聚水潭的「在途N」也能带上「M/D交」；取不到就照旧不显示交期
+    await loadEtaMap().catch((err) => console.warn('[products/stock] 交期卡加载失败:', err.message));
     const { byCode, failed, failedCodes, missingCodes, at } = await getStockByCodes(ids);
     res.json({
       ok: true,
