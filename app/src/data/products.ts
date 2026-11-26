@@ -309,6 +309,21 @@ export function normalizeImageUrl(url: string | null | undefined): string | null
 }
 
 /**
+ * OSS 图片地址 → 同源本地备份地址（/uploads/<文件名>）。
+ * 服务端上传时会在本地留一份备份；OSS 不可用（Key 失效、欠费、网络）时，
+ * 前端拿这个地址重试一次，省得整页图片全变成占位符。
+ * 不是本 bucket 的地址返回 null。
+ */
+export function ossUrlToLocalUpload(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const str = String(url).trim();
+  if (!str.startsWith(OSS_UPLOADS_BASE)) return null;
+  const rest = str.slice(OSS_UPLOADS_BASE.length).split(/[?#]/)[0];
+  if (!rest || rest.includes('/')) return null;
+  return `/uploads/${rest}`;
+}
+
+/**
  * 递归清洗货盘中所有坑位及款式的自传主图地址，自动升级为阿里云 OSS 直链
  */
 export function normalizeTrayImages(tray: Tray): Tray {

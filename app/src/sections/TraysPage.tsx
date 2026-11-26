@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import PrintSettingsDialog from '@/components/PrintSettingsDialog';
 import {
-  TRAY_TYPES, goodsValue, matchCandidates, normalizeImageUrl,
+  TRAY_TYPES, goodsValue, matchCandidates, normalizeImageUrl, ossUrlToLocalUpload,
   type NoRestockItem, type Product, type RoleTag, type Tray, type TrayType, type CustomProduct,
 } from '@/data/products';
 import { useProducts, useProductsById, useProductResolver } from '@/data/ProductsContext';
@@ -1189,10 +1189,15 @@ function PriceEditor({
 // 图片加载失败兜底：样衣款 / 缺图款 fallback 显示款号首字母占位（避免浏览器默认破图小图标）
 function SafeImg({ src, alt, className, fallbackText, pid, onClick, title }: { src: string; alt?: string; className?: string; fallbackText?: string; pid?: string; onClick?: () => void; title?: string }) {
   const [errored, setErrored] = useState(false);
+  // OSS 取不到图时（Key 失效 / 欠费 / 网络），改试服务端本地那份备份，别整页变占位符
+  const [localRetry, setLocalRetry] = useState<string | null>(null);
 
   useEffect(() => {
     setErrored(false);
+    setLocalRetry(null);
   }, [src]);
+
+  const displaySrc = localRetry || src;
 
   if (!src || errored) {
     // 占位字符：优先用款号首字母（如 ME13FW006 → ME），回退到 alt，最后回退到「无图」
@@ -1209,12 +1214,20 @@ function SafeImg({ src, alt, className, fallbackText, pid, onClick, title }: { s
   }
   return (
     <img
-      key={src}
-      src={src}
+      key={displaySrc}
+      src={displaySrc}
       alt={alt ?? ''}
       className={className}
       onError={() => {
-        console.warn('[SafeImg] 图片加载失败:', src);
+        if (!localRetry) {
+          const local = ossUrlToLocalUpload(src);
+          if (local) {
+            console.warn('[SafeImg] OSS 图片加载失败，改读服务器本地备份:', src, '→', local);
+            setLocalRetry(local);
+            return;
+          }
+        }
+        console.warn('[SafeImg] 图片加载失败:', displaySrc);
         setErrored(true);
       }}
       onClick={onClick}
