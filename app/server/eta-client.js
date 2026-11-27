@@ -1,15 +1,17 @@
-// 成衣采购单明细卡片 → 提取每个款号的「最早待收货的 协议到货日期」
-// 卡片 id：u6ad35151e3a842b3bd1ebb3（成衣采购单明细）
-// 路径：根目录 > 商品看板 > 成衣采购单明细
+// 成衣采购单的「协议到货日期」→ 每个款号取最早待收货的那一单
+//
+// 数据源：数据集「产品交期数据」j5eecba4b53384a4186c53ba（根目录 > 周报 > 供应链数据）
+//   以前读的是仪表盘卡片「成衣采购单明细」u6ad35151e3a842b3bd1ebb3，但卡片的数据快照更新滞后
+//   （PO 从 12/3 改期到 12/7 后，数据集 19:34 已更新，卡片仍停在 12/3），所以改成直接读数据集。
 // 字段：款式编码, 状态, 协议到货日期, 数量, 已入库数
 //
 // 算法：每个款号找「最早仍未收齐的 PO」的 协议到货日期
 //   - 已入库数 < 数量 视为待收货
-//   - 该款无任何待收货 PO 时，不返回（避免展示过去日期）
+//   - 只取未完结状态（Confirmed/WaitConfirm/WaitDeliver/WaitReceive）
 //
 // 双层缓存：内存 60s + 磁盘 12h
 
-import { previewGuancliCard } from './guancli.js';
+import { runGuancli, previewGuancliCard } from './guancli.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -19,11 +21,24 @@ const __dirname = dirname(__filename);
 const CACHE_DIR = join(__dirname, '.cache');
 const CACHE_FILE = join(CACHE_DIR, 'eta_card.csv');
 
+const DS_ID = 'j5eecba4b53384a4186c53ba';
+const ETA_COLUMNS = '款式编码,状态,协议到货日期,数量,已入库数';
+const PENDING_STATUSES = ['Confirmed', 'WaitConfirm', 'WaitDeliver', 'WaitReceive'];
+// 卡片兜底：数据集接口不可用时仍走卡片（数据可能滞后，但聊胜于无）
 const CARD_ID = 'u6ad35151e3a842b3bd1ebb3';
 
 const MEM_TTL_MS = 60_000;
 const DISK_TTL_MS = 12 * 60 * 60 * 1000;
 let cache = { at: 0, byCode: new Map() };
+
+function runGuancliDsPreview() {
+  return runGuancli([
+    'ds', 'preview', DS_ID,
+    '--limit', '60000', '-f', 'csv',
+    '--columns', ETA_COLUMNS,
+    '--filter', `状态 IN ${PENDING_STATUSES.join(',')}`,
+  ], { timeoutMs: 60_000, background: true });
+}
 
 function runGuancliCardPreview() {
   return previewGuancliCard(CARD_ID, { limit: 10000 });
@@ -51,7 +66,7 @@ function fmtEta(raw) {
   return `${Number(m[2])}/${Number(m[3])}`;
 }
 
-function rowsToMap(rows) {
+export function rowsToMap(rows) {
   // 每个款号聚合出交期：优先取「最早待收货」，若无 pending 则取「最早 PO」（可能在过去）
   const m = new Map();
   for (const r of rows) {
@@ -108,7 +123,10 @@ export async function loadEtaMap() {
     cache = fromDisk;
     return cache;
   }
-  const csv = await runGuancliCardPreview();
+  const csv = await runGuancliDsPreview().catch(async (err) => {
+    console.warn('[eta] 数据集读取失败，回退成衣采购单卡片（数据可能滞后）:', err.message);
+    return runGuancliCardPreview();
+  });
   const rows = parseCsv(csv);
   const byCode = rowsToMap(rows);
   cache = { at: Date.now(), byCode };
