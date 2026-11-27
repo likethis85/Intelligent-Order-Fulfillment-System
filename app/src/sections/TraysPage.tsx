@@ -21,6 +21,7 @@ import { newId } from '@/lib/trayIds';
 import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
 import { applyJushuitanPriority, formatStockUpdatedAt, parseStockLine, sellableQty, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
 import { suitRestockLines } from '@/lib/restockLines';
+import { filterFabricTextByColors } from '@/lib/fabricColors';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -844,8 +845,10 @@ const PANEL_CACHE_FRESH_MS = 5 * 60 * 1000; // 5 分钟新鲜度
 
 function SampleMaterialsPanel({
   pids,
+  colors,
 }: {
   pids: string[];
+  colors?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const cacheKey = useMemo(() => (pids || []).map((p) => p.toUpperCase().trim()).filter(Boolean).sort().join(','), [pids]);
@@ -891,7 +894,17 @@ function SampleMaterialsPanel({
   if (!pids || pids.length === 0) return null;
   // 不再按「products.colors」过滤驼色等未转大货 SKC：用户在货盘面板里需要看到所有 BOM SKC
   // 才能完整规划翻单（驼色虽然没转大货，但 BOM 里有面料数据，应该能选、能填翻单计划）
-  const filteredRows = rows;
+  // 但如果商品名称里已经勾了具体色号，就只展示这些颜色（一个都对不上时保留全部）
+  const filteredRows = (() => {
+    const list = (colors || []).map((c) => c.trim()).filter(Boolean);
+    if (list.length === 0) return rows;
+    const kept = rows.filter((r) => {
+      const c = String(r.colorName || '').trim();
+      if (!c) return true;
+      return list.some((a) => c === a || c.includes(a) || a.includes(c));
+    });
+    return kept.length > 0 ? kept : rows;
+  })();
   // 按 smCode 分组
   const byCode = new Map<string, SampleMaterialRow[]>();
   for (const r of filteredRows) {
@@ -2163,7 +2176,7 @@ function effectiveNoRestockItems(allItems: NoRestockItem[], hasRealFabric: boole
 }
 
 // 面料情况文本：跟 FIELDS.面料情况.aggregateRender 同款
-function fabricCellText(pid: string, p: Product, t: Tray): string {
+function fabricCellText(pid: string, p: Product, t: Tray, visibleColors?: string[], knownColors: string[] = []): string {
   const allItems = (t.noRestockItems || []).filter((it) => it.pid.toLowerCase() === pid.toLowerCase());
   const ov0 = t.fabricOverrides?.[pid];
   const hasRealFabric = Boolean((ov0 ?? '').trim() || (!isFabricNoise(p.fabric) && (p.fabric ?? '').trim()));
@@ -2199,6 +2212,8 @@ function fabricCellText(pid: string, p: Product, t: Tray): string {
   }
   // 界面上手动隐藏的行，导出时同样不出现（否则「界面干净、Excel 里又冒出来」）
   base = applyHiddenFabricLines(base, t.fabricHiddenLines?.[pid]);
+  // 商品名称里只勾了部分色号时，面料行也只导出这些颜色（与界面同一口径）
+  base = filterFabricTextByColors(base, visibleColors, knownColors);
   const note = t.fabricNotes?.[pid] || '';
   let text = note ? `${base}\n※ ${note}` : base;
   text = cleanFabricText(text);
@@ -2313,7 +2328,12 @@ async function exportTrayLayoutExcel(
       labelBlue: true,
       height: 80,
       get: (l) => {
-        const rawBlocks = l.pids.map((p) => fabricCellText(p, byId(p), t)).filter(Boolean);
+        // 商品名称里勾选的颜色同样约束导出：只导出勾上的颜色
+        const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;
+        const rawBlocks = l.pids.map((p) => {
+          const prod = byId(p);
+          return fabricCellText(p, prod, t, visibleColors, [...(prod?.colors || [])]);
+        }).filter(Boolean);
         const seen = new Set<string>();
         const seenNoRestockColors = new Set<string>();
         const out: string[] = [];
@@ -4430,8 +4450,19 @@ const FIELDS: FieldRow[] = [
           text: newText,
         };
       });
+      // 商品名称里只勾了部分色号：面料行也只留勾上的颜色（与其他字段同一份颜色筛选）
+      const fabricVisibleColors = ctx.colorOverride ? splitColorText(ctx.colorOverride) : undefined;
+      const coloredRows = fabricVisibleColors && fabricVisibleColors.length > 0
+        ? dedupedRows.map((r) => {
+            const prod = ps.find((x) => x.id === r.pid);
+            const known = [...(prod?.colors || []), ...(ctx.sampleColorsByPid?.[r.pid] || [])];
+            const base = filterFabricTextByColors(r.base, fabricVisibleColors, known);
+            const text = r.hasNote ? (base ? `${base}\n※ ${r.note}` : `※ ${r.note}`) : base;
+            return { ...r, base, text };
+          })
+        : dedupedRows;
       // 整行都被隐藏、又没注脚时本来会整条消失，连「恢复」都没得点；所以有隐藏的行要留着
-      const visibleRows = dedupedRows.filter((r) => r.text || r.hiddenCount > 0);
+      const visibleRows = coloredRows.filter((r) => r.text || r.hiddenCount > 0);
       const hasAnyContent = visibleRows.length > 0;
       // 当前还显示着的「0 米」行：一键隐藏按钮用（一次写完，不会像逐个 upd 那样互相覆盖）
       const zeroLines = visibleRows.flatMap((r) =>
@@ -7908,6 +7939,11 @@ export default function TraysPage({
         const rpSection = tray.sections.find((x) => x.id === restockPicker.sectionId);
         const rpLook = rpSection?.looks.find((y) => y.id === restockPicker.lookId);
         const rpPids = rpLook?.pids || [];
+        // 商品名称里勾过的颜色（含手动添加的）：翻单计划只展示这些颜色的 SKC
+        const rpColors = tray.colorOverrideByLook?.[restockPicker.lookId]
+          ? splitColorText(tray.colorOverrideByLook[restockPicker.lookId])
+          : [];
+        const rpColorsParam = rpColors.length > 0 ? `&colors=${encodeURIComponent(rpColors.join(','))}` : '';
         function prefillSales() {
           const win = salesIframeRef.current?.contentWindow;
           if (!win) return;
@@ -7923,7 +7959,7 @@ export default function TraysPage({
           }, window.location.origin);
         }
         function openInNewTab() {
-          const url = `${FABRIC_BASE}/sales.html?pids=${rpPids.map((p) => p.toUpperCase()).join(',')}`;
+          const url = `${FABRIC_BASE}/sales.html?pids=${rpPids.map((p) => p.toUpperCase()).join(',')}${rpColorsParam}`;
           window.open(url, '_blank', 'noopener,noreferrer');
           setRestockPicker(null);
         }
@@ -7944,12 +7980,12 @@ export default function TraysPage({
                   <X size={16} />
                 </button>
               </div>
-              <SampleMaterialsPanel pids={rpPids} />
+              <SampleMaterialsPanel pids={rpPids} colors={rpColors} />
               <RestockStockPanel pids={rpPids} />
               <iframe
                 key="restock-iframe"
                 ref={salesIframeRef}
-                src={`${FABRIC_BASE}/sales.html?iframe=1&pids=${rpPids.map((p) => p.toUpperCase()).join(',')}`}
+                src={`${FABRIC_BASE}/sales.html?iframe=1&pids=${rpPids.map((p) => p.toUpperCase()).join(',')}${rpColorsParam}`}
                 className="flex-1 w-full border-0"
                 title="翻单计划"
                 onLoad={() => {

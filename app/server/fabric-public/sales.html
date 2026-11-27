@@ -1028,6 +1028,26 @@
     }
 
     // 提取颜色名称
+    // ── 颜色范围：货盘「商品名称」里只勾了部分色号时，URL 会带 ?colors=藏青,黑 ──
+    // 翻单计划只展示/勾选这些颜色的 SKC，不再把该款所有颜色都列出来。
+    const allowedColors = (() => {
+      const raw = new URLSearchParams(window.location.search).get('colors') || '';
+      return raw.split(/[,，、;；]+/).map(s => s.trim()).filter(Boolean);
+    })();
+    function itemColorName(item) {
+      return String((item && (item.pdt_color_name || item.color_name || item.colorName)) || '').trim();
+    }
+    function filterItemsByColors(items) {
+      if (!items || allowedColors.length === 0) return items;
+      const kept = items.filter(it => {
+        const c = itemColorName(it);
+        if (!c) return true; // 没有颜色名的行（里料/占位/汇总）照常保留
+        return allowedColors.some(a => c === a || c.includes(a) || a.includes(c));
+      });
+      // 货盘颜色名和面料颜色名一个都对不上时保留全部，避免整款空白
+      return kept.length > 0 ? kept : items;
+    }
+
     function extractColorName(specName) {
       let colorName = specName || '';
       const match = colorName.match(/\]?([^\];\-]+)/);
@@ -1149,7 +1169,8 @@
             const isOldPlaceholder = (r.mt_code === '_forced_') && (r.sku_code === pdtCode);
             return !isOldPlaceholder;
           });
-          if (items.length > 0) groups[pdtCode] = items;
+          const shownItems = filterItemsByColors(items);
+          if (shownItems.length > 0) groups[pdtCode] = shownItems;
         });
 
         // 强制添加的款号：创建空白条目用于显示
@@ -1177,6 +1198,11 @@
       }
 
       const groups = groupByPdtCode(relevantData);
+      // 只展示商品名称里勾上的颜色（每个款单独判断，一个都对不上就保留全部）
+      Object.keys(groups).forEach(code => {
+        const kept = filterItemsByColors(groups[code]);
+        if (kept.length > 0) groups[code] = kept;
+      });
       const filledGroups = {};
       const unfilledGroups = {};
 
@@ -2825,6 +2851,7 @@
     }
 
     function addGroupToSelection(pdtCode, items) {
+      items = filterItemsByColors(items);
       applyRestockPrefillToRows(items);
       items.forEach(item => {
         selectedFabrics[fabricItemId(item)] = item;
