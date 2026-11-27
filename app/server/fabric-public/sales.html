@@ -928,6 +928,9 @@
     }
 
     const forceAddInflight = new Map();
+    // 强制添加失败过的款号（领猫查不到 / 该款没有 SKU）：记住失败，别让勾选流程反复重试，
+    // 否则 toggleGroup → forceAddPdtCode → alert → toggleGroup 会无限弹窗
+    const forceAddFailed = new Set();
 
     // 强制添加款号（用于无面料信息的情况，带并发请求去重锁）
     async function forceAddPdtCode(code) {
@@ -968,8 +971,9 @@
           console.log('[forceAddPdtCode] result:', result);
 
           if (!result.success) {
+            forceAddFailed.add(code);
             alert(result.error || '添加失败');
-            return;
+            return false;
           }
 
           // 重建成功：先从本地数据移除该款旧占位记录，再并入新的（按 SKC）
@@ -984,13 +988,17 @@
           allPdtCodes.sort();
 
           forceAddedPdts.add(code);
+          forceAddFailed.delete(code);
           document.getElementById('forceAddHint').style.display = 'none';
           document.getElementById('fabricSearch').value = code;
           console.log('[forceAddPdtCode] success, fabricData now has:', fabricData.length, 'items');
           renderFabricList();
+          return true;
         } catch (err) {
           console.error('强制添加款号失败:', err);
+          forceAddFailed.add(code);
           alert('添加失败: ' + err.message);
+          return false;
         }
       })();
 
@@ -2647,10 +2655,12 @@
             if (added) toggleGroup(pdtCode, true, opts);
           });
         }
-        // 若是该款没有任何面料记录（批量搜出来的待强制添加占位）→ 自动强制添加创建真实记录
-        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) {
-          forceAddPdtCode(pdtCode).then(() => {
-            toggleGroup(pdtCode, true, opts);
+        // 若是该款没有任何面料记录（批量搜出来的待强制添加占位）→ 自动强制添加创建真实记录。
+        // 失败过（领猫查不到该款 / 该款没有 SKU）就不再重试：否则「失败 → 重新勾选 → 再强制添加」
+        // 会无限弹窗，用户只能强杀页面。
+        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode) && !forceAddFailed.has(pdtCode)) {
+          forceAddPdtCode(pdtCode).then((ok) => {
+            if (ok) toggleGroup(pdtCode, true, opts);
           });
           return;
         }

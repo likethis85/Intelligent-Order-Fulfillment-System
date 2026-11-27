@@ -50,6 +50,7 @@ test('sales.html: 自动勾选只有一处入口', () => {
 test('sales.html: 样衣 BOM 合并回调沿用同一套勾选参数', () => {
   assert.ok(html.includes('if (added) toggleGroup(pdtCode, true, opts);'),
     '合并回调丢了 bulk 标记会把弹窗又顶出来');
-  assert.ok(/forceAddPdtCode\(pdtCode\)\.then\(\(\) => \{\s*toggleGroup\(pdtCode, true, opts\);/.test(html),
-    '强制添加回调同理');
+  // 强制添加成功才继续勾选（失败时重试就是「查不到此款」无限弹窗的死循环）
+  assert.ok(/forceAddPdtCode\(pdtCode\)\.then\(\(ok\) => \{\s*if \(ok\) toggleGroup\(pdtCode, true, opts\);/.test(html),
+    '强制添加回调同理，且失败不再递归勾选');
 });

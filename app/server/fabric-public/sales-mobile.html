@@ -1000,6 +1000,8 @@
     }
 
     const forceAddInflight = new Map();
+    // 强制添加失败过的款号：记住失败，勾选流程不再重试，避免失败→重新勾选→再强制添加的死循环
+    const forceAddFailed = new Set();
 
     async function forceAddPdtCode(code) {
       if (!code) return;
@@ -1013,7 +1015,7 @@
         if (allPdtCodes.includes(code)) {
           const existingRows = fabricData.filter(r => r.pdt_code === code);
           const hasReal = existingRows.some(r => (r.mt_code || '') !== '_forced_');
-          if (hasReal) { alert('此款号已存在'); return; }
+          if (hasReal) { alert('此款号已存在'); return true; }
         }
         try {
           const res = await authFetch('/api/fabric-data/force-add', {
@@ -1022,18 +1024,26 @@
             body: JSON.stringify({ pdt_code: code })
           });
           const result = await res.json();
-          if (!result.success) { alert(result.error || '添加失败'); return; }
+          if (!result.success) {
+            forceAddFailed.add(code);
+            alert(result.error || '添加失败');
+            return false;
+          }
           fabricData = fabricData.filter(r => r.pdt_code !== code);
           if (result.data) fabricData.push(...(Array.isArray(result.data) ? result.data : [result.data]));
           if (!allPdtCodes.includes(code)) allPdtCodes.push(code);
           allPdtCodes.sort();
           forceAddedPdts.add(code);
+          forceAddFailed.delete(code);
           document.getElementById('forceAddHint').style.display = 'none';
           document.getElementById('fabricSearch').value = code;
           renderFabricList();
+          return true;
         } catch (err) {
           console.error('强制添加款号失败:', err);
+          forceAddFailed.add(code);
           alert('添加失败: ' + err.message);
+          return false;
         }
       })();
 
@@ -2065,9 +2075,9 @@
         group.classList.toggle('selected', checked);
       }
       if (checked) {
-        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode)) {
-          forceAddPdtCode(pdtCode).then(() => {
-            toggleGroup(pdtCode, true);
+        if (pdtItems.length === 0 && !forceAddedPdts.has(pdtCode) && !forceAddFailed.has(pdtCode)) {
+          forceAddPdtCode(pdtCode).then((ok) => {
+            if (ok) toggleGroup(pdtCode, true);
           });
           return;
         }
