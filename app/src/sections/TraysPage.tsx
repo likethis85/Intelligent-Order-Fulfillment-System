@@ -20,6 +20,7 @@ import { TRASH_RETENTION_DAYS, trashDaysLeft } from '@/lib/trayTrash';
 import { newId } from '@/lib/trayIds';
 import { buildColorOptions, cleanColorFg, colorFgOf, colorOverrideValue, colorSegments, COLOR_FG_PRESETS, defaultColorText, hexToArgb, joinColorText, normalizeHexColor, pickEntriesByColors, pruneColorFg, splitColorText } from '@/lib/trayColors';
 import { applyJushuitanPriority, formatStockUpdatedAt, parseStockLine, sellableQty, stockCellPartsList, stockFallbackParts } from '@/lib/stockLines';
+import { suitRestockLines } from '@/lib/restockLines';
 import { fetchTrayLog, type TrayOpLogEntry } from '@/lib/traySync';
 import { API_BASE, API_ORIGIN, authenticatedFetch } from '@/lib/api-client';
 
@@ -2204,79 +2205,27 @@ function fabricCellText(pid: string, p: Product, t: Tray): string {
   return text;
 }
 
-// 翻单周期文本：跟 FIELDS.翻单周期.aggregateRender 同款（去重 + 短名前缀）
+// 翻单周期文本：跟 FIELDS.翻单周期.aggregateRender 同款
+// 套装坑位（多款号）按整行去重、不带商品前缀；单款坑位保留短名前缀
 function restockCellText(ps: Product[], t: Tray, lookShorts?: Record<string, string>): string {
   if (ps.length === 0) return '';
   const restockOverrides = t.restockOverrides || {};
+  if (ps.length > 1) return suitRestockLines(ps, restockOverrides).join('\n');
   const shortNames = computeRestockShortNames(ps, lookShorts || t.restockShortNames);
-  const rows = ps.map((p) => {
-    const raw = restockOverrides[p.id] ?? p.restock ?? '';
-    const short = shortNames.get(p.id);
-    let text = raw && short
-      ? raw.split('\n').map((line) => (line.trim() ? `${short} ${line}` : line)).join('\n')
-      : raw;
-    if (text) {
-      const seen = new Set<string>();
-      text = text.split('\n').filter((line) => {
-        if (!line.trim()) return true;
-        if (seen.has(line)) return false;
-        seen.add(line);
-        return true;
-      }).join('\n');
-    }
-    return { pid: p.id, text, raw };
-  });
-  // 按 raw 内容去重（同段文字给多个 pid 时挑短名最长的那个）
-  const byRaw = new Map<string, typeof rows>();
-  for (const r of rows) {
-    if (!r.text) continue;
-    const key = r.raw || r.text;
-    if (!byRaw.has(key)) byRaw.set(key, []);
-    byRaw.get(key)!.push(r);
-  }
-  const visibleRows = Array.from(byRaw.values()).map((group) => {
-    if (group.length === 1) return group[0];
-    const shorts = group.map((r) => shortNames.get(r.pid) || '').filter(Boolean);
-    const allSameShort = shorts.length > 0 && shorts.every((s) => s === shorts[0]);
-    // 款号短名不同（如 卫衣 vs 卫裤 / 外套 vs 裤）但翻单文案相同：每个款号的翻单行都要导出，
-    // 不能像以前那样只留短名最长的那个款号——那会把另一个款号的翻单记录整段吞掉。
-    if (!allSameShort) {
-      const dedupedLines = new Set<string>();
-      const text = group
-        .map((r) => {
-          const short = shortNames.get(r.pid) || '';
-          return (r.raw || r.text || '')
-            .split('\n')
-            .map((line) => (line.trim() ? `${short} ${line}` : line))
-            .join('\n');
-        })
-        .join('\n')
-        .split('\n')
-        .filter((line) => {
-          if (!line.trim()) return true;
-          if (dedupedLines.has(line)) return false;
-          dedupedLines.add(line);
-          return true;
-        })
-        .join('\n');
-      return { ...group[0], text };
-    }
-    const best = group.reduce((a, b) => (shortNames.get(b.pid) || '').length > (shortNames.get(a.pid) || '').length ? b : a);
-    const bestShort = shortNames.get(best.pid);
-    if (bestShort && best.raw) {
-      const rebuilt = best.raw.split('\n').map((line) => (line.trim() ? `${bestShort} ${line}` : line)).join('\n');
-      const seen = new Set<string>();
-      const deduped = rebuilt.split('\n').filter((line) => {
-        if (!line.trim()) return true;
-        if (seen.has(line)) return false;
-        seen.add(line);
-        return true;
-      }).join('\n');
-      return { ...best, text: deduped };
-    }
-    return best;
-  });
-  return visibleRows.map((r) => r.text).filter(Boolean).join('\n');
+  const p = ps[0];
+  const raw = restockOverrides[p.id] ?? p.restock ?? '';
+  const short = shortNames.get(p.id);
+  const text = raw && short
+    ? raw.split('\n').map((line) => (line.trim() ? `${short} ${line}` : line)).join('\n')
+    : raw;
+  if (!text) return '';
+  const seen = new Set<string>();
+  return text.split('\n').filter((line) => {
+    if (!line.trim()) return true;
+    if (seen.has(line)) return false;
+    seen.add(line);
+    return true;
+  }).join('\n');
 }
 
 async function exportTrayLayoutExcel(
@@ -4237,12 +4186,17 @@ const FIELDS: FieldRow[] = [
     aggregateRender: (ps, _tpl, ctx) => {
       const pids = ps.map((p) => p.id);
       const restockOverrides = ctx.restockOverrides || {};
-      // 多款号坑位：给每行翻单文案加产品短名前缀（圆领针织套衫/V领针织套衫 → 圆领/V领），
-      // 否则两个款的色卡行混在一起分不清归属。单款坑位不加，保持原样。
       const shortNames = computeRestockShortNames(ps, ctx.restockShortNames);
-      const rows = pids.map((pid) => {
-        const raw = restockOverrides[pid] ?? ps.find((p) => p.id === pid)?.restock ?? '';
-        const short = shortNames.get(pid);
+      // 套装坑位（一个坑位挂多个款号）：针织裤和开衫收到的是同一批「颜色 件数 天数」记录，
+      // 每个款号各回一份，加上商品前缀就变成成倍重复行。所以套装按整行去重，只显示颜色 + 翻单信息。
+      const suitMode = ps.length > 1;
+      let visibleRows: { pid: string; text: string }[];
+      if (suitMode) {
+        visibleRows = suitRestockLines(ps, restockOverrides).map((text, i) => ({ pid: `suit-${i}`, text }));
+      } else {
+        const p = ps[0];
+        const raw = restockOverrides[p.id] ?? p.restock ?? '';
+        const short = shortNames.get(p.id);
         let text = raw && short
           ? raw.split('\n').map((line) => (line.trim() ? `${short} ${line}` : line)).join('\n')
           : raw;
@@ -4256,61 +4210,8 @@ const FIELDS: FieldRow[] = [
             return true;
           }).join('\n');
         }
-        return { pid, text, raw };
-      });
-      // 多款号时按 raw 内容（不带前缀）去重：sales.html 一次回传同一段文字会给每个 pid 都写一份，
-      // 若按「加前缀后的 text」去重，前缀不同的行会重复显示（如「极简短款通勤西装 咖色千鸟格 200件25天」和「裤 咖色千鸟格 200件25天」同时出现）。
-      // 同一段 raw 出现在多个 pid 上时，挑 short name 最长的那个 pid（更具有区分性），用它重建前缀——
-      // 否则前缀会用 pids 数组里第一个 pid 的，可能只是个「裤」之类的弱标识。
-      const byRaw = new Map<string, typeof rows>();
-      for (const r of rows) {
-        if (!r.text) continue;
-        const key = r.raw || r.text;
-        if (!byRaw.has(key)) byRaw.set(key, []);
-        byRaw.get(key)!.push(r);
+        visibleRows = text ? [{ pid: p.id, text }] : [];
       }
-      const visibleRows = Array.from(byRaw.values()).map((group) => {
-        if (group.length === 1) return group[0];
-        const shorts = group.map((r) => shortNames.get(r.pid) || '').filter(Boolean);
-        const allSameShort = shorts.length > 0 && shorts.every((s) => s === shorts[0]);
-        // 款号短名不同（如 卫衣 vs 卫裤）但翻单文案相同：分别显示，不能合并成一条
-        if (!allSameShort) {
-          const dedupedLines = new Set<string>();
-          const text = group
-            .map((r) => {
-              const short = shortNames.get(r.pid) || '';
-              return r.raw
-                .split('\n')
-                .map((line) => (line.trim() ? `${short} ${line}` : line))
-                .join('\n');
-            })
-            .join('\n')
-            .split('\n')
-            .filter((line) => {
-              if (!line.trim()) return true;
-              if (dedupedLines.has(line)) return false;
-              dedupedLines.add(line);
-              return true;
-            })
-            .join('\n');
-          return { ...group[0], text };
-        }
-        const best = group.reduce((a, b) => (shortNames.get(b.pid) || '').length > (shortNames.get(a.pid) || '').length ? b : a);
-        const bestShort = shortNames.get(best.pid);
-        if (bestShort && best.raw) {
-          const rebuilt = best.raw.split('\n').map((line) => (line.trim() ? `${bestShort} ${line}` : line)).join('\n');
-          // 行内去重（rebuild 之后）
-          const seen = new Set<string>();
-          const deduped = rebuilt.split('\n').filter((line) => {
-            if (!line.trim()) return true;
-            if (seen.has(line)) return false;
-            seen.add(line);
-            return true;
-          }).join('\n');
-          return { ...best, text: deduped };
-        }
-        return best;
-      });
       const hasAnyContent = visibleRows.length > 0;
       return (
         <div
@@ -4327,7 +4228,7 @@ const FIELDS: FieldRow[] = [
                     if (!line.trim()) return <div key={lineIdx} className="h-4" />;
                     let matchedPid: string | null = null;
                     let matchedShort: string = '';
-                    if (ps.length > 1) {
+                    if (!suitMode) {
                       for (const p of ps) {
                         const s = shortNames.get(p.id);
                         if (s && line.startsWith(s)) {
@@ -5210,7 +5111,7 @@ function CoverMenuDialog({
                     </div>
                   )}
 
-                  {/* 短名前缀设置（库存情况与翻单周期共用） */}
+                  {/* 短名前缀设置（库存情况用；套装坑位的翻单周期已不带前缀） */}
                   <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                     <input
                       disabled={readOnly}

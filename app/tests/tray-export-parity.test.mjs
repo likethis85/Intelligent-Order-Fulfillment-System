@@ -21,15 +21,17 @@ test('搭配版块导出跟主推版块同样的行', () => {
   assert.ok(!/label: '库存情况\(主仓\)'/.test(subRowsBody), '搭配版块不应再手写一份精简字段');
 });
 
-test('多款号的翻单记录不再合并丢失', () => {
+test('套装坑位的翻单记录按整行去重、不带商品前缀', () => {
   const fnStart = page.indexOf('function restockCellText(');
   const fnEnd = page.indexOf('\nasync function exportTrayLayoutExcel', fnStart);
   const fn = page.slice(fnStart, fnEnd > 0 ? fnEnd : fnStart + 4000);
-  assert.ok(fn.includes('const allSameShort ='), '要区分「短名相同」和「短名不同」');
-  assert.ok(fn.includes('if (!allSameShort) {'), '短名不同时每个款号的翻单行都要保留');
-  const branch = fn.slice(fn.indexOf('if (!allSameShort) {'), fn.indexOf('const best = group.reduce'));
-  assert.ok(branch.includes('const dedupedLines = new Set<string>();'), '短名不同的分支按每个款号重建带前缀的翻单行');
-  assert.ok(branch.includes('`${short} ${line}`'), '每个款号的行都要带自己的短名前缀');
+  assert.ok(
+    fn.includes('if (ps.length > 1) return suitRestockLines(ps, restockOverrides).join') ,
+    '多款号（套装）走同一个去重函数，导出和界面同口径',
+  );
+  const uiStart = page.indexOf("label: '翻单周期（下单日开始计算）'");
+  const ui = page.slice(uiStart, uiStart + 3000);
+  assert.ok(ui.includes('suitRestockLines(ps, restockOverrides)'), '界面套装也走去重、不加前缀');
 });
 
 test('主图在主款没图时退到同坑位其它款号', () => {
