@@ -2750,13 +2750,31 @@
             console.log(`[SKC=${skc}] 剔除${before - items.length}条里料（用量×单价分数 < max × 0.3）`);
           }
         }
-        // 货盘文字选料：有库存的每条都显示（不同仓库分开显示）
-        const nonLiningItems = items.filter(it => !isLiningFabric4Query(it) && (it.stock || 0) > 0);
-        // 按仓库分组，每组取库存最多的一条
+        // 货盘文字选料：有库存的每条都显示（不同仓库分开显示）；
+        // 填了工厂现货/可订货/订货周期的行即使库存为 0 也要显示，
+        // 否则「同步面料信息到货盘」后这些补料信息在货盘上完全看不到。
+        const hasSupplementFill = (it) => {
+          const ex = it._extra || getRowExtra(it);
+          return (Number(ex.factorySpotQty) || 0) > 0
+            || (Number(ex.orderableQty) || 0) > 0
+            || (Number(ex.leadTimeDays) || 0) > 0;
+        };
+        const displayItems = items.filter(it => {
+          const isLining = isLiningFabric4Query(it);
+          const filled = hasSupplementFill(it);
+          // 里布只显示手动补充的工厂现货/可订货，不显示库存/在途
+          if (isLining) return filled;
+          return (it.stock || 0) > 0 || filled;
+        });
+        // 按仓库分组，每组取「库存+工厂现货+可订货」最多的一条
         const warehouseGroups = {};
-        nonLiningItems.forEach(it => {
+        const groupScore = (it) => {
+          const ex = it._extra || getRowExtra(it);
+          return (Number(it.stock) || 0) + (Number(ex.factorySpotQty) || 0) + (Number(ex.orderableQty) || 0);
+        };
+        displayItems.forEach(it => {
           const wh = it.warehouse || '-';
-          if (!warehouseGroups[wh] || (it.stock || 0) > (warehouseGroups[wh].stock || 0)) {
+          if (!warehouseGroups[wh] || groupScore(it) > groupScore(warehouseGroups[wh])) {
             warehouseGroups[wh] = it;
           }
         });
@@ -2960,8 +2978,9 @@
             line += ` 可订货${Math.round(orderableQty)}米${leadTimeDays}天`;
           }
         } else if (orderableQty > 0 || leadTimeDays > 0) {
-          line += spotName ? `${spotName}${Math.round(orderableQty)}米${leadTimeDays}天` : `${Math.round(orderableQty)}米${leadTimeDays}天`;
+          // 库存为 0、只填了可订货/订货周期的行：按「工厂现货 + 可订货」口径写清楚
           line += spotStr;
+          line += ` 可订货${Math.round(orderableQty)}米${leadTimeDays > 0 ? leadTimeDays + '天' : ''}`;
         } else if (factorySpot > 0) {
           line += spotStr;
         } else {
