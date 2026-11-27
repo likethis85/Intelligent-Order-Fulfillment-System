@@ -40,6 +40,28 @@ test('面料文本：无面料不翻单的颜色同样按勾选过滤', () => {
   assert.equal(filterFabricTextByColors(text, ['灰色'], ['黑色', '灰色']), '灰色无面料不翻单');
 });
 
+test('面料文本：面料颜色名和商品颜色不完全一致也能认出来', () => {
+  // 商品里叫「灰」，面料里写「灰色」；商品颜色表里没有「驼色」时用颜色名猜测
+  const text = '黑色1105米面料仓；灰色1345米面料仓；驼色500米面料仓';
+  assert.equal(
+    filterFabricTextByColors(text, ['黑色', '灰'], ['黑色', '灰']),
+    '黑色1105米面料仓；灰色1345米面料仓',
+  );
+});
+
+test('面料文本：颜色写在段中间（「现货：黑色1105米」）也能过滤', () => {
+  const text = '面料仓现货：黑色1105米；面料仓现货：灰色1345米';
+  assert.equal(
+    filterFabricTextByColors(text, ['黑色'], ['黑色', '灰色']),
+    '面料仓现货：黑色1105米',
+  );
+});
+
+test('面料文本：顿号分隔的颜色同样按段过滤', () => {
+  const text = '黑色、灰色 1345米面料仓';
+  assert.equal(filterFabricTextByColors(text, ['灰色'], ['黑色', '灰色']), '灰色 1345米面料仓');
+});
+
 test('页面接线：面料情况单元格与 Excel 都按勾选颜色过滤', () => {
   assert.ok(page.includes('filterFabricTextByColors(r.base, fabricVisibleColors, known)'), '单元格过滤');
   assert.ok(page.includes('filterFabricTextByColors(base, visibleColors, knownColors)'), 'Excel 导出同口径');
