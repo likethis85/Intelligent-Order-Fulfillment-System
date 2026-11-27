@@ -10,6 +10,7 @@ import { filterFabricTextByColors } from '../src/lib/fabricColors.ts';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const page = fs.readFileSync(path.resolve(__dirname, '../src/sections/TraysPage.tsx'), 'utf8');
 const sales = fs.readFileSync(path.resolve(__dirname, '../server/fabric-public/sales.html'), 'utf8');
+const fabricQ = fs.readFileSync(path.resolve(__dirname, '../server/fabric-public/index.html'), 'utf8');
 
 test('面料文本：只保留勾上的颜色', () => {
   const text = '黑色1105米面料仓；灰色1345米面料仓；藏青500米面料仓';
@@ -105,4 +106,15 @@ test('sales.html：读取 colors 参数并按颜色过滤展示与勾选', () =>
   assert.ok(sales.includes('function filterItemsByColors('), '有统一过滤函数');
   assert.ok(sales.includes('const shownItems = filterItemsByColors(items);'), '左侧列表按颜色过滤');
   assert.ok(sales.includes('items = filterItemsByColors(items);'), '勾选进编辑区时按颜色过滤');
+});
+
+test('「查询面料」弹窗（fabric_Q index.html）同样按勾选颜色过滤', () => {
+  // 货盘点面料情况打开的就是 fabric_Q 的 iframe，之前没传 colors，整张表都是全色
+  assert.ok(page.includes('const fpColorsParam'), '父页面要拼 colors 参数');
+  assert.ok(page.includes('index.html?codes=${fpPids.map((p) => p.toUpperCase()).join(\',\')}${fpColorsParam}'),
+    'iframe 地址带上 colors');
+  assert.ok(fabricQ.includes("new URLSearchParams(location.search).get('colors')"), 'index.html 读 colors');
+  assert.ok(fabricQ.includes('function rowsForAllowedColors('), '有统一过滤函数');
+  assert.ok(fabricQ.includes('rowsForAllowedColors(Array.from(seenKeys.values()))'), '渲染前按成衣颜色过滤');
+  assert.ok(fabricQ.includes('return kept.length > 0 ? kept : rows;'), '一个都匹配不上时退回全量，别清空整页');
 });

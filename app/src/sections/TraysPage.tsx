@@ -7866,6 +7866,11 @@ export default function TraysPage({
         const fpSection = tray.sections.find((x) => x.id === fabricPicker.sectionId);
         const fpLook = fpSection?.looks.find((y) => y.id === fabricPicker.lookId);
         const fpPids = fpLook?.pids || [fabricPicker.pid];
+        // 商品名称里勾过的颜色（含手动添加的）：fabric_Q 只展示这些成衣颜色的面料行
+        const fpColors = tray.colorOverrideByLook?.[fabricPicker.lookId]
+          ? splitColorText(tray.colorOverrideByLook[fabricPicker.lookId])
+          : [];
+        const fpColorsParam = fpColors.length > 0 ? `&colors=${encodeURIComponent(fpColors.join(','))}` : '';
         function prefillFabricQ() {
           const win = fabricIframeRef.current?.contentWindow;
           if (!win) return;
@@ -7919,7 +7924,7 @@ export default function TraysPage({
                 <iframe
                   key="fabric-q-iframe"
                   ref={fabricIframeRef}
-                  src={`${FABRIC_BASE}/index.html?codes=${fpPids.map((p) => p.toUpperCase()).join(',')}`}
+                  src={`${FABRIC_BASE}/index.html?codes=${fpPids.map((p) => p.toUpperCase()).join(',')}${fpColorsParam}`}
                   className="flex-1 w-full border-0"
                   title="fabric_Q 面料查询"
                   onLoad={() => {

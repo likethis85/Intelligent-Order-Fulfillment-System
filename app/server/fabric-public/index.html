@@ -1991,6 +1991,32 @@
       generateHuopanText();
     }
 
+    // 货盘「商品名称」里勾过的颜色（URL ?colors=黑色,藏青），只展示这些成衣颜色的面料行。
+    // 颜色文案可能带款号/面料前缀（「全羊绒：黑色」），取冒号后的颜色名再比对。
+    const ALLOWED_COLORS = (() => {
+      try {
+        const raw = new URLSearchParams(location.search).get('colors') || '';
+        return raw.split(',').map(s => {
+          let v = String(s || '').trim();
+          const idx = Math.max(v.lastIndexOf('：'), v.lastIndexOf(':'));
+          if (idx >= 0 && idx < v.length - 1) v = v.slice(idx + 1).trim();
+          return v;
+        }).filter(Boolean);
+      } catch (e) { return []; }
+    })();
+
+    function rowsForAllowedColors(rows) {
+      if (ALLOWED_COLORS.length === 0) return rows;
+      const keep = (color) => {
+        const c = String(color || '').trim();
+        if (!c) return true;  // 无此款/无颜色行照旧保留
+        return ALLOWED_COLORS.some(a => a === c || c.includes(a) || a.includes(c));
+      };
+      const kept = rows.filter(it => keep(it.pdtColorName || it.colorName));
+      // 一个都没匹配上时退回全量，避免因为颜色叫法不同把结果整页清空
+      return kept.length > 0 ? kept : rows;
+    }
+
     function renderResults(data) {
       const sortedData = sortQueryResults(data);
 
@@ -2006,7 +2032,7 @@
           seenKeys.set(key, item);
         }
       });
-      const uniqueData = Array.from(seenKeys.values());
+      const uniqueData = rowsForAllowedColors(Array.from(seenKeys.values()));
 
       const tbody = document.getElementById('resultBody');
       tbody.innerHTML = '';
