@@ -1,70 +1,86 @@
 // 面料情况文本按颜色筛选：商品名称里只勾了部分色号时，面料行也只保留这些颜色。
-// 面料文本形如「黑色1105米面料仓；灰色1345米面料仓」「米白151米…」，按 ；/; 分段，
-// 每段开头的颜色名命中才保留；没有颜色开头的段（里料、供应商备注等）原样保留。
 //
-// 面料系统里的颜色叫法和商品颜色不一定完全一致（商品里是「灰」，面料里写「灰色」），
-// 所以认颜色分两步：先查已知颜色（商品颜色 / 样衣颜色 / 勾选颜色），
-// 认不出时再用「数字或『无面料』前面那段短词」当颜色名，并排除里料/供应商这类非颜色词。
-const NON_COLOR_WORDS = /面料|里料|供应|定染|现货|仓库|仓|天|米|交期|备注|合计|未|无|每|条|件/;
+// 面料文本形如：
+//   「黑色1105米面料仓；灰色1345米面料仓」           ← 颜色开头（面料查询写入的文案）
+//   「ME15FF037流沙色1036米面料仓；深灰夹花354米」   ← SKC 色号开头（BI 面料列原文，颜色名是面料色）
+// 后者颜色名对不上商品颜色，所以优先按 SKC 色号判断：勾选的颜色 → 对应 SKC 编码，
+// 行里出现未被勾选的 SKC 编码就整段去掉；没有 SKC 编码的段再退回颜色名匹配。
 
-function segmentColor(segment: string, known: string[]): string | null {
-  const s = segment.trim();
-  if (!s) return null;
-  const knownHit = known.find((c) => s.startsWith(c));
-  if (knownHit) return knownHit;
-  // 「灰色1345米」「黑色：1105米」「灰色 1345米」「黑色无面料不翻单」→ 取数字/无面料前那段短词
-  const m = s.match(/^([^\d\s；;，,、：:]+)[\s：:]*?(?=\d|无面料)/);
-  if (!m) return null;
-  const cand = m[1];
-  if (cand.length > 6) return null;
-  if (NON_COLOR_WORDS.test(cand)) return null;
-  return cand;
+export type ColorSku = { code?: string; color?: string };
+
+// 颜色文案可能带款号/面料前缀（「全羊绒：黑色」「INCA:驼色」），取冒号后的颜色名
+function normColor(name: string | null | undefined): string {
+  let s = String(name ?? '').trim();
+  const idx = Math.max(s.lastIndexOf('：'), s.lastIndexOf(':'));
+  if (idx >= 0 && idx < s.length - 1) s = s.slice(idx + 1).trim();
+  return s;
 }
 
-function isVisibleColor(color: string, visible: string[]): boolean {
-  const c = color.trim();
-  if (!c) return false;
-  // 「灰」和「灰色」视为同一个颜色
-  return visible.some((v) => v === c || c.startsWith(v) || v.startsWith(c));
+function sameColor(a: string, b: string): boolean {
+  const x = normColor(a);
+  const y = normColor(b);
+  if (!x || !y) return false;
+  return x === y || x.includes(y) || y.includes(x);
 }
 
 export function filterFabricTextByColors(
   text: string | null | undefined,
   visibleColors: string[] | undefined,
   knownColors: string[] = [],
+  skus: ColorSku[] = [],
 ): string {
   const raw = String(text ?? '');
-  if (!raw || !visibleColors || visibleColors.length === 0) return raw;
+  const visible = [...new Set((visibleColors || []).map((c) => normColor(c)).filter(Boolean))];
+  if (!raw || visible.length === 0) return raw;
 
-  const visible = visibleColors.map((c) => String(c).trim()).filter(Boolean);
-  if (visible.length === 0) return raw;
-  // 已知颜色 + 可见颜色，长的优先匹配（「藏青」和「藏青色」并存时优先长的）
-  const known = [...new Set([...knownColors, ...visible])]
-    .map((c) => String(c).trim())
+  // 勾选的颜色 → SKC 编码（色号）。色号是精确的，优先用它判断。
+  const selectedSkcs = new Set(
+    (skus || [])
+      .filter((s) => s?.code && visible.some((v) => sameColor(v, s.color || '')))
+      .map((s) => String(s.code).trim().toUpperCase())
+      .filter(Boolean),
+  );
+  const allSkcs = (skus || [])
+    .map((s) => String(s.code || '').trim().toUpperCase())
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
+
+  // 已知颜色 + 可见颜色，长的优先匹配（「藏青」和「藏青色」并存时优先长的）
+  const known = [...new Set([...knownColors, ...visible].map((c) => normColor(c)).filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+
+  const skcOf = (segment: string): string | null => {
+    const s = segment.toUpperCase();
+    return allSkcs.find((code) => s.includes(code)) || null;
+  };
+  const colorOf = (segment: string): string | null => {
+    const s = normColor(segment.split(/[；;]/)[0]);
+    if (!s) return null;
+    return known.find((c) => s.startsWith(c)) || null;
+  };
 
   return raw
     .split('\n')
     .map((line) => {
       if (!line.trim()) return '';
-      const parts = line.split(/([；;、])/);
+      const parts = line.split(/([；;])/);
       const out: string[] = [];
       for (let i = 0; i < parts.length; i += 2) {
         const segment = parts[i] ?? '';
         const sep = parts[i + 1] ?? '';
-        // 1) 颜色写在段首：按它判断
-        const color = segmentColor(segment, known);
-        if (color && !isVisibleColor(color, visible)) continue;
-        // 2) 段首认不出颜色，但段里出现了已知颜色名（如「面料仓现货：黑色1105米」）：
-        //    只提到了没勾的颜色才丢；提到勾上的就保留
-        if (!color) {
-          const mentioned = known.filter((c) => segment.includes(c));
-          if (mentioned.length > 0 && !mentioned.some((c) => isVisibleColor(c, visible))) continue;
+        const skc = skcOf(segment);
+        if (skc && selectedSkcs.size > 0) {
+          // 有 SKC 编码就按色号判：勾选色对应的 SKC 才保留
+          if (!selectedSkcs.has(skc)) continue;
+          out.push(segment, sep);
+          continue;
         }
+        // 没编码的段：按颜色名判；认不出颜色（里料/备注）照旧保留
+        const color = colorOf(segment);
+        if (color && !visible.includes(color)) continue;
         out.push(segment, sep);
       }
-      while (out.length > 0 && /^[；;、]$/.test(out[out.length - 1])) out.pop();
+      while (out.length > 0 && /^[；;]$/.test(out[out.length - 1])) out.pop();
       return out.join('').trim();
     })
     .filter((line) => line.trim())

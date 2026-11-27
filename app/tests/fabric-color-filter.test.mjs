@@ -40,32 +40,58 @@ test('面料文本：无面料不翻单的颜色同样按勾选过滤', () => {
   assert.equal(filterFabricTextByColors(text, ['灰色'], ['黑色', '灰色']), '灰色无面料不翻单');
 });
 
-test('面料文本：面料颜色名和商品颜色不完全一致也能认出来', () => {
-  // 商品里叫「灰」，面料里写「灰色」；商品颜色表里没有「驼色」时用颜色名猜测
-  const text = '黑色1105米面料仓；灰色1345米面料仓；驼色500米面料仓';
+// ── 按 SKC 色号过滤（BI 面料列原文以 SKC 开头，颜色名是面料色，对不上商品颜色）──
+
+const SKUS = [
+  { code: 'ME15FF037', color: '藏青' },
+  { code: 'ME15FF038', color: '深灰夹花' },
+  { code: 'ME15FF039', color: '灰色' },
+];
+
+test('面料文本：按 SKC 色号过滤，只留勾选色对应的色号段', () => {
+  const text = 'ME15FF037流沙色1036米面料仓；ME15FF038深灰夹花354米面料仓';
   assert.equal(
-    filterFabricTextByColors(text, ['黑色', '灰'], ['黑色', '灰']),
-    '黑色1105米面料仓；灰色1345米面料仓',
+    filterFabricTextByColors(text, ['藏青'], [], SKUS),
+    'ME15FF037流沙色1036米面料仓',
+  );
+  assert.equal(
+    filterFabricTextByColors(text, ['深灰夹花'], [], SKUS),
+    'ME15FF038深灰夹花354米面料仓',
   );
 });
 
-test('面料文本：颜色写在段中间（「现货：黑色1105米」）也能过滤', () => {
-  const text = '面料仓现货：黑色1105米；面料仓现货：灰色1345米';
+test('面料文本：SKC 色号优先于颜色名（面料色名认不出也照选）', () => {
+  // 段里的「流沙色」不在已知颜色里，但它带着勾选色的色号 → 保留
+  const text = 'ME15FF037流沙色1036米面料仓\n里料定染10天';
   assert.equal(
-    filterFabricTextByColors(text, ['黑色'], ['黑色', '灰色']),
-    '面料仓现货：黑色1105米',
+    filterFabricTextByColors(text, ['藏青'], [], SKUS),
+    'ME15FF037流沙色1036米面料仓\n里料定染10天',
   );
 });
 
-test('面料文本：顿号分隔的颜色同样按段过滤', () => {
-  const text = '黑色、灰色 1345米面料仓';
-  assert.equal(filterFabricTextByColors(text, ['灰色'], ['黑色', '灰色']), '灰色 1345米面料仓');
+test('面料文本：多个 SKC 段的行只留选中色号', () => {
+  const text = 'ME15FF037流沙色1036米面料仓；ME15FF039灰色80米面料仓；ME15FF038深灰夹花354米面料仓';
+  assert.equal(
+    filterFabricTextByColors(text, ['灰色'], [], SKUS),
+    'ME15FF039灰色80米面料仓',
+  );
 });
 
-test('页面接线：面料情况单元格与 Excel 都按勾选颜色过滤', () => {
-  assert.ok(page.includes('filterFabricTextByColors(r.base, fabricVisibleColors, known)'), '单元格过滤');
-  assert.ok(page.includes('filterFabricTextByColors(base, visibleColors, knownColors)'), 'Excel 导出同口径');
+test('面料文本：颜色名带款号/面料前缀时也能匹配（全羊绒：黑色）', () => {
+  const text = '全羊绒：黑色151米面料仓；全羊绒：米灰色200米面料仓';
+  const known = ['全羊绒：黑色', '全羊绒：米灰色'];
+  assert.equal(
+    filterFabricTextByColors(text, ['全羊绒：黑色'], known),
+    '全羊绒：黑色151米面料仓',
+  );
+});
+
+test('页面接线：面料情况单元格与 Excel 都按勾选颜色 + SKC 过滤', () => {
+  assert.ok(page.includes('filterFabricTextByColors(r.base, fabricVisibleColors, known, skus)'), '单元格过滤带色号');
+  assert.ok(page.includes('filterFabricTextByColors(base, visibleColors, knownColors, skus)'), 'Excel 导出同口径');
   assert.ok(page.includes('fabricCellText(p, prod, t, visibleColors'), '导出时把可见颜色传进去');
+  assert.ok(page.includes('ctx.skcsByCode?.[r.pid.toLowerCase()]'), '单元格里要取到该款的 SKC 列表');
+  assert.ok(page.includes('skcsByPid?.[p.toLowerCase()] || skcsByPid?.[p]'), 'Excel 导出同样按 SKC 过滤');
 });
 
 test('翻单弹窗：URL 带上勾选的颜色', () => {

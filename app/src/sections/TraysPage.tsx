@@ -2176,7 +2176,14 @@ function effectiveNoRestockItems(allItems: NoRestockItem[], hasRealFabric: boole
 }
 
 // 面料情况文本：跟 FIELDS.面料情况.aggregateRender 同款
-function fabricCellText(pid: string, p: Product, t: Tray, visibleColors?: string[], knownColors: string[] = []): string {
+function fabricCellText(
+  pid: string,
+  p: Product,
+  t: Tray,
+  visibleColors?: string[],
+  knownColors: string[] = [],
+  skus: Array<{ code?: string; color?: string }> = [],
+): string {
   const allItems = (t.noRestockItems || []).filter((it) => it.pid.toLowerCase() === pid.toLowerCase());
   const ov0 = t.fabricOverrides?.[pid];
   const hasRealFabric = Boolean((ov0 ?? '').trim() || (!isFabricNoise(p.fabric) && (p.fabric ?? '').trim()));
@@ -2213,7 +2220,7 @@ function fabricCellText(pid: string, p: Product, t: Tray, visibleColors?: string
   // 界面上手动隐藏的行，导出时同样不出现（否则「界面干净、Excel 里又冒出来」）
   base = applyHiddenFabricLines(base, t.fabricHiddenLines?.[pid]);
   // 商品名称里只勾了部分色号时，面料行也只导出这些颜色（与界面同一口径）
-  base = filterFabricTextByColors(base, visibleColors, knownColors);
+  base = filterFabricTextByColors(base, visibleColors, knownColors, skus);
   const note = t.fabricNotes?.[pid] || '';
   let text = note ? `${base}\n※ ${note}` : base;
   text = cleanFabricText(text);
@@ -2249,6 +2256,7 @@ async function exportTrayLayoutExcel(
   salesByPid: TraySalesSnap,
   todayStr: string,
   sampleColorsByPid?: Record<string, string[]>,
+  skcsByPid?: Record<string, Array<{ code: string; color: string }>>,
 ) {
   // 只有真正导出时才加载 exceljs（约 1MB），首屏不为它买单
   const ExcelJSWorkbook = await loadExcelJS();
@@ -2332,7 +2340,7 @@ async function exportTrayLayoutExcel(
         const visibleColors = t.colorOverrideByLook?.[l.id] ? splitColorText(t.colorOverrideByLook[l.id]) : undefined;
         const rawBlocks = l.pids.map((p) => {
           const prod = byId(p);
-          return fabricCellText(p, prod, t, visibleColors, [...(prod?.colors || [])]);
+          return fabricCellText(p, prod, t, visibleColors, [...(prod?.colors || []), ...(sampleColorsByPid?.[p] || [])], skcsByPid?.[p.toLowerCase()] || skcsByPid?.[p] || []);
         }).filter(Boolean);
         const seen = new Set<string>();
         const seenNoRestockColors = new Set<string>();
@@ -4456,7 +4464,8 @@ const FIELDS: FieldRow[] = [
         ? dedupedRows.map((r) => {
             const prod = ps.find((x) => x.id === r.pid);
             const known = [...(prod?.colors || []), ...(ctx.sampleColorsByPid?.[r.pid] || [])];
-            const base = filterFabricTextByColors(r.base, fabricVisibleColors, known);
+            const skus = ctx.skcsByCode?.[r.pid.toLowerCase()] || ctx.skcsByCode?.[r.pid] || [];
+            const base = filterFabricTextByColors(r.base, fabricVisibleColors, known, skus);
             const text = r.hasNote ? (base ? `${base}\n※ ${r.note}` : `※ ${r.note}`) : base;
             return { ...r, base, text };
           })
@@ -7042,7 +7051,7 @@ export default function TraysPage({
             {exportMenuOpen && (
               <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-edge bg-surface-card shadow-lg">
                 <button
-                  onMouseDown={(e) => { e.preventDefault(); void exportTrayLayoutExcel(tray, fullByIdWithCost, salesByPid, todayStr, sampleColorsByCode); setExportMenuOpen(false); }}
+                  onMouseDown={(e) => { e.preventDefault(); void exportTrayLayoutExcel(tray, fullByIdWithCost, salesByPid, todayStr, sampleColorsByCode, skcsByCode); setExportMenuOpen(false); }}
                   className="block w-full px-3 py-2 text-left text-[12px] hover:bg-surface-subtle"
                 >
                   货盘布局（同款盘格式）
