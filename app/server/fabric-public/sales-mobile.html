@@ -1365,9 +1365,11 @@
         const mainRows = g.rows.filter(f => !isLiningFabric(f));
         if (mainRows.length === 0) return;
         const byWarehouse = {};
+        // M = 在仓+在途+可订货+工厂现货（同一卷面料不区分 PO 物料/大货现货，全加；按仓库去重取最大再相加）
+        // 口径与电脑版 sales.html 保持一致，别只算前三项
         mainRows.forEach(f => {
           const w = f.warehouse || '';
-          const v = (Number(f.stock) || 0) + (Number(f.in_transit_qty) || 0) + (Number(f.orderable_qty) || 0);
+          const v = (Number(f.stock) || 0) + (Number(f.in_transit_qty) || 0) + (Number(f.orderable_qty) || 0) + (Number(f.factory_spot_qty) || 0);
           if (!byWarehouse[w] || v > byWarehouse[w]) byWarehouse[w] = v;
         });
         const M = Object.values(byWarehouse).reduce((a, b) => a + b, 0);
