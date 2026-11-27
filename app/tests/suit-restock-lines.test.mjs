@@ -26,6 +26,22 @@ test('套装：颜色有差异时保留各自的记录，重复的只留一条',
   assert.deepEqual(lines, ['沙丘驼 200件25天', '黑色 100件20天', '灰色 150件20天']);
 });
 
+test('套装：同一颜色但件数/天数不同 → 两条都保留，不去重', () => {
+  const lines = suitRestockLines([
+    { id: 'a', restock: '沙丘驼 200件25天' },
+    { id: 'b', restock: '沙丘驼 260件30天' },
+  ]);
+  assert.deepEqual(lines, ['沙丘驼 200件25天', '沙丘驼 260件30天'], '件数不同不能合并');
+});
+
+test('套装：只有空白差异才当同一条', () => {
+  const lines = suitRestockLines([
+    { id: 'a', restock: '沙丘驼  200件 25天' },
+    { id: 'b', restock: '沙丘驼 200件 25天' },
+  ]);
+  assert.deepEqual(lines, ['沙丘驼  200件 25天'], '多打一个空格不重复显示，保留第一次的写法');
+});
+
 test('套装：手动改过的翻单文案优先于原值', () => {
   const lines = suitRestockLines(
     [{ id: 'a', restock: '沙丘驼 200件25天' }, { id: 'b', restock: '沙丘驼 200件25天' }],
